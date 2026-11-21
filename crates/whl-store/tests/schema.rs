@@ -2,10 +2,11 @@ use sqlx::PgPool;
 use whl_store::{Store, StoreError};
 use whl_testkit::TestDb;
 
-const TABLES: [&str; 26] = [
+const TABLES: [&str; 27] = [
     "api_tokens",
     "capture_bodies",
     "captures",
+    "email_addresses",
     "endpoint_aliases",
     "endpoint_grants",
     "endpoint_members",
@@ -31,7 +32,8 @@ const TABLES: [&str; 26] = [
     "users",
 ];
 
-const KEY_INDEXES: [&str; 19] = [
+const KEY_INDEXES: [&str; 20] = [
+    "email_addresses_verify_token",
     "api_tokens_user",
     "api_tokens_prefix",
     "users_email",

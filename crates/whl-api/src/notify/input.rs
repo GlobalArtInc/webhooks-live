@@ -4,6 +4,7 @@ use whl_notify::{
     validate_slack_url,
 };
 use whl_secrets::SecretName;
+use whl_store::Uuid;
 use whl_store::notify::{ChannelKind, Trigger};
 use whl_template::{Policy, RenderTarget};
 
@@ -25,11 +26,12 @@ const CREATE_KEYS: &[&str] = &[
     "template",
     "per_hour",
 ];
-const AVAILABLE_KINDS: [ChannelKind; 4] = [
+const AVAILABLE_KINDS: [ChannelKind; 5] = [
     ChannelKind::Webhook,
     ChannelKind::Slack,
     ChannelKind::Discord,
     ChannelKind::Telegram,
+    ChannelKind::Email,
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,6 +40,9 @@ pub enum ChannelConfig {
     Telegram {
         token_secret: SecretName,
         chat_id: String,
+    },
+    Email {
+        address_id: Uuid,
     },
 }
 
@@ -272,6 +277,7 @@ impl Walk {
         };
         let known: &[&str] = match kind {
             ChannelKind::Telegram => &["token_secret", "chat_id"],
+            ChannelKind::Email => &["address_id"],
             _ => &["url"],
         };
         for key in object.keys().filter(|key| !known.contains(&key.as_str())) {
@@ -283,6 +289,7 @@ impl Walk {
         }
         match kind {
             ChannelKind::Telegram => self.telegram(object),
+            ChannelKind::Email => self.email(object),
             _ => self.url(kind, object),
         }
     }
@@ -307,6 +314,24 @@ impl Walk {
             Ok(()) => Some(ChannelConfig::Url(text)),
             Err(refusal) => {
                 self.violations.push(url_violation("config.url", refusal));
+                None
+            }
+        }
+    }
+
+    fn email(&mut self, object: &Map<String, Value>) -> Option<ChannelConfig> {
+        let text = self.required_text(object, "address_id")?;
+        match Uuid::try_parse(&text)
+            .ok()
+            .filter(|uuid| uuid.hyphenated().to_string() == text)
+        {
+            Some(address_id) => Some(ChannelConfig::Email { address_id }),
+            None => {
+                self.push(
+                    "config.address_id",
+                    FieldCode::InvalidFormat,
+                    "must be the id of one of your email addresses",
+                );
                 None
             }
         }

@@ -278,6 +278,16 @@ pub enum ApiError {
     ChannelNotFound,
     #[error("the endpoint already has the maximum number of notification channels")]
     ChannelLimit,
+    #[error("the email address is not found")]
+    EmailAddressNotFound,
+    #[error("the account already has the maximum number of email addresses")]
+    EmailAddressLimit(usize),
+    #[error("the token is not valid, was already used, or has expired")]
+    InvalidToken,
+    #[error("the email cannot be sent right now")]
+    MailUnavailable,
+    #[error("only the creator of an email channel can enable it or change its address")]
+    ChannelCreatorOnly,
     #[error("notification storage failed: {0}")]
     NotifyStorage(NotifyStoreError),
     #[error("{0}")]
@@ -531,6 +541,7 @@ impl IntoResponse for ApiError {
                 "notification_channels",
                 MAX_CHANNELS_PER_ENDPOINT,
             )),
+            Self::EmailAddressLimit(max) => Some(LimitDetail::count("email_addresses", *max)),
             _ => None,
         };
         let references = match &self {
@@ -1000,6 +1011,36 @@ impl IntoResponse for ApiError {
             Self::ChannelLimit => (
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "limit_reached",
+                self.to_string(),
+                None,
+            ),
+            Self::EmailAddressNotFound => (
+                StatusCode::NOT_FOUND,
+                "email_address_not_found",
+                self.to_string(),
+                None,
+            ),
+            Self::EmailAddressLimit(_) => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "limit_reached",
+                self.to_string(),
+                None,
+            ),
+            Self::InvalidToken => (
+                StatusCode::NOT_FOUND,
+                "invalid_token",
+                self.to_string(),
+                None,
+            ),
+            Self::MailUnavailable => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "mail_unavailable",
+                self.to_string(),
+                None,
+            ),
+            Self::ChannelCreatorOnly => (
+                StatusCode::FORBIDDEN,
+                "creator_only",
                 self.to_string(),
                 None,
             ),

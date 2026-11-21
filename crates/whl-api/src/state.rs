@@ -10,7 +10,7 @@ use crate::export::ExportSlots;
 use crate::forward::ForwardSettings;
 use crate::import::{IMPORT_COOLDOWN, ImportCooldown, import_slots};
 use crate::limit::ApiLimits;
-use crate::notify::NotifyApiSettings;
+use crate::notify::{EmailApi, NotifyApiSettings};
 use crate::schedules::ScheduleSettings;
 use crate::settings::{ApiSettings, DEFAULT_ALIAS_QUARANTINE};
 
@@ -29,6 +29,7 @@ pub struct ApiState {
     pub(crate) imports: ExportSlots,
     pub(crate) import_cooldown: ImportCooldown,
     pub(crate) alias_quarantine: Duration,
+    pub(crate) email: Option<EmailApi>,
 }
 
 impl ApiState {
@@ -50,6 +51,7 @@ impl ApiState {
             imports: import_slots(),
             import_cooldown: ImportCooldown::new(IMPORT_COOLDOWN),
             alias_quarantine: DEFAULT_ALIAS_QUARANTINE,
+            email: None,
         }
     }
 
@@ -75,6 +77,11 @@ impl ApiState {
 
     pub fn with_notifications(mut self, notifications: NotifyApiSettings) -> Self {
         self.notifications = notifications;
+        self
+    }
+
+    pub fn with_email(mut self, email: EmailApi) -> Self {
+        self.email = Some(email);
         self
     }
 

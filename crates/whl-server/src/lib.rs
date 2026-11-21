@@ -159,6 +159,10 @@ impl Bound {
             .with_composer(self.composer.with_local(Arc::new(delivery)))
             .with_schedules(self.schedules.settings())
             .with_notifications(self.notify.api_settings());
+        let state = match self.notify.email_api() {
+            Some(email) => state.with_email(email),
+            None => state,
+        };
         let state = match &self.secrets {
             Some(keyring) => state.with_secrets(Arc::clone(keyring)),
             None => state,

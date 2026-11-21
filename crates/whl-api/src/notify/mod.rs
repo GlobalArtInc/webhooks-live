@@ -1,4 +1,5 @@
 mod dto;
+mod email;
 mod handlers;
 mod input;
 mod settings;
@@ -9,6 +10,7 @@ use axum::routing::{get, patch, post};
 use crate::state::ApiState;
 
 pub(crate) use dto::DeliveryDto;
+pub use email::{EmailApi, EmailApiLimits};
 pub use settings::NotifyApiSettings;
 
 pub fn routes() -> Router<ApiState> {
@@ -24,5 +26,12 @@ pub fn routes() -> Router<ApiState> {
         .route(
             "/endpoints/{id}/notifications/{channel_id}/test",
             post(handlers::test),
+        )
+        .route("/notifications/disable", post(email::disable))
+        .route("/email-addresses", get(email::list).post(email::add))
+        .route("/email-addresses/verify", post(email::verify))
+        .route(
+            "/email-addresses/{address_id}",
+            axum::routing::delete(email::remove),
         )
 }

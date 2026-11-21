@@ -1,4 +1,8 @@
 mod adapter;
+mod address;
+mod disable;
+mod mail;
+mod mailtext;
 mod notice;
 mod secret;
 mod settings;
@@ -7,16 +11,35 @@ mod transport;
 mod vendor;
 mod worker;
 
+#[cfg(feature = "test-support")]
+mod sink;
+
 pub use adapter::{
-    Adapter, AdapterInput, DISCORD_CONTENT_CHARS, Destination, PrepareError, Prepared,
-    SLACK_TEXT_CHARS, TELEGRAM_TEXT_UNITS, adapter_for, defuse_mentions, escape_discord,
+    Adapter, AdapterInput, DISCORD_CONTENT_CHARS, Destination, MailContext, MailPlan, PrepareError,
+    Prepared, SLACK_TEXT_CHARS, TELEGRAM_TEXT_UNITS, adapter_for, defuse_mentions, escape_discord,
     escape_slack, truncate_utf16,
+};
+pub use address::{
+    AddressError, AddressKey, MAX_ADDRESS_BYTES, TOKEN_CHARS, VerificationToken, address_digest,
+    address_key, parse_address,
+};
+pub use disable::{
+    DisableTokenError, MAX_DISABLE_TOKEN_BYTES, issue_disable_token, verify_disable_token,
+};
+pub use mail::{
+    DEFAULT_COMMAND_TIMEOUT, DEFAULT_DEADLINE, MailConfigError, MailError, MailSettings, Mailer,
+    OutgoingMail,
+};
+pub use mailtext::{
+    ComposedMail, SUBJECT_PREFIX, VERIFICATION_HOURS, compose_mail, disable_endpoint_url,
+    disable_page_url, verification_mail, verification_url,
 };
 pub use notice::{ComposeInput, MAX_NOTICE_CHARS, Notice, compose};
 pub use secret::channel_secret_name;
 pub use settings::{
-    DEFAULT_HOUSEKEEPING_INTERVAL, DEFAULT_LEASE, DEFAULT_POLL_INTERVAL, MAX_ATTEMPTS_LIMIT,
-    MAX_CLAIM_BATCH, NotifyLimits, NotifySettings, SettingsError,
+    DEFAULT_EMAIL_PER_ADDRESS_PER_DAY, DEFAULT_EMAIL_PER_USER_PER_DAY,
+    DEFAULT_HOUSEKEEPING_INTERVAL, DEFAULT_LEASE, DEFAULT_POLL_INTERVAL, EmailLimits,
+    MAX_ATTEMPTS_LIMIT, MAX_CLAIM_BATCH, NotifyLimits, NotifySettings, SettingsError,
 };
 pub use target::{
     MASK_SUFFIX, MAX_CHANNEL_URL_BYTES, MAX_CHAT_ID_BYTES, TargetRefusal, is_masked, mask_url,
@@ -26,3 +49,6 @@ pub use target::{
 pub use transport::{DELIVERY_HEADER, HOP_HEADER, REPLY_BODY_BYTES, Reply, SendError, Transport};
 pub use vendor::{PinError, VendorHosts};
 pub use worker::{NotifyHandle, NotifyWorker};
+
+#[cfg(feature = "test-support")]
+pub use sink::{CapturedMail, MailHeader, SinkMode, SmtpSink};

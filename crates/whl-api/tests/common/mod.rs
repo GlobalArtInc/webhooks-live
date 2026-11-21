@@ -176,12 +176,33 @@ pub async fn mixed_harness_with_api(settings: ApiSettings) -> SsoHarness {
         settings,
         Duration::ZERO,
         None,
+        |state| state,
     )
     .await
 }
 
 pub async fn mixed_harness_with_import_cooldown(window: Duration) -> SsoHarness {
-    build_with_settings(true, TrustedProxies::default(), api_settings(), window, None).await
+    build_with_settings(
+        true,
+        TrustedProxies::default(),
+        api_settings(),
+        window,
+        None,
+        |state| state,
+    )
+    .await
+}
+
+pub async fn mixed_harness_configured(configure: impl FnOnce(ApiState) -> ApiState) -> SsoHarness {
+    build_with_settings(
+        true,
+        TrustedProxies::default(),
+        api_settings(),
+        Duration::ZERO,
+        None,
+        configure,
+    )
+    .await
 }
 
 async fn build_with_users(
@@ -189,7 +210,15 @@ async fn build_with_users(
     proxies: TrustedProxies,
     composer: Option<ComposerSettings>,
 ) -> SsoHarness {
-    build_with_settings(mixed, proxies, api_settings(), Duration::ZERO, composer).await
+    build_with_settings(
+        mixed,
+        proxies,
+        api_settings(),
+        Duration::ZERO,
+        composer,
+        |state| state,
+    )
+    .await
 }
 
 async fn build_with_settings(
@@ -198,6 +227,7 @@ async fn build_with_settings(
     api: ApiSettings,
     import_cooldown: Duration,
     composer: Option<ComposerSettings>,
+    configure: impl FnOnce(ApiState) -> ApiState,
 ) -> SsoHarness {
     let db = TestDb::new().await;
     let store = Store::from_pool(db.pool().clone());
@@ -232,6 +262,7 @@ async fn build_with_settings(
         Some(composer) => state.with_composer(composer),
         None => state,
     };
+    let state = configure(state);
     SsoHarness {
         db,
         app: whl_api::router(state),

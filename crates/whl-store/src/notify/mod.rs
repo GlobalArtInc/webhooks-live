@@ -1,5 +1,6 @@
 mod channels;
 mod deliveries;
+mod email;
 mod model;
 mod quota;
 mod wake;
@@ -14,8 +15,11 @@ pub use channels::{
 pub use deliveries::{
     ClaimPolicy, ClaimedDelivery, DeliveryChannel, DeliveryResult, NotifyCapture, TestOutcome,
 };
+pub use email::{
+    AddressLimits, AddressOutcome, AddressRequest, AddressUndo, EmailAddress, MailRecipient,
+};
 pub use model::{Channel, ChannelKind, Delivery, DeliveryKind, DeliveryState, ParseError, Trigger};
-pub use quota::{QuotaCap, QuotaVerdict};
+pub use quota::{DAY_SECS, HOUR_SECS, QuotaCap, QuotaVerdict};
 pub use wake::NotifyWakeListener;
 
 pub const WAKE_CHANNEL: &str = "whl_notify_wake";

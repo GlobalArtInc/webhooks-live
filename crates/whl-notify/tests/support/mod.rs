@@ -19,13 +19,13 @@ use whl_core::endpoint_id::EndpointId;
 use whl_core::response::ResponseConfig;
 use whl_forward::GuardConfig;
 use whl_notify::{
-    NotifyHandle, NotifyLimits, NotifySettings, NotifyWorker, Transport, VendorHosts,
-    channel_secret_name,
+    EmailLimits, MailSettings, Mailer, NotifyHandle, NotifyLimits, NotifySettings, NotifyWorker,
+    Transport, VendorHosts, channel_secret_name,
 };
 use whl_secrets::{Keyring, Secret, SecretName};
 use whl_store::captures::{CaptureOutcome, CapturePolicy, NameValue, NewCapture};
 use whl_store::notify::{ChannelKind, CreateChannelOutcome, NewChannel, Trigger};
-use whl_store::{EndpointSettings, Overflow, Store, Uuid};
+use whl_store::{EndpointSettings, Overflow, Store, Uuid, VerifiedIdentity};
 use whl_testkit::TestDb;
 
 pub const RETENTION: Duration = Duration::from_secs(3600);
@@ -372,6 +372,27 @@ impl Rig {
     pub fn start_with(&self, transport: Transport, limits: NotifyLimits) -> Running {
         let mut settings = NotifySettings::new("https://hooks.example".to_owned(), limits, 4, 3);
         settings.poll_interval = Duration::from_millis(100);
+        self.run(transport, settings)
+    }
+
+    pub fn start_mail(&self, sink: Url, email: EmailLimits) -> Running {
+        let mailer = Mailer::new(&MailSettings::new(
+            sink,
+            "Hooks <noreply@hooks.example.test>".to_owned(),
+        ))
+        .expect("the mailer is valid");
+        let mut settings = NotifySettings::new(
+            "https://hooks.example".to_owned(),
+            limits(1000, 1000, 1000),
+            4,
+            3,
+        );
+        settings.poll_interval = Duration::from_millis(100);
+        settings.email = email;
+        self.run(self.transport().with_mailer(mailer), settings)
+    }
+
+    fn run(&self, transport: Transport, settings: NotifySettings) -> Running {
         let worker = NotifyWorker::new(
             self.store.clone(),
             Arc::clone(&self.keyring),
@@ -426,4 +447,79 @@ where
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     panic!("timed out waiting for {what}");
+}
+
+impl Rig {
+    pub async fn user(&self, tag: &str) -> Uuid {
+        self.store
+            .upsert_user(&VerifiedIdentity {
+                issuer: "https://sso.test".to_owned(),
+                subject: format!("subject-{tag}"),
+                email: format!("{tag}@login.example.test"),
+                email_verified: true,
+                display_name: None,
+            })
+            .await
+            .expect("the user is stored")
+            .id
+    }
+
+    pub async fn owned_endpoint(&self, owner: Uuid) -> EndpointId {
+        self.store
+            .create_endpoint_owned(Some(owner), &settings(), RETENTION)
+            .await
+            .expect("the endpoint is created")
+            .id
+    }
+
+    pub async fn address(&self, user: Uuid, address: &str, verified: bool) -> Uuid {
+        let id = Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO email_addresses (id, user_id, address, verified_at) \
+             VALUES ($1, $2, $3, CASE WHEN $4 THEN now() END)",
+        )
+        .bind(id)
+        .bind(user)
+        .bind(address)
+        .bind(verified)
+        .execute(self.db.pool())
+        .await
+        .expect("the address is stored");
+        id
+    }
+
+    pub async fn email_channel(&self, endpoint: &EndpointId, user: Uuid, address: Uuid) -> Uuid {
+        let id = Uuid::now_v7();
+        let outcome = self
+            .store
+            .create_channel(
+                endpoint,
+                RETENTION,
+                &NewChannel {
+                    id,
+                    kind: ChannelKind::Email,
+                    name: "mail".to_owned(),
+                    enabled: true,
+                    trigger: Trigger::Capture,
+                    config: serde_json::json!({ "address_id": address.hyphenated().to_string() }),
+                    sealed: None,
+                    template: None,
+                    per_hour: 100,
+                    created_by: Some(user),
+                },
+            )
+            .await
+            .expect("the channel is stored");
+        assert!(matches!(outcome, CreateChannelOutcome::Created(_)));
+        id
+    }
+
+    pub async fn last_error(&self) -> Option<String> {
+        sqlx::query_scalar(
+            "SELECT error FROM notification_deliveries ORDER BY created_at DESC LIMIT 1",
+        )
+        .fetch_one(self.db.pool())
+        .await
+        .expect("the error is readable")
+    }
 }

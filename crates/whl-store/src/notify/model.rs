@@ -76,6 +76,7 @@ pub struct Channel {
     pub config: serde_json::Value,
     pub template: Option<String>,
     pub per_hour: i32,
+    pub created_by: Option<Uuid>,
     pub created_at: String,
 }
 

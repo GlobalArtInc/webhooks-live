@@ -46,7 +46,7 @@ pub use cors::api_cors;
 pub use forward::ForwardSettings;
 pub use inbox::inbox_selector;
 pub use limit::{ApiLimits, enforce_rate_limit};
-pub use notify::NotifyApiSettings;
+pub use notify::{EmailApi, EmailApiLimits, NotifyApiSettings};
 pub use policy::guard_routes;
 pub use schedules::ScheduleSettings;
 pub use settings::ApiSettings;
