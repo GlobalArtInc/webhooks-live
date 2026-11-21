@@ -6,10 +6,12 @@ import diff from './en/diff.json';
 import editor from './en/editor.json';
 import endpoint from './en/endpoint.json';
 import exportMessages from './en/export.json';
+import exportDialog from './en/exportdialog.json';
 import forwarding from './en/forwarding.json';
 import home from './en/home.json';
 import live from './en/live.json';
 import sample from './en/sample.json';
+import selection from './en/selection.json';
 import state from './en/state.json';
 import workspace from './en/workspace.json';
 
@@ -31,10 +33,12 @@ export function createI18nInstance(): I18nInstance {
           ...editor,
           ...endpoint,
           ...exportMessages,
+          ...exportDialog,
           ...forwarding,
           ...home,
           ...live,
           ...sample,
+          ...selection,
           ...state,
           ...workspace,
         },

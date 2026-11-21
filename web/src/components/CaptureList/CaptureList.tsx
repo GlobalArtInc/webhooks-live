@@ -24,6 +24,13 @@ const KEY_NAVIGATION: Readonly<Record<string, ListNavigation>> = {
   End: 'last',
 };
 
+export interface CaptureListSelection {
+  active: boolean;
+  checkedIds: ReadonlySet<string>;
+  onToggle: (captureId: string) => void;
+  onLongPress?: (captureId: string) => void;
+}
+
 export interface CaptureListProps {
   items: CaptureSummary[];
   selectedId: string | null;
@@ -47,6 +54,7 @@ export interface CaptureListProps {
   onRetry: () => void;
   onAtTopChange: (atTop: boolean) => void;
   onPillActivate: () => void;
+  selection?: CaptureListSelection;
 }
 
 export function CaptureList({
@@ -72,6 +80,7 @@ export function CaptureList({
   onRetry,
   onAtTopChange,
   onPillActivate,
+  selection,
 }: CaptureListProps) {
   const { t } = useTranslation();
   const idPrefix = useId();
@@ -148,6 +157,11 @@ export function CaptureList({
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === ' ' && selection !== undefined && selectedId !== null) {
+      event.preventDefault();
+      selection.onToggle(selectedId);
+      return;
+    }
     const navigation = KEY_NAVIGATION[event.key];
     if (navigation === undefined) {
       return;
@@ -176,6 +190,7 @@ export function CaptureList({
               tabIndex={0}
               aria-label={t('wl.endpoint.list.label')}
               aria-activedescendant={selectedOptionId}
+              aria-multiselectable={selection?.active ? true : undefined}
               className={styles.listbox}
               style={{ height }}
               onKeyDown={handleKeyDown}
@@ -192,8 +207,11 @@ export function CaptureList({
                   now={now}
                   unread={unreadIds.has(item.id)}
                   arriving={arrivingIds.has(item.id)}
+                  checkable={selection?.active ?? false}
+                  checked={selection?.checkedIds.has(item.id) ?? false}
                   style={{ height: rowHeight, transform: `translateY(${index * rowHeight}px)` }}
-                  onSelect={onSelect}
+                  onSelect={selection?.active === true ? selection.onToggle : onSelect}
+                  onLongPress={selection?.onLongPress}
                 />
               ))}
             </div>

@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import { useEffect, useRef, type CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { CaptureSummary } from '../../api/types';
 import type { CompareLabel } from '../../features/list/compare';
@@ -8,6 +8,9 @@ import { StatusChip } from '../StatusChip/StatusChip';
 import styles from './CaptureRow.module.css';
 
 export type CaptureRowVariant = 'one-line' | 'two-line';
+
+const LONG_PRESS_MS = 500;
+const CHECK_MARK = '✓';
 
 export interface CaptureRowProps {
   optionId: string;
@@ -19,8 +22,11 @@ export interface CaptureRowProps {
   now: number;
   unread?: boolean;
   arriving?: boolean;
+  checkable?: boolean;
+  checked?: boolean;
   style: CSSProperties;
   onSelect: (captureId: string) => void;
+  onLongPress?: (captureId: string) => void;
 }
 
 export interface CaptureRowActionsProps {
@@ -46,11 +52,34 @@ export function CaptureRow({
   now,
   unread = false,
   arriving = false,
+  checkable = false,
+  checked = false,
   style,
   onSelect,
+  onLongPress,
 }: CaptureRowProps) {
   const { t, i18n } = useTranslation();
   const locale = i18n.language;
+  const pressTimer = useRef<number | undefined>(undefined);
+  const longPressed = useRef(false);
+
+  useEffect(() => () => window.clearTimeout(pressTimer.current), []);
+
+  function startPress(button: number): void {
+    window.clearTimeout(pressTimer.current);
+    longPressed.current = false;
+    if (onLongPress === undefined || button !== 0) {
+      return;
+    }
+    pressTimer.current = window.setTimeout(() => {
+      longPressed.current = true;
+      onLongPress(summary.id);
+    }, LONG_PRESS_MS);
+  }
+
+  function cancelPress(): void {
+    window.clearTimeout(pressTimer.current);
+  }
   const path = displayPath(summary);
   const size = formatByteSize(summary.body_size, locale);
   const time = formatRelativeTime(summary.received_at, now, locale);
@@ -67,7 +96,7 @@ export function CaptureRow({
     <div
       id={optionId}
       role="option"
-      aria-selected={selected}
+      aria-selected={checkable ? checked : selected}
       aria-setsize={setSize}
       aria-posinset={positionInSet}
       className={styles.option}
@@ -76,10 +105,31 @@ export function CaptureRow({
       data-selected={selected ? 'true' : undefined}
       data-unread={unread ? 'true' : undefined}
       data-arriving={arriving ? 'true' : undefined}
+      data-checkable={checkable ? 'true' : undefined}
       onClick={() => {
+        if (longPressed.current) {
+          longPressed.current = false;
+          return;
+        }
         onSelect(summary.id);
       }}
+      onPointerDown={(event) => {
+        startPress(event.button);
+      }}
+      onPointerUp={cancelPress}
+      onPointerLeave={cancelPress}
+      onPointerCancel={cancelPress}
+      onContextMenu={(event) => {
+        if (longPressed.current) {
+          event.preventDefault();
+        }
+      }}
     >
+      {checkable ? (
+        <span className={styles.check} data-checked={checked ? 'true' : undefined} aria-hidden="true">
+          {checked ? CHECK_MARK : null}
+        </span>
+      ) : null}
       <span className={styles.line}>
         {unread ? (
           <span className={styles.unread}>

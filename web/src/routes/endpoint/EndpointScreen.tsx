@@ -11,6 +11,7 @@ import { EmptyState } from '../../components/EmptyState/EmptyState';
 import { EndpointHeader } from '../../components/EndpointHeader/EndpointHeader';
 import { FilterBar } from '../../components/FilterBar/FilterBar';
 import { ListPager, type ListPagerProps } from '../../components/ListPager/ListPager';
+import { SelectionBar } from '../../components/SelectionBar/SelectionBar';
 import { SplitHandle } from '../../components/SplitHandle/SplitHandle';
 import { StatePage } from '../../components/StatePage/StatePage';
 import { UndoToast } from '../../components/UndoToast/UndoToast';
@@ -47,12 +48,18 @@ import {
   useVisibleMinuteNow,
 } from '../../features/list';
 import { useShortcutHandlers, useShortcutScope } from '../../features/shortcuts';
+import { useBulkDelete, useSelectMode } from '../../features/selectmode';
+import { selectionFitsExport, type ExportScope } from '../../features/exportdialog/exportRequest';
 import styles from './EndpointScreen.module.css';
 
 const ENDPOINT_ROUTE_ID = '/shell/e/$id';
 
 const CapturePane = lazy(() =>
   import('../../features/endpoint/CapturePane').then((module) => ({ default: module.CapturePane })),
+);
+
+const ExportDialog = lazy(() =>
+  import('../../features/exportdialog/ExportDialog').then((module) => ({ default: module.ExportDialog })),
 );
 
 function PaneLoading() {
@@ -98,6 +105,9 @@ export function EndpointScreen() {
   const matchRoute = useMatchRoute();
   const workspaceOpen = matchRoute({ to: '/e/$id/settings', params: { id: endpointId }, fuzzy: true }) !== false;
   const deletion = useDeleteWithUndo(endpointId);
+  const bulk = useBulkDelete(endpointId);
+  const selectMode = useSelectMode(endpointId);
+  const checkedCaptures = selectMode.checkedIn(list.items);
   const clear = useClearCaptures(endpointId);
   const marked = useMarkedCapture(endpointId);
   const now = useVisibleMinuteNow();
@@ -105,6 +115,9 @@ export function EndpointScreen() {
   const [closedFor, setClosedFor] = useState<string | null>(null);
   const [clearOpen, setClearOpen] = useState(false);
   const [clearFailed, setClearFailed] = useState(false);
+  const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportScope, setExportScope] = useState<ExportScope>('all');
   const listRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const backRequested = useRef(false);
@@ -226,12 +239,37 @@ export function EndpointScreen() {
     if (capture === undefined) {
       return;
     }
+    bulk.commit();
     const wasSelected = selection.captureId === captureId;
     const neighbour = neighbourOf(list.items, captureId);
     deletion.schedule(capture, wasSelected);
     if (wasSelected) {
       selection.replace(neighbour);
     }
+  }
+
+  function requestBulkDelete(): void {
+    if (checkedCaptures.length > 0) {
+      setBulkConfirmOpen(true);
+    }
+  }
+
+  function confirmBulkDelete(): void {
+    setBulkConfirmOpen(false);
+    deletion.commit();
+    bulk.schedule(checkedCaptures);
+    selectMode.end();
+  }
+
+  function openExport(): void {
+    const scope: ExportScope =
+      selectMode.active && selectionFitsExport(checkedCaptures.length) ? 'selected' : filtered ? 'filtered' : 'all';
+    setExportScope(scope);
+    setExportOpen(true);
+  }
+
+  function undoBulkDelete(): void {
+    bulk.undo();
   }
 
   function undoDelete(): void {
@@ -296,6 +334,11 @@ export function EndpointScreen() {
           {t('wl.endpoint.delete.failed')}
         </p>
       ) : null}
+      {bulk.failed ? (
+        <p role="alert" className={styles.notice}>
+          {t('wl.selection.delete.failed')}
+        </p>
+      ) : null}
       {workspaceOpen ? (
         <div className={styles.workspace}>
           <Outlet />
@@ -326,7 +369,25 @@ export function EndpointScreen() {
                 saveLivePrefs({ announce: !livePrefs.announce });
               }}
             />
+            <SelectionBar
+              active={selectMode.active}
+              count={checkedCaptures.length}
+              loadedCount={list.items.length}
+              onBegin={selectMode.begin}
+              onEnd={selectMode.end}
+              onSelectAll={() => {
+                selectMode.selectAll(list.items.map((item) => item.id));
+              }}
+              onExport={openExport}
+              onDelete={requestBulkDelete}
+            />
             <CaptureList
+              selection={{
+                active: selectMode.active,
+                checkedIds: selectMode.ids,
+                onToggle: selectMode.toggle,
+                onLongPress: narrow ? selectMode.check : undefined,
+              }}
               items={list.items}
               selectedId={paneId}
               markedId={marked}
@@ -389,6 +450,39 @@ export function EndpointScreen() {
       {deletion.pending === null ? null : (
         <UndoToast message={t('wl.endpoint.undo.message')} onUndo={undoDelete} onDismiss={deletion.commit} />
       )}
+      {bulk.pending === null ? null : (
+        <UndoToast
+          message={t('wl.selection.undo.message', { count: bulk.pending.length })}
+          onUndo={undoBulkDelete}
+          onDismiss={bulk.commit}
+        />
+      )}
+      <ConfirmDialog
+        open={bulkConfirmOpen}
+        title={t('wl.selection.delete.title', { count: checkedCaptures.length })}
+        body={t('wl.selection.delete.body')}
+        confirmLabel={t('wl.selection.delete.confirm')}
+        cancelLabel={t('wl.selection.delete.cancel')}
+        busy={false}
+        onConfirm={confirmBulkDelete}
+        onOpenChange={setBulkConfirmOpen}
+      />
+      {exportOpen ? (
+        <Suspense fallback={null}>
+          <ExportDialog
+            endpointId={endpointId}
+            initialScope={exportScope}
+            selectedIds={checkedCaptures.map((item) => item.id)}
+            filters={filters}
+            counts={{ filtered: list.total, all: endpoint.capture_count }}
+            sizes={{
+              selected: checkedCaptures.reduce((total, item) => total + item.body_size, 0),
+              all: endpoint.bytes_used,
+            }}
+            onOpenChange={setExportOpen}
+          />
+        </Suspense>
+      ) : null}
       <ConfirmDialog
         open={clearOpen}
         title={t('wl.endpoint.clear.title')}
