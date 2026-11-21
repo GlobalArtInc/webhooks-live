@@ -163,6 +163,7 @@ pub struct OutboundStep {
 
 #[derive(Debug, Clone)]
 pub struct OutboundDone {
+    pub outcome: Outcome,
     pub detail: Option<String>,
     pub output: Value,
     pub data: Option<StepData>,
@@ -1052,7 +1053,7 @@ impl Machine {
         let done = result?;
         self.step_data = done.data;
         Ok(Done {
-            outcome: Outcome::Ok,
+            outcome: done.outcome,
             detail: done.detail,
             output: Some(done.output),
         })

@@ -8,7 +8,8 @@ use whl_forward::{
     ForwardError, HOP_HEADER, OutboundRequest, OutboundResponse, validate_target_url,
 };
 use whl_rules::{
-    Failure, FailureCode, HttpCall, MAX_STEP_BODY_BYTES, MAX_STEP_HEADERS, OutboundDone, bound_text,
+    Failure, FailureCode, HttpCall, MAX_STEP_BODY_BYTES, MAX_STEP_HEADERS, OutboundDone, Outcome,
+    bound_text,
 };
 use whl_template::{NameValue, StepData};
 
@@ -127,6 +128,7 @@ fn done(ctx: &Ctx<'_>, response: &OutboundResponse, attempt: u32) -> OutboundDon
     let detail = (!(200..300).contains(&status))
         .then(|| format!("the target answered with status {status}"));
     OutboundDone {
+        outcome: Outcome::Ok,
         detail,
         output,
         data: Some(StepData {

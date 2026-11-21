@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use serde_json::json;
-use whl_rules::{FailureCode, NotifyCall, OutboundDone};
+use whl_rules::{FailureCode, NotifyCall, OutboundDone, Outcome};
 use whl_store::rule_exec::{EnqueueOutcome, StepDelivery};
 
 use crate::ids::step_id;
@@ -29,6 +29,7 @@ pub(crate) async fn execute(ctx: &Ctx<'_>, call: &NotifyCall, position: usize) -
         Ok(EnqueueOutcome::Queued) => {
             count(PURPOSE, "queued");
             StepAttempt::Done(Box::new(OutboundDone {
+                outcome: Outcome::Ok,
                 detail: None,
                 output: json!({"delivery_id": delivery.id.hyphenated().to_string()}),
                 data: None,
@@ -42,11 +43,26 @@ pub(crate) async fn execute(ctx: &Ctx<'_>, call: &NotifyCall, position: usize) -
         Ok(EnqueueOutcome::ChannelDisabled) => {
             failed(ctx.scrub, FailureCode::Http, "the channel is disabled")
         }
-        Ok(EnqueueOutcome::DeliveryExists) => failed(
-            ctx.scrub,
-            FailureCode::Http,
-            "delivery_exists: a delivery for this channel and capture already exists",
-        ),
+        Ok(EnqueueOutcome::AlreadyDelivered) => {
+            count(PURPOSE, "skipped");
+            StepAttempt::Done(Box::new(OutboundDone {
+                outcome: Outcome::Skipped,
+                detail: Some(
+                    "a delivery for this channel and capture already exists, nothing was sent"
+                        .to_owned(),
+                ),
+                output: json!({"delivery_id": null}),
+                data: None,
+            }))
+        }
+        Ok(EnqueueOutcome::DeliveryExists) => {
+            tracing::error!(run_id = %ctx.run.id, "a delivery conflict has no delivery to blame");
+            failed(
+                ctx.scrub,
+                FailureCode::Internal,
+                "delivery_exists: the delivery conflicts with no stored delivery",
+            )
+        }
         Ok(_) => failed(
             ctx.scrub,
             FailureCode::Internal,
