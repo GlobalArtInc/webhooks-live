@@ -165,7 +165,7 @@ async fn remove_endpoint(
     }
 }
 
-fn signed_in(state: &ApiState, caller: &Caller) -> Result<Uuid, ApiError> {
+pub(crate) fn signed_in(state: &ApiState, caller: &Caller) -> Result<Uuid, ApiError> {
     if !state.access.has_users() {
         return Err(ApiError::NotAvailableInMode);
     }

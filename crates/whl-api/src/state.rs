@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use whl_auth::AccessControl;
 use whl_secrets::Keyring;
@@ -6,7 +7,7 @@ use whl_store::Store;
 
 use crate::forward::ForwardSettings;
 use crate::limit::ApiLimits;
-use crate::settings::ApiSettings;
+use crate::settings::{ApiSettings, DEFAULT_ALIAS_QUARANTINE};
 
 #[derive(Clone)]
 pub struct ApiState {
@@ -16,6 +17,7 @@ pub struct ApiState {
     pub(crate) forward: ForwardSettings,
     pub(crate) access: AccessControl,
     pub(crate) secrets: Option<Arc<Keyring>>,
+    pub(crate) alias_quarantine: Duration,
 }
 
 impl ApiState {
@@ -27,7 +29,13 @@ impl ApiState {
             forward: ForwardSettings::default(),
             access: AccessControl::open(),
             secrets: None,
+            alias_quarantine: DEFAULT_ALIAS_QUARANTINE,
         }
+    }
+
+    pub fn with_alias_quarantine(mut self, quarantine: Duration) -> Self {
+        self.alias_quarantine = quarantine;
+        self
     }
 
     pub fn with_secrets(mut self, keyring: Arc<Keyring>) -> Self {

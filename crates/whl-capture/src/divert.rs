@@ -4,14 +4,14 @@ use axum::middleware::Next;
 use axum::response::Response;
 use tower::ServiceExt;
 
-use crate::handler::endpoint_id_of;
+use crate::target::route;
 
 pub(crate) async fn divert(
     State(fallback): State<Router>,
     request: Request,
     next: Next,
 ) -> Response {
-    if endpoint_id_of(request.uri()).is_some() {
+    if route(request.uri()).is_some() {
         return next.run(request).await;
     }
     match fallback.oneshot(request).await {

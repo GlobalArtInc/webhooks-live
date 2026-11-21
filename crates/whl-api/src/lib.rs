@@ -1,3 +1,4 @@
+mod aliases;
 mod body;
 mod captures;
 mod claim;
@@ -49,6 +50,7 @@ pub fn router(state: ApiState) -> Router {
                 .delete(handlers::delete),
         )
         .route("/endpoints/{id}/claim", post(claim::claim))
+        .merge(aliases::routes())
         .merge(members::routes())
         .merge(captures::routes())
         .merge(folders::routes())

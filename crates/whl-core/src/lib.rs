@@ -1,3 +1,4 @@
+pub mod alias;
 pub mod capture_id;
 pub mod client_ip;
 pub mod config;

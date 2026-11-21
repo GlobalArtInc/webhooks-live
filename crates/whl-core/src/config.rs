@@ -14,6 +14,7 @@ use serde::de::DeserializeOwned;
 use url::Url;
 use zeroize::Zeroizing;
 
+use crate::alias::POSITIVE_CACHE_TTL;
 use crate::rate::RateSpec;
 
 const FILE_ENV: &str = "WEBHOOKS_LIVE_CONFIG";
@@ -54,6 +55,9 @@ capture_ip = "30/s:60"
 capture_endpoint = "20/s:100"
 api_ip = "20/s:40"
 create_ip = "10/m:10"
+
+[alias]
+quarantine = "30d"
 
 [forward]
 enabled = true
@@ -100,6 +104,7 @@ const ENV_KEYS: &[(&str, &str)] = &[
     ("FORWARD_ALLOW_CIDRS", "forward.allow_cidrs"),
     ("SHUTDOWN_DRAIN", "shutdown.drain"),
     ("SHUTDOWN_GRACE", "shutdown.grace"),
+    ("ALIAS_QUARANTINE", "alias.quarantine"),
     ("SECRETS_KEYS", "secrets.keys"),
     ("LOG", "log"),
 ];
@@ -118,6 +123,7 @@ pub struct Config {
     pub capture: CaptureConfig,
     pub rate: RateConfig,
     pub forward: ForwardConfig,
+    pub alias: AliasConfig,
     #[serde(default)]
     pub secrets: SecretsConfig,
     pub shutdown: ShutdownConfig,
@@ -208,6 +214,12 @@ pub struct ForwardConfig {
     pub allow_cidrs: Vec<IpNet>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct AliasConfig {
+    #[serde(deserialize_with = "de::duration")]
+    pub quarantine: Duration,
+}
+
 #[derive(Debug, Default, Deserialize)]
 pub struct SecretsConfig {
     pub keys: Option<SecretKeys>,
@@ -292,6 +304,7 @@ pub enum Problem {
     MissingForSso(&'static str),
     MissingForMixed(&'static str),
     PoolSizeTooSmall,
+    AliasQuarantineTooShort,
 }
 
 impl fmt::Display for Problem {
@@ -310,6 +323,11 @@ impl fmt::Display for Problem {
             Self::PoolSizeTooSmall => write!(
                 f,
                 "{ENV_PREFIX}DB_POOL_SIZE must be at least {MIN_DB_POOL_SIZE}"
+            ),
+            Self::AliasQuarantineTooShort => write!(
+                f,
+                "{ENV_PREFIX}ALIAS_QUARANTINE must be at least {} seconds",
+                POSITIVE_CACHE_TTL.as_secs()
             ),
         }
     }
@@ -442,6 +460,9 @@ impl Config {
             oidc.client_secret.is_some(),
         ));
         problems.extend(pool_size_problem(self.database.pool_size));
+        if self.alias.quarantine < POSITIVE_CACHE_TTL {
+            problems.push(Problem::AliasQuarantineTooShort);
+        }
 
         if problems.is_empty() {
             Ok(())

@@ -1,3 +1,4 @@
+pub mod aliases;
 pub mod api_tokens;
 pub mod auth;
 pub mod capture_body;
@@ -17,6 +18,10 @@ pub mod stats;
 mod store;
 pub mod stream;
 
+pub use aliases::{
+    AliasAvailability, AliasClaim, AliasRecord, AliasStoreError, PutAliasOutcome,
+    ReleaseAliasOutcome,
+};
 pub use api_tokens::{
     ApiTokenLookup, ApiTokenRecord, ApiTokenStoreError, CreateTokenOutcome, MAX_TOKEN_ENDPOINTS,
     MAX_TOKEN_NAME_CHARS, NewApiToken, RevokeTokenOutcome, TokenCaps, TokenScope,

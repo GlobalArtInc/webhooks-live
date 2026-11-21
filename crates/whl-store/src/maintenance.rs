@@ -18,6 +18,8 @@ pub const DEFAULT_DELETED_GRACE: Duration = Duration::from_secs(10);
 pub const API_TOKEN_GRACE: Duration = Duration::from_secs(30 * 24 * 3600);
 pub const DEFAULT_SESSION_IDLE: Duration = Duration::from_secs(12 * 3600);
 pub const DEFAULT_PURGE_BATCH: u32 = 50;
+pub const DEFAULT_ALIAS_QUARANTINE: Duration = Duration::from_secs(30 * 24 * 3600);
+pub const DEFAULT_ALIAS_PURGE_BATCH: u32 = 500;
 pub const DEFAULT_EVICT_BATCH: u32 = 5;
 pub const DEFAULT_TTL_BATCH: u32 = 500;
 pub const DEFAULT_TTL_SCAN: u32 = 50;
@@ -27,6 +29,7 @@ pub const DEFAULT_RETRY_INTERVAL: Duration = Duration::from_secs(10);
 pub const DEFAULT_LOCK_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 pub const MAX_PURGE_BATCHES_PER_CYCLE: u32 = 200;
 pub const MAX_TTL_BATCHES_PER_CYCLE: u32 = 200;
+pub const MAX_ALIAS_BATCHES_PER_CYCLE: u32 = 20;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const LOCK_QUERY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -92,6 +95,11 @@ const TTL_COUNTERS_SQL: &str = "UPDATE endpoints SET \
         bytes_used = bytes_used - $3 \
     WHERE id = $1";
 
+const PURGE_ALIASES_SQL: &str = "DELETE FROM endpoint_aliases WHERE alias IN ( \
+        SELECT alias FROM endpoint_aliases \
+        WHERE released_at IS NOT NULL AND released_at < now() - make_interval(secs => $1) \
+        ORDER BY released_at LIMIT $2 FOR UPDATE SKIP LOCKED)";
+
 const NOTIFY_MANY_SQL: &str = "SELECT pg_notify($1, payload) FROM unnest($2::text[]) AS payload";
 
 #[derive(Debug, thiserror::Error)]
@@ -115,6 +123,8 @@ pub struct MaintenanceSettings {
     pub deleted_grace: Duration,
     pub session_idle: Duration,
     pub purge_batch: u32,
+    pub alias_quarantine: Duration,
+    pub alias_purge_batch: u32,
     pub evict_batch: u32,
     pub ttl_batch: u32,
     pub ttl_scan: u32,
@@ -132,6 +142,8 @@ impl MaintenanceSettings {
             deleted_grace: DEFAULT_DELETED_GRACE,
             session_idle: DEFAULT_SESSION_IDLE,
             purge_batch: DEFAULT_PURGE_BATCH,
+            alias_quarantine: DEFAULT_ALIAS_QUARANTINE,
+            alias_purge_batch: DEFAULT_ALIAS_PURGE_BATCH,
             evict_batch: DEFAULT_EVICT_BATCH,
             ttl_batch: DEFAULT_TTL_BATCH,
             ttl_scan: DEFAULT_TTL_SCAN,
@@ -223,6 +235,21 @@ impl Store {
         notify_deleted(&mut transaction, &ids).await?;
         transaction.commit().await?;
         Ok(batch)
+    }
+
+    pub async fn purge_released_aliases(
+        &self,
+        settings: &MaintenanceSettings,
+    ) -> Result<u64, MaintenanceError> {
+        let mut transaction = self.pool().begin().await?;
+        apply_statement_timeout(&mut transaction, settings.statement_timeout).await?;
+        let outcome = sqlx::query(PURGE_ALIASES_SQL)
+            .bind(settings.alias_quarantine.as_secs_f64())
+            .bind(i64::from(settings.alias_purge_batch))
+            .execute(&mut *transaction)
+            .await?;
+        transaction.commit().await?;
+        Ok(outcome.rows_affected())
     }
 
     pub async fn endpoints_due_for_capture_ttl(
@@ -552,6 +579,7 @@ async fn cycle(
 ) -> Result<(), LeadershipLost> {
     purge(store, settings, lock).await?;
     expire_captures(store, settings, lock).await?;
+    purge_aliases(store, settings, lock).await?;
     evict(store, settings, lock).await?;
     expire_logins(store, settings).await;
     match store.live_endpoint_count().await {
@@ -605,6 +633,30 @@ async fn purge(
                 .increment(batch.deleted);
         }
         if batch.total() < u64::from(settings.purge_batch) {
+            return Ok(());
+        }
+    }
+    Ok(())
+}
+
+async fn purge_aliases(
+    store: &Store,
+    settings: &MaintenanceSettings,
+    lock: &mut LeaderLock,
+) -> Result<(), LeadershipLost> {
+    for _ in 0..MAX_ALIAS_BATCHES_PER_CYCLE {
+        lock.verify().await?;
+        let purged = match store.purge_released_aliases(settings).await {
+            Ok(purged) => purged,
+            Err(error) => {
+                tracing::warn!(%error, "an alias purge batch failed");
+                return Ok(());
+            }
+        };
+        if purged > 0 {
+            tracing::info!(purged, "purged aliases past their quarantine");
+        }
+        if purged < u64::from(settings.alias_purge_batch) {
             return Ok(());
         }
     }
