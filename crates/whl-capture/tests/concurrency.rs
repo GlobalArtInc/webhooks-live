@@ -128,9 +128,17 @@ async fn notification_carries_the_documented_summary_on_commit() {
     assert_eq!(summary["status_override"], 404);
     assert_eq!(summary["response_status"], 404);
     assert!(summary["forward_state"].is_null());
+    assert_eq!(summary["kind"], "http");
     let received = summary["received_at"].as_str().expect("timestamp");
     assert_eq!(received.len(), 24);
     assert!(received.ends_with('Z'));
+    let (kind, meta): (String, String) =
+        sqlx::query_as("SELECT kind, meta::text FROM captures WHERE endpoint_id = $1")
+            .bind(id.unpack())
+            .fetch_one(harness.db.pool())
+            .await
+            .expect("the stored kind and meta are read");
+    assert_eq!((kind.as_str(), meta.as_str()), ("http", "{}"));
 }
 
 #[tokio::test]

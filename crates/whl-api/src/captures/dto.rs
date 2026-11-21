@@ -21,6 +21,7 @@ pub struct SummaryDto {
     status_override: Option<i16>,
     response_status: i16,
     forward_state: Option<&'static str>,
+    kind: &'static str,
 }
 
 impl From<&CaptureSummary> for SummaryDto {
@@ -39,6 +40,7 @@ impl From<&CaptureSummary> for SummaryDto {
             status_override: summary.status_override,
             response_status: summary.response_status,
             forward_state: summary.forward_state.map(|state| state.as_str()),
+            kind: summary.kind.as_str(),
         }
     }
 }
@@ -61,6 +63,7 @@ pub struct CaptureDto {
     form: Option<CaptureForm>,
     body: BodyDto,
     forwards: Vec<JobDto>,
+    meta: serde_json::Value,
 }
 
 impl CaptureDto {
@@ -74,6 +77,7 @@ impl CaptureDto {
             form: detail.form,
             body: BodyDto::from_prefix(&detail.body.prefix, detail.body.truncated),
             forwards: forwards.iter().map(JobDto::from).collect(),
+            meta: detail.meta,
         }
     }
 }

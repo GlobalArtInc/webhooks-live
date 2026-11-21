@@ -8,6 +8,7 @@ use sqlx::types::Uuid;
 use whl_core::endpoint_id::EndpointId;
 
 use crate::Store;
+use crate::kind::CaptureKind;
 
 pub(crate) const PATH_LIMIT_CHARS: i32 = 1024;
 pub const NOTIFICATION_LIMIT_BYTES: usize = 7000;
@@ -54,7 +55,8 @@ pub(crate) fn summary_columns(path_limit: Option<i32>) -> String {
   c.body_size,
   c.status_override,
   c.response_status,
-  {FORWARD_STATE} AS forward_state"#
+  {FORWARD_STATE} AS forward_state,
+  c.kind"#
     )
 }
 
@@ -166,6 +168,8 @@ pub enum StreamError {
     Query(#[from] sqlx::Error),
     #[error("a capture row carries the unknown forward state {state:?}")]
     UnknownForwardState { state: String },
+    #[error("a capture row carries the unknown kind {kind:?}")]
+    UnknownCaptureKind { kind: String },
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -262,6 +266,7 @@ pub struct CaptureSummary {
     pub status_override: Option<i16>,
     pub response_status: i16,
     pub forward_state: Option<ForwardState>,
+    pub kind: CaptureKind,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -474,6 +479,7 @@ fn forward_attempt_from_row(row: &PgRow) -> Result<ForwardAttemptView, ViewError
 
 pub(crate) fn summary_from_row(row: &PgRow) -> Result<CaptureSummary, StreamError> {
     let forward_state: Option<String> = row.try_get("forward_state")?;
+    let kind: String = row.try_get("kind")?;
     Ok(CaptureSummary {
         id: row.try_get("id")?,
         seq: row.try_get("seq")?,
@@ -491,6 +497,7 @@ pub(crate) fn summary_from_row(row: &PgRow) -> Result<CaptureSummary, StreamErro
             .as_deref()
             .map(ForwardState::parse)
             .transpose()?,
+        kind: CaptureKind::parse(&kind).ok_or(StreamError::UnknownCaptureKind { kind })?,
     })
 }
 

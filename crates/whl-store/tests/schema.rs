@@ -184,3 +184,68 @@ async fn schema_has_the_tables_and_key_indexes_of_the_architecture() {
         );
     }
 }
+
+const KIND_MIGRATION: &str = "AddCaptureKinds1795254376505";
+const ENDPOINT_ID: &str = "7k2m9q4xw8c1d5f3h6j0n2p4";
+
+async fn insert_endpoint_with_captures(pool: &PgPool, count: i64) {
+    sqlx::query("INSERT INTO endpoints (id) VALUES ($1)")
+        .bind(ENDPOINT_ID)
+        .execute(pool)
+        .await
+        .expect("the endpoint is inserted");
+    for seq in 1..=count {
+        sqlx::query(
+            "INSERT INTO captures (endpoint_id, seq, id, received_at, method, url, path, host, \
+             client_ip, headers, query, body_size, stored_bytes, response_status) \
+             VALUES ($1, $2, gen_random_uuid(), now(), 'POST', 'https://whl.test/hook', '/hook', \
+             'whl.test', '203.0.113.7'::inet, '[]'::jsonb, '[]'::jsonb, 0, 0, 200)",
+        )
+        .bind(ENDPOINT_ID)
+        .bind(seq)
+        .execute(pool)
+        .await
+        .expect("the capture is inserted");
+    }
+}
+
+#[tokio::test]
+async fn existing_captures_read_as_http_with_an_empty_meta_after_a_round_trip() {
+    let db = TestDb::new().await;
+    let store = Store::from_pool(db.pool().clone());
+    assert_eq!(
+        store
+            .migrate_down()
+            .await
+            .expect("the kinds migration takes back"),
+        Some(KIND_MIGRATION.to_owned())
+    );
+    insert_endpoint_with_captures(db.pool(), 2).await;
+
+    store
+        .migrate_up()
+        .await
+        .expect("the kinds migration applies over populated captures");
+    let rows: Vec<(String, String)> =
+        sqlx::query_as("SELECT kind, meta::text FROM captures ORDER BY seq")
+            .fetch_all(db.pool())
+            .await
+            .expect("captures are read");
+    assert_eq!(rows, vec![("http".to_owned(), "{}".to_owned()); 2]);
+}
+
+#[tokio::test]
+async fn the_kind_check_refuses_a_kind_outside_the_allowed_set() {
+    let db = TestDb::new().await;
+    insert_endpoint_with_captures(db.pool(), 1).await;
+
+    let error = sqlx::query("UPDATE captures SET kind = 'sms' WHERE endpoint_id = $1")
+        .bind(ENDPOINT_ID)
+        .execute(db.pool())
+        .await
+        .expect_err("an unknown kind is refused");
+    let constraint = error
+        .as_database_error()
+        .and_then(|database| database.constraint());
+    assert_eq!(constraint, Some("captures_kind_check"));
+}

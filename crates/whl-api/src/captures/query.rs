@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
-use whl_store::{CaptureFilter, CaptureQuery, Order, StatusFilter};
+use whl_store::{CaptureFilter, CaptureKind, CaptureQuery, Order, StatusFilter};
 
 use super::cursor::Cursor;
 use crate::error::{ApiError, FieldCode, FieldViolation};
@@ -17,6 +17,7 @@ pub struct ListParams {
     cursor: Option<String>,
     method: Option<String>,
     status: Option<String>,
+    kind: Option<String>,
     q: Option<String>,
     after_seq: Option<String>,
     since: Option<String>,
@@ -30,6 +31,7 @@ pub fn list_query(params: &ListParams) -> Result<CaptureQuery, ApiError> {
     let filter = CaptureFilter {
         methods: parse_methods(params.method.as_deref(), &mut violations),
         statuses: parse_statuses(params.status.as_deref(), &mut violations),
+        kinds: parse_kinds(params.kind.as_deref(), &mut violations),
         search: parse_search(params.q.as_deref(), &mut violations),
         after_seq: parse_after_seq(params.after_seq.as_deref(), &mut violations),
         since: parse_timestamp("since", params.since.as_deref(), &mut violations),
@@ -156,6 +158,29 @@ fn parse_statuses(text: Option<&str>, violations: &mut Vec<FieldViolation>) -> V
         StatusFilter::Class(class) => *class,
     });
     statuses
+}
+
+fn parse_kinds(text: Option<&str>, violations: &mut Vec<FieldViolation>) -> Vec<CaptureKind> {
+    let Some(text) = text else {
+        return Vec::new();
+    };
+    let mut kinds = Vec::new();
+    for token in text.split(',') {
+        match CaptureKind::parse(token) {
+            Some(kind) => kinds.push(kind),
+            None => {
+                violations.push(violation(
+                    "kind",
+                    FieldCode::InvalidFormat,
+                    "must be a comma list of http, email, dns or schedule",
+                ));
+                return Vec::new();
+            }
+        }
+    }
+    kinds.sort_by_key(|kind| kind.as_str());
+    kinds.dedup();
+    kinds
 }
 
 fn class_of(token: &str) -> Option<u8> {

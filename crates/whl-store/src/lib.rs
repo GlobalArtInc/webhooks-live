@@ -5,6 +5,7 @@ pub mod captures;
 pub mod endpoints;
 mod error;
 pub mod forward;
+mod kind;
 pub mod maintenance;
 mod store;
 pub mod stream;
@@ -18,5 +19,6 @@ pub use capture_queries::{
 };
 pub use endpoints::{EndpointError, EndpointRecord, EndpointSettings, Overflow};
 pub use error::StoreError;
+pub use kind::CaptureKind;
 pub use sqlx::types::Uuid;
 pub use store::{MigrationState, Status, Store};

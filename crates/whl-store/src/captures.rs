@@ -11,6 +11,7 @@ use whl_core::capture_id::CaptureId;
 use whl_core::endpoint_id::EndpointId;
 use whl_core::status::HttpStatus;
 
+use crate::kind::CaptureKind;
 use crate::store::Store;
 
 pub const ACQUIRE_TIMEOUT: Duration = Duration::from_secs(1);
@@ -58,9 +59,9 @@ const EVICT_OLDEST: &str = "WITH evicted AS ( \
 
 const INSERT_CAPTURE: &str = "INSERT INTO captures \
      (endpoint_id, seq, id, received_at, method, url, path, host, client_ip, headers, query, \
-      form, content_type, body_size, stored_bytes, status_override, response_status) \
+      form, content_type, body_size, stored_bytes, status_override, response_status, kind, meta) \
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::inet, $10::text::jsonb, $11::text::jsonb, \
-      $12::text::jsonb, $13, $14, $15, $16, $17)";
+      $12::text::jsonb, $13, $14, $15, $16, $17, $18, '{}'::jsonb)";
 
 const INSERT_BODY: &str =
     "INSERT INTO capture_bodies (capture_id, data, search_text) VALUES ($1, $2, $3)";
@@ -293,6 +294,7 @@ struct Summary<'a> {
     status_override: Option<u16>,
     response_status: u16,
     forward_state: Option<&'static str>,
+    kind: &'static str,
 }
 
 #[derive(Serialize)]
@@ -356,6 +358,7 @@ pub fn capture_event_payload(
             status_override: capture.status_override.map(|status| status.unpack()),
             response_status: response_status.unpack(),
             forward_state: None,
+            kind: CaptureKind::Http.as_str(),
         };
         let payload = serde_json::to_string(&Event {
             t: "capture",
@@ -599,6 +602,7 @@ async fn execute_capture(
             .bind(prepared.stored_bytes)
             .bind(override_status)
             .bind(final_status)
+            .bind(CaptureKind::Http.as_str())
             .execute(&mut *tx)
             .await
             .map_err(CaptureStoreError::classify)

@@ -25,6 +25,7 @@ struct Spec {
     status: Option<i16>,
     at: i64,
     form: Option<Value>,
+    kind: &'static str,
 }
 
 impl Spec {
@@ -38,6 +39,7 @@ impl Spec {
             status: None,
             at: BASE,
             form: None,
+            kind: "http",
         }
     }
 }
@@ -80,8 +82,8 @@ async fn insert(db: &TestDb, endpoint: &str, spec: Spec) -> String {
     sqlx::query(
         "INSERT INTO captures (endpoint_id, seq, id, received_at, method, url, path, host, \
          client_ip, headers, query, form, content_type, body_size, stored_bytes, status_override, \
-         response_status) VALUES ($1, $2, $3, $4, $5, $6, $7, 'whl.test', '203.0.113.7'::inet, \
-         $8::text::jsonb, $9::text::jsonb, $10::text::jsonb, 'text/plain', $11, $12, $13, 202)",
+         response_status, kind) VALUES ($1, $2, $3, $4, $5, $6, $7, 'whl.test', '203.0.113.7'::inet, \
+         $8::text::jsonb, $9::text::jsonb, $10::text::jsonb, 'text/plain', $11, $12, $13, 202, $14)",
     )
     .bind(endpoint)
     .bind(seq)
@@ -96,6 +98,7 @@ async fn insert(db: &TestDb, endpoint: &str, spec: Spec) -> String {
     .bind(size)
     .bind(stored)
     .bind(spec.status)
+    .bind(spec.kind)
     .execute(db.pool())
     .await
     .expect("the capture is inserted");
@@ -391,6 +394,66 @@ async fn total_counts_the_filtered_set_ignoring_cursor_and_after_seq() {
 }
 
 #[tokio::test]
+async fn kind_filter_selects_by_kind_and_total_follows_it() {
+    let Harness { db, app } = harness().await;
+    let id = endpoint_id(&app).await;
+    insert(&db, &id, Spec::new("POST", "/http")).await;
+    insert(
+        &db,
+        &id,
+        Spec {
+            kind: "email",
+            at: BASE + 10,
+            ..Spec::new("POST", "/mail")
+        },
+    )
+    .await;
+    insert(
+        &db,
+        &id,
+        Spec {
+            kind: "dns",
+            at: BASE + 20,
+            ..Spec::new("GET", "/dns")
+        },
+    )
+    .await;
+    insert(
+        &db,
+        &id,
+        Spec {
+            kind: "schedule",
+            at: BASE + 30,
+            ..Spec::new("POST", "/run")
+        },
+    )
+    .await;
+    let base = format!("/api/v1/endpoints/{id}/captures?order=asc");
+    let single = get(&app, &format!("{base}&kind=email")).await.json();
+    assert_eq!(seqs(&single), vec![2]);
+    assert_eq!(single["total"], 1);
+    assert_eq!(single["items"][0]["kind"], "email");
+    let multiple = get(&app, &format!("{base}&kind=dns,email")).await.json();
+    assert_eq!(seqs(&multiple), vec![2, 3]);
+    assert_eq!(multiple["total"], 2);
+    let paged = get(&app, &format!("{base}&kind=dns,email&limit=1"))
+        .await
+        .json();
+    assert_eq!(seqs(&paged), vec![2]);
+    assert_eq!(paged["total"], 2);
+    let combined = get(&app, &format!("{base}&kind=schedule&method=POST"))
+        .await
+        .json();
+    assert_eq!(seqs(&combined), vec![4]);
+    let reply = get(&app, &format!("{base}&kind=email,sms")).await;
+    assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        field_codes(&reply.json()),
+        vec![("kind".to_owned(), "invalid_format".to_owned())]
+    );
+}
+
+#[tokio::test]
 async fn detail_returns_every_documented_field() {
     let Harness { db, app } = harness().await;
     let id = endpoint_id(&app).await;
@@ -448,6 +511,8 @@ async fn detail_returns_every_documented_field() {
         json!({"encoding": "utf8", "data": "hello", "truncated": false})
     );
     assert_eq!(body["forwards"], json!([]));
+    assert_eq!(body["kind"], "http");
+    assert_eq!(body["meta"], json!({}));
 }
 
 #[tokio::test]

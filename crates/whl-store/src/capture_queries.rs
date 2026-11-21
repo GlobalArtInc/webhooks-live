@@ -9,6 +9,7 @@ use whl_core::capture_id::CaptureId;
 use whl_core::endpoint_id::EndpointId;
 
 use crate::Store;
+use crate::kind::CaptureKind;
 use crate::stream::{
     CaptureSummary, PATH_LIMIT_CHARS, StreamError, summary_columns, summary_from_row,
 };
@@ -20,7 +21,8 @@ const CHANNEL: &str = "whl_events";
 fn detail_columns() -> String {
     format!(
         "c.url, c.host, c.headers::text AS headers, c.query::text AS query, \
-         c.form::text AS form, substring(b.data FROM 1 FOR {DETAIL_BODY_PREFIX_BYTES}) AS body"
+         c.form::text AS form, c.meta::text AS meta, \
+         substring(b.data FROM 1 FOR {DETAIL_BODY_PREFIX_BYTES}) AS body"
     )
 }
 
@@ -65,6 +67,9 @@ impl From<StreamError> for CaptureError {
             StreamError::UnknownForwardState { state } => Self::Invalid {
                 reason: format!("unknown forward state {state:?}"),
             },
+            StreamError::UnknownCaptureKind { kind } => Self::Invalid {
+                reason: format!("unknown capture kind {kind:?}"),
+            },
         }
     }
 }
@@ -103,6 +108,7 @@ impl Order {
 pub struct CaptureFilter {
     pub methods: Vec<String>,
     pub statuses: Vec<StatusFilter>,
+    pub kinds: Vec<CaptureKind>,
     pub search: Option<String>,
     pub after_seq: Option<i64>,
     pub since: Option<OffsetDateTime>,
@@ -111,15 +117,23 @@ pub struct CaptureFilter {
 
 impl CaptureFilter {
     pub fn fingerprint(&self) -> String {
-        serde_json::json!({
+        let mut fingerprint = serde_json::json!({
             "methods": self.methods,
             "statuses": self.statuses.iter().map(|status| status.code()).collect::<Vec<_>>(),
             "search": self.search,
             "after_seq": self.after_seq,
             "since": self.since.map(|since| since.unix_timestamp_nanos()),
             "until": self.until.map(|until| until.unix_timestamp_nanos()),
-        })
-        .to_string()
+        });
+        if !self.kinds.is_empty() {
+            fingerprint["kinds"] = serde_json::Value::from(
+                self.kinds
+                    .iter()
+                    .map(|kind| kind.as_str())
+                    .collect::<Vec<_>>(),
+            );
+        }
+        fingerprint.to_string()
     }
 }
 
@@ -152,6 +166,7 @@ pub struct CaptureDetail {
     pub headers: Vec<NameValue>,
     pub query: Vec<NameValue>,
     pub form: Option<CaptureForm>,
+    pub meta: serde_json::Value,
     pub body: CaptureBody,
 }
 
@@ -355,6 +370,14 @@ fn push_filters(
             .push_bind(codes)
             .push(")");
     }
+    if !filter.kinds.is_empty() {
+        let kinds: Vec<String> = filter
+            .kinds
+            .iter()
+            .map(|kind| kind.as_str().to_owned())
+            .collect();
+        query.push(" AND c.kind = ANY(").push_bind(kinds).push(")");
+    }
     if let Some(term) = &filter.search {
         query
             .push(" AND strpos(b.search_text, lower(")
@@ -374,6 +397,7 @@ fn detail_from_row(row: &PgRow) -> Result<CaptureDetail, CaptureError> {
     let headers: String = row.try_get("headers").map_err(CaptureError::Query)?;
     let query: String = row.try_get("query").map_err(CaptureError::Query)?;
     let form: Option<String> = row.try_get("form").map_err(CaptureError::Query)?;
+    let meta: String = row.try_get("meta").map_err(CaptureError::Query)?;
     let prefix: Vec<u8> = row.try_get("body").map_err(CaptureError::Query)?;
     let truncated = usize::try_from(summary.body_size).is_ok_and(|size| size > prefix.len());
     let context = summary.id.clone();
@@ -385,6 +409,7 @@ fn detail_from_row(row: &PgRow) -> Result<CaptureDetail, CaptureError> {
         form: form
             .map(|text| decode(&context, "form", &text))
             .transpose()?,
+        meta: decode(&context, "meta", &meta)?,
         body: CaptureBody { prefix, truncated },
         summary,
     })

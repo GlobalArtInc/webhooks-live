@@ -120,6 +120,7 @@ async fn replays_missed_captures_in_order_and_skips_a_live_duplicate() {
         assert_eq!(summary["method"], "POST");
         assert_eq!(summary["content_type"], "text/plain");
         assert_eq!(summary["forward_state"], serde_json::Value::Null);
+        assert_eq!(summary["kind"], "http");
     }
 
     notify(db.pool(), &capture_payload(&endpoint, 5)).await;
