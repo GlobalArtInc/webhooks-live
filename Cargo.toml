@@ -43,6 +43,11 @@ uuid = { version = "1", features = ["v7", "serde"] }
 migrator = { package = "sqlmig", version = "0.2.1" }
 sea-orm = { version = "1.1", default-features = false, features = ["sqlx-postgres", "runtime-tokio-rustls"] }
 sqlx = { version = "0.8", default-features = false, features = ["postgres", "runtime-tokio", "tls-rustls", "uuid", "time"] }
+base64 = "0.22"
+mime_guess = "2"
+rust-embed = "8"
+sha2 = "0.11"
+tower = { version = "0.5", features = ["util"] }
 
 [profile.dev]
 debug = "line-tables-only"
