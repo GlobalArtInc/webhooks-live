@@ -94,6 +94,22 @@ async fn on_an_owned_endpoint_the_sso_role_matrix_holds_and_anonymous_callers_ha
     run_matrix(&harness, true).await;
 }
 
+#[tokio::test]
+async fn an_undecodable_endpoint_id_is_not_found_like_a_malformed_one_for_every_caller() {
+    let harness = mixed_harness().await;
+    let cast = cast(&harness).await;
+    let actors = [
+        None,
+        Some(&cast.stranger),
+        Some(&cast.viewer),
+        Some(&cast.editor),
+        Some(&cast.owner),
+    ];
+    common::matrix::assert_undecodable_ids_are_not_found(&harness, &actors).await;
+    common::matrix::assert_undecodable_claim_is_not_found_once_signed_in(&harness, &cast.stranger)
+        .await;
+}
+
 async fn owned_fixture(harness: &SsoHarness) -> (Cast, Fixture) {
     let cast = cast(harness).await;
     let fixture = fixture(harness, &cast, true).await;

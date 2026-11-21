@@ -153,6 +153,56 @@ async fn pending_logins_are_capped_and_the_cap_counts_only_unexpired_states() {
 }
 
 #[tokio::test]
+async fn one_network_cannot_exhaust_the_pending_logins_of_everyone_else() {
+    let harness = harness_with(Options {
+        max_pending_per_network: Some(2),
+        ..Options::default()
+    })
+    .await;
+    for peer in ["203.0.113.5", "203.0.113.200"] {
+        assert_eq!(harness.begin_from(peer).await.status, StatusCode::FOUND);
+    }
+
+    let refused = harness.begin_from("203.0.113.77").await;
+    assert_eq!(refused.status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(refused.json()["error"]["code"], "login_rate_limited");
+    assert!(refused.headers.get(header::RETRY_AFTER).is_some());
+    assert!(refused.set_cookies().is_empty());
+    assert_eq!(harness.count("login_states").await, 2);
+
+    for peer in ["203.0.114.5", "2001:db8:1:2::1"] {
+        assert_eq!(harness.begin_from(peer).await.status, StatusCode::FOUND);
+    }
+    assert_eq!(harness.begin(None).await.reply.status, StatusCode::FOUND);
+
+    sqlx::query("UPDATE login_states SET expires_at = now() - interval '1 second'")
+        .execute(harness.db.pool())
+        .await
+        .expect("the states can be aged");
+    assert_eq!(
+        harness.begin_from("203.0.113.5").await.status,
+        StatusCode::FOUND
+    );
+}
+
+#[tokio::test]
+async fn the_global_cap_still_answers_busy_before_the_network_cap() {
+    let harness = harness_with(Options {
+        max_pending_logins: Some(1),
+        max_pending_per_network: Some(1),
+        ..Options::default()
+    })
+    .await;
+    assert_eq!(
+        harness.begin_from("203.0.113.5").await.status,
+        StatusCode::FOUND
+    );
+    let refused = harness.begin_from("203.0.113.5").await;
+    assert_eq!(refused.status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(refused.json()["error"]["code"], "login_busy");
+}
+
+#[tokio::test]
 async fn the_purge_removes_expired_login_states_and_sessions_and_keeps_live_ones() {
     let harness = harness().await;
     let (_, _jar) = harness.sign_in(None).await;
@@ -390,6 +440,27 @@ async fn an_id_token_that_is_not_yet_valid_is_rejected_when_nbf_is_present() {
     failed_with(&harness, vec![("nbf", json!("soon"))], "invalid_token").await;
     succeeded_with(&harness, vec![("nbf", json!(now() + 20))]).await;
     succeeded_with(&harness, vec![("nbf", json!(now() - 3600))]).await;
+}
+
+#[tokio::test]
+async fn fractional_numeric_dates_are_accepted_for_nbf_iat_and_exp() {
+    let harness = harness().await;
+    let at = now();
+    failed_with(
+        &harness,
+        vec![("nbf", json!(at as f64 + 3600.5))],
+        "invalid_token",
+    )
+    .await;
+    succeeded_with(
+        &harness,
+        vec![
+            ("nbf", json!(at as f64 - 3600.5)),
+            ("iat", json!(at as f64 - 5.25)),
+            ("exp", json!(at as f64 + 3600.75)),
+        ],
+    )
+    .await;
 }
 
 #[tokio::test]

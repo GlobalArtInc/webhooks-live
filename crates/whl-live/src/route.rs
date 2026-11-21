@@ -1,13 +1,15 @@
 use std::collections::VecDeque;
 use std::convert::Infallible;
+use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
+use axum::Extension;
 use axum::Router;
 use axum::body::Body;
-use axum::extract::{Path, RawQuery, State};
+use axum::extract::{ConnectInfo, Path, RawQuery, State};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
@@ -21,6 +23,7 @@ use whl_core::endpoint_id::EndpointId;
 use whl_store::Store;
 use whl_store::stream::{CaptureSummary, EndpointLiveState};
 
+use crate::authorize::{AllowAll, StreamAuthorizer, StreamRequest, StreamVerdict};
 use crate::emit::{self, ConnectionGauge};
 use crate::event::{Event, Outcome, ResyncReason};
 use crate::guard::WRITE_TIMEOUT;
@@ -43,6 +46,7 @@ const RETRY_AFTER_SECONDS: &str = "5";
 #[derive(Debug, Clone)]
 pub struct StreamSettings {
     pub ping_interval: Duration,
+    pub recheck_interval: Duration,
     pub max_lifetime: Duration,
     pub replay_limit: usize,
     pub retention: Duration,
@@ -55,6 +59,7 @@ impl StreamSettings {
     pub fn new(retention: Duration) -> Self {
         Self {
             ping_interval: PING_INTERVAL,
+            recheck_interval: PING_INTERVAL,
             max_lifetime: MAX_LIFETIME,
             replay_limit: REPLAY_LIMIT,
             retention,
@@ -76,6 +81,7 @@ pub struct LiveState {
     pub(crate) store: Store,
     pub(crate) hub: Arc<Hub>,
     pub(crate) settings: Arc<StreamSettings>,
+    pub(crate) authorizer: Arc<dyn StreamAuthorizer>,
 }
 
 impl LiveState {
@@ -84,7 +90,13 @@ impl LiveState {
             store,
             hub,
             settings: Arc::new(settings),
+            authorizer: Arc::new(AllowAll),
         }
+    }
+
+    pub fn with_authorizer(mut self, authorizer: Arc<dyn StreamAuthorizer>) -> Self {
+        self.authorizer = authorizer;
+        self
     }
 
     pub fn hub(&self) -> &Arc<Hub> {
@@ -178,6 +190,7 @@ fn unavailable() -> Response {
 async fn stream_endpoint(
     State(state): State<LiveState>,
     Path(raw_id): Path<String>,
+    connect: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
     RawQuery(query): RawQuery,
 ) -> Response {
@@ -200,7 +213,9 @@ async fn stream_endpoint(
     };
 
     let subscription = state.hub.subscribe(&endpoint);
-    let mut viewer = Viewer::new(endpoint.clone(), subscription, &state.settings);
+    let peer = connect.map(|Extension(ConnectInfo(peer))| peer.ip());
+    let request = StreamRequest::new(headers, peer);
+    let mut viewer = Viewer::new(endpoint.clone(), subscription, request, &state.settings);
     viewer.queue.push_back(sse::retry_frame(RETRY_MILLIS));
     if viewer.subscription.was_closing_at_subscribe() {
         viewer.push_event(&Event::Bye);
@@ -288,25 +303,36 @@ struct Viewer {
     subscription: Subscription,
     queue: VecDeque<Bytes>,
     floor: i64,
+    request: StreamRequest,
     ping_interval: Duration,
+    recheck_interval: Duration,
     write_timeout: Duration,
     next_ping: Instant,
+    next_recheck: Instant,
     deadline: Instant,
     finishing: bool,
     _connection: ConnectionGauge,
 }
 
 impl Viewer {
-    fn new(endpoint: EndpointId, subscription: Subscription, settings: &StreamSettings) -> Self {
+    fn new(
+        endpoint: EndpointId,
+        subscription: Subscription,
+        request: StreamRequest,
+        settings: &StreamSettings,
+    ) -> Self {
         let now = Instant::now();
         Self {
             endpoint,
             subscription,
             queue: VecDeque::new(),
             floor: i64::MIN,
+            request,
             ping_interval: settings.ping_interval,
+            recheck_interval: settings.recheck_interval,
             write_timeout: settings.write_timeout,
             next_ping: now + settings.ping_interval,
+            next_recheck: now + settings.recheck_interval,
             deadline: now + jitter::jittered(settings.max_lifetime, LIFETIME_JITTER),
             finishing: false,
             _connection: ConnectionGauge::open(),
@@ -418,6 +444,7 @@ impl Viewer {
                 self.push_event(event);
                 self.finishing = true;
             }
+            Event::AccessChanged => self.revalidate(state).await,
             Event::EndpointUpdated { lookup } => {
                 let outcome = lookup.resolve(load::endpoint(state, &self.endpoint)).await;
                 self.push_resolved(event, outcome);
@@ -433,6 +460,31 @@ impl Viewer {
             }
             _ => self.push_event(event),
         }
+    }
+
+    async fn revalidate(&mut self, state: &LiveState) {
+        self.next_recheck = Instant::now() + self.recheck_interval;
+        let verdict = state
+            .authorizer
+            .still_allowed(&self.endpoint, &self.request)
+            .await;
+        match verdict {
+            StreamVerdict::Allowed => {}
+            StreamVerdict::Denied => {
+                tracing::info!(endpoint_id = %self.endpoint, "closed a stream whose viewer lost access");
+                self.close_for_access();
+            }
+            StreamVerdict::Unavailable => {
+                tracing::warn!(endpoint_id = %self.endpoint, "closed a stream because its access could not be verified");
+                self.close_for_access();
+            }
+        }
+    }
+
+    fn close_for_access(&mut self) {
+        self.queue.clear();
+        self.push_event(&Event::Bye);
+        self.finishing = true;
     }
 
     async fn flush(&mut self, outbox: &mpsc::Sender<Bytes>) -> Option<Ending> {
@@ -466,6 +518,7 @@ impl Viewer {
                 () = tokio::time::sleep_until(self.next_ping) => {
                     self.queue.push_back(sse::ping_frame());
                 }
+                () = tokio::time::sleep_until(self.next_recheck) => self.revalidate(state).await,
                 () = tokio::time::sleep_until(self.deadline) => return Ending::Finished,
                 () = outbox.closed() => return Ending::Disconnected,
             }

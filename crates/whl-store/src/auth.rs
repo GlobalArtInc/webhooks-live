@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use sqlx::types::Uuid;
 use sqlx::{Row, postgres::PgRow};
+use whl_core::creator_net::CreatorNet;
 use whl_core::endpoint_id::EndpointId;
 
 use crate::store::Store;
@@ -34,10 +35,18 @@ const DELETE_SESSION_SQL: &str = "DELETE FROM sessions WHERE token_hash = $1";
 const DELETE_EXPIRED_SESSIONS_SQL: &str = "DELETE FROM sessions \
     WHERE expires_at <= now() OR last_seen_at <= now() - make_interval(secs => $1)";
 
-const CREATE_LOGIN_STATE_SQL: &str = "INSERT INTO login_states \
-    (state, pkce_verifier, nonce, return_to, expires_at) \
-    SELECT $1::text, $2::text, $3::text, $4::text, now() + make_interval(secs => $5) \
-    WHERE (SELECT count(*) FROM login_states WHERE expires_at > now()) < $6::bigint";
+const CREATE_LOGIN_STATE_SQL: &str = "WITH counts AS ( \
+        SELECT count(*) AS total, \
+            count(*) FILTER (WHERE client_net = $7::text::cidr) AS network \
+        FROM login_states WHERE expires_at > now() \
+    ), inserted AS ( \
+        INSERT INTO login_states (state, pkce_verifier, nonce, return_to, expires_at, client_net) \
+        SELECT $1::text, $2::text, $3::text, $4::text, now() + make_interval(secs => $5), \
+            $7::text::cidr \
+        FROM counts WHERE total < $6::bigint AND network < $8::bigint \
+        RETURNING 1 \
+    ) \
+    SELECT total, network, (SELECT count(*) FROM inserted) AS inserted FROM counts";
 
 const TAKE_LOGIN_STATE_SQL: &str = "DELETE FROM login_states \
     WHERE state = $1 AND expires_at > now() RETURNING pkce_verifier, nonce, return_to";
@@ -156,6 +165,14 @@ pub enum AuthStoreError {
     Invalid(String),
     #[error("too many sign-ins are pending")]
     LoginsFull,
+    #[error("too many sign-ins are pending from this network")]
+    LoginsFullForNetwork,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LoginCaps {
+    pub total: u32,
+    pub per_network: u32,
 }
 
 pub(crate) fn classify(error: sqlx::Error) -> AuthStoreError {
@@ -248,22 +265,31 @@ impl Store {
         key: &str,
         login: &LoginRecord,
         ttl: Duration,
-        max_pending: u32,
+        caps: LoginCaps,
+        client_net: Option<&CreatorNet>,
     ) -> Result<(), AuthStoreError> {
-        let outcome = sqlx::query(CREATE_LOGIN_STATE_SQL)
+        let row = sqlx::query(CREATE_LOGIN_STATE_SQL)
             .bind(key)
             .bind(&login.pkce_verifier)
             .bind(&login.nonce)
             .bind(&login.return_to)
             .bind(ttl.as_secs_f64())
-            .bind(i64::from(max_pending))
-            .execute(self.pool())
+            .bind(i64::from(caps.total))
+            .bind(client_net.map(ToString::to_string))
+            .bind(i64::from(caps.per_network))
+            .fetch_one(self.pool())
             .await
             .map_err(classify)?;
-        if outcome.rows_affected() == 0 {
-            return Err(AuthStoreError::LoginsFull);
+        let inserted: i64 = row.try_get("inserted").map_err(classify)?;
+        if inserted > 0 {
+            return Ok(());
         }
-        Ok(())
+        let total: i64 = row.try_get("total").map_err(classify)?;
+        if total >= i64::from(caps.total) {
+            Err(AuthStoreError::LoginsFull)
+        } else {
+            Err(AuthStoreError::LoginsFullForNetwork)
+        }
     }
 
     pub async fn take_login_state(&self, key: &str) -> Result<Option<LoginRecord>, AuthStoreError> {

@@ -198,6 +198,70 @@ async fn a_capture_without_rules_creates_no_jobs_and_no_wake_notification() {
 }
 
 #[tokio::test]
+async fn rules_of_several_endpoints_load_in_one_query_grouped_by_endpoint() {
+    let fixture = fixture().await;
+    let other = fixture
+        .store
+        .create_endpoint(
+            &EndpointSettings {
+                title: None,
+                response: ResponseConfig::default(),
+                cors: false,
+                overflow: Overflow::Refuse,
+            },
+            RETENTION,
+        )
+        .await
+        .expect("the second endpoint is created")
+        .id;
+    let bare = EndpointId::generate().expect("an id is generated");
+    fixture.rule("http://8.8.8.8/a", true, None).await;
+    fixture.rule("http://8.8.8.8/b", false, Some("PUT")).await;
+    let created = fixture
+        .store
+        .create_forward_rule(
+            &other,
+            RETENTION,
+            &NewForwardRule {
+                enabled: true,
+                target_url: "http://8.8.8.8/c".to_owned(),
+                method: None,
+                content_type: None,
+                header_allowlist: Vec::new(),
+                append_path: false,
+            },
+        )
+        .await
+        .expect("the rule is stored");
+    assert!(matches!(created, CreateRuleOutcome::Created(_)));
+
+    let ids = [fixture.endpoint.clone(), other.clone(), bare.clone()];
+    let grouped = fixture
+        .store
+        .list_forward_rules_for(&ids)
+        .await
+        .expect("the rules load");
+    for id in [&fixture.endpoint, &other] {
+        let single = fixture
+            .store
+            .list_forward_rules(id)
+            .await
+            .expect("the rules load");
+        assert_eq!(grouped.get(id), Some(&single));
+    }
+    assert_eq!(grouped[&fixture.endpoint].len(), 2);
+    assert!(!grouped.contains_key(&bare));
+    assert!(
+        fixture
+            .store
+            .list_forward_rules_for(&[])
+            .await
+            .expect("an empty list loads")
+            .is_empty()
+    );
+}
+
+#[tokio::test]
 async fn concurrent_claims_never_return_the_same_job() {
     let fixture = fixture().await;
     fixture.rule("http://one.test/a", true, None).await;

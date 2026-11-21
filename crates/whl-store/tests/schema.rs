@@ -243,12 +243,16 @@ async fn existing_captures_read_as_http_with_an_empty_meta_after_a_round_trip() 
 async fn the_creator_network_migration_keeps_endpoints_and_leaves_existing_ones_unrecorded() {
     let db = TestDb::new().await;
     let store = Store::from_pool(db.pool().clone());
-    let reverted = store
-        .migrate_down()
-        .await
-        .expect("the newest migration takes back")
-        .expect("a migration was applied");
-    assert_eq!(reverted, CREATOR_NET_MIGRATION);
+    loop {
+        let reverted = store
+            .migrate_down()
+            .await
+            .expect("a migration takes back")
+            .expect("the creator network migration is among the applied ones");
+        if reverted == CREATOR_NET_MIGRATION {
+            break;
+        }
+    }
     sqlx::query("INSERT INTO endpoints (id) VALUES ($1)")
         .bind(ENDPOINT_ID)
         .execute(db.pool())

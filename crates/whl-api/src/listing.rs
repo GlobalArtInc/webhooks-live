@@ -48,11 +48,17 @@ pub async fn list(
             query.limit,
         )
         .await?;
+    let ids: Vec<EndpointId> = page
+        .items
+        .iter()
+        .map(|item| item.record.id.clone())
+        .collect();
+    let mut rules = state.store.list_forward_rules_for(&ids).await?;
     let mut items = Vec::with_capacity(page.items.len());
     for item in &page.items {
-        let rules = state.store.list_forward_rules(&item.record.id).await?;
+        let own = rules.remove(&item.record.id).unwrap_or_default();
         items.push(
-            EndpointDto::from_record(&item.record, &state.settings, &rules)
+            EndpointDto::from_record(&item.record, &state.settings, &own)
                 .with_identity(Some(item.role), item.owner.as_ref()),
         );
     }

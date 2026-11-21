@@ -19,8 +19,8 @@ use tokio::task::JoinHandle;
 use tower::ServiceExt;
 use whl_core::endpoint_id::EndpointId;
 use whl_live::{
-    Event, Hub, ListenerHandle, ListenerSettings, LiveState, Notification, StreamSettings, router,
-    spawn_listener_with,
+    Event, Hub, ListenerHandle, ListenerSettings, LiveState, Notification, StreamAuthorizer,
+    StreamSettings, router, spawn_listener_with,
 };
 use whl_store::Store;
 use whl_testkit::TestDb;
@@ -48,14 +48,44 @@ impl TestApp {
         Self::start_on(store, capacity, settings, ListenerSettings::default()).await
     }
 
+    pub async fn start_authorized(
+        db: &TestDb,
+        settings: StreamSettings,
+        authorizer: Arc<dyn StreamAuthorizer>,
+    ) -> Self {
+        let store = Store::from_pool(db.pool().clone());
+        Self::start_inner(
+            store,
+            HUB_TEST_CAPACITY,
+            settings,
+            ListenerSettings::default(),
+            Some(authorizer),
+        )
+        .await
+    }
+
     pub async fn start_on(
         store: Store,
         capacity: usize,
         settings: StreamSettings,
         listening: ListenerSettings,
     ) -> Self {
+        Self::start_inner(store, capacity, settings, listening, None).await
+    }
+
+    async fn start_inner(
+        store: Store,
+        capacity: usize,
+        settings: StreamSettings,
+        listening: ListenerSettings,
+        authorizer: Option<Arc<dyn StreamAuthorizer>>,
+    ) -> Self {
         let hub = Hub::new(capacity);
         let live = LiveState::new(store.clone(), Arc::clone(&hub), settings);
+        let live = match authorizer {
+            Some(authorizer) => live.with_authorizer(authorizer),
+            None => live,
+        };
         let (stop, mut stopped) = watch::channel(false);
         let listener = spawn_listener_with(store, Arc::clone(&hub), listening, async move {
             let _ = stopped.wait_for(|stop| *stop).await;

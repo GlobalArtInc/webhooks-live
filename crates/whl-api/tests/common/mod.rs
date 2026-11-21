@@ -3,19 +3,23 @@
 pub mod matrix;
 
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Router;
 use axum::body::Body;
 use axum::extract::ConnectInfo;
 use axum::http::{HeaderMap, Method, Request, StatusCode, header};
+use futures_util::StreamExt;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use tokio::sync::watch;
 use tower::ServiceExt;
 use url::Url;
 use whl_api::{ApiLimits, ApiSettings, ApiState};
 use whl_auth::{AccessControl, AuthSettings, AuthState, OidcClient, SessionLimits};
 use whl_core::client_ip::TrustedProxies;
+use whl_live::{HUB_CAPACITY, Hub, LiveState, StreamSettings};
 use whl_store::{Store, Uuid, VerifiedIdentity};
 use whl_testkit::TestDb;
 
@@ -138,6 +142,7 @@ pub struct SsoHarness {
     pub db: TestDb,
     pub app: Router,
     pub store: Store,
+    pub access: AccessControl,
 }
 
 pub async fn sso_harness() -> SsoHarness {
@@ -179,11 +184,12 @@ async fn build_with_users(mixed: bool, proxies: TrustedProxies) -> SsoHarness {
         AccessControl::sso(auth, RETENTION)
     }
     .with_proxies(proxies);
-    let state = ApiState::new(store.clone(), api_settings()).with_access(access);
+    let state = ApiState::new(store.clone(), api_settings()).with_access(access.clone());
     SsoHarness {
         db,
         app: whl_api::router(state),
         store,
+        access,
     }
 }
 
@@ -298,5 +304,103 @@ fn resolve_defaults() -> whl_store::EndpointSettings {
         response: whl_core::response::ResponseConfig::default(),
         cors: false,
         overflow: whl_store::Overflow::Refuse,
+    }
+}
+
+pub const STREAM_WAIT: Duration = Duration::from_secs(10);
+
+pub struct LiveApp {
+    pub app: Router,
+    _stop: watch::Sender<bool>,
+}
+
+pub struct Sse {
+    pub status: StatusCode,
+    body: axum::body::BodyDataStream,
+    buffer: String,
+}
+
+impl SsoHarness {
+    pub async fn live_app(&self, recheck: Duration) -> LiveApp {
+        let hub = Hub::new(HUB_CAPACITY);
+        let mut settings = StreamSettings::new(RETENTION);
+        settings.recheck_interval = recheck;
+        let live = LiveState::new(self.store.clone(), Arc::clone(&hub), settings)
+            .with_authorizer(whl_api::stream_authorizer(&self.access));
+        let (stop, mut stopped) = watch::channel(false);
+        let listener = whl_live::spawn_listener(self.store.clone(), hub, async move {
+            let _ = stopped.wait_for(|stop| *stop).await;
+        });
+        listener
+            .wait_listening()
+            .await
+            .expect("the listener starts listening");
+        let app =
+            whl_api::guard_routes(whl_live::router(live), &self.access).merge(self.app.clone());
+        LiveApp { app, _stop: stop }
+    }
+}
+
+impl LiveApp {
+    pub async fn open(&self, actor: Option<&Actor>, endpoint: &str) -> Sse {
+        let mut builder = Request::builder().uri(format!("/api/v1/endpoints/{endpoint}/stream"));
+        if let Some(actor) = actor {
+            builder = builder.header(header::COOKIE, &actor.cookie);
+        }
+        let request = builder.body(Body::empty()).expect("the request is valid");
+        let response = self
+            .app
+            .clone()
+            .oneshot(request)
+            .await
+            .expect("the router does not fail");
+        let (parts, body) = response.into_parts();
+        Sse {
+            status: parts.status,
+            body: body.into_data_stream(),
+            buffer: String::new(),
+        }
+    }
+}
+
+impl Sse {
+    pub async fn next_event(&mut self) -> Option<(String, Value)> {
+        loop {
+            while let Some(end) = self.buffer.find("\n\n") {
+                let block: String = self.buffer.drain(..end + 2).collect();
+                let name = block
+                    .lines()
+                    .find_map(|line| line.strip_prefix("event: "))
+                    .map(str::to_owned);
+                if let Some(name) = name {
+                    let data = block
+                        .lines()
+                        .find_map(|line| line.strip_prefix("data: "))
+                        .and_then(|data| serde_json::from_str(data).ok())
+                        .unwrap_or(Value::Null);
+                    return Some((name, data));
+                }
+            }
+            let chunk = tokio::time::timeout(STREAM_WAIT, self.body.next())
+                .await
+                .expect("the stream delivers or ends in time")?;
+            let chunk = chunk.expect("the body chunk is readable");
+            self.buffer.push_str(&String::from_utf8_lossy(&chunk));
+        }
+    }
+
+    pub async fn expect_event(&mut self, name: &str) -> Value {
+        let (event, data) = self
+            .next_event()
+            .await
+            .unwrap_or_else(|| panic!("the stream ended while waiting for {name}"));
+        assert_eq!(event, name, "{data}");
+        data
+    }
+
+    pub async fn expect_end_after_bye(&mut self) {
+        self.expect_event("bye").await;
+        let after = self.next_event().await;
+        assert!(after.is_none(), "an event arrived after bye: {after:?}");
     }
 }

@@ -116,6 +116,8 @@ pub enum ApiError {
     ClaimRefused,
     #[error("nobody with a verified email address has signed in with that email")]
     UserNotFound,
+    #[error("more than one account has verified that email address, so it cannot name one user")]
+    EmailAmbiguous,
     #[error("the user is not a member of this endpoint")]
     MemberNotFound,
     #[error(transparent)]
@@ -301,6 +303,12 @@ impl IntoResponse for ApiError {
             Self::UserNotFound => (
                 StatusCode::NOT_FOUND,
                 "user_not_found",
+                self.to_string(),
+                None,
+            ),
+            Self::EmailAmbiguous => (
+                StatusCode::CONFLICT,
+                "email_ambiguous",
                 self.to_string(),
                 None,
             ),

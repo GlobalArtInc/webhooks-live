@@ -34,7 +34,7 @@ pub struct Fixture {
     pub rule: String,
 }
 
-async fn store_capture(store: &Store, endpoint: &str) -> String {
+pub async fn store_capture(store: &Store, endpoint: &str) -> String {
     let id = CaptureId::generate().expect("an id is generated");
     let outcome = store
         .store_capture(
@@ -121,6 +121,8 @@ pub struct Snapshot {
     title: Option<String>,
     enabled_rules: i64,
     owner: Option<whl_store::Uuid>,
+    last_active_at: OffsetDateTime,
+    forward_jobs: i64,
 }
 
 pub async fn snapshot(harness: &SsoHarness, endpoint: &str) -> Snapshot {
@@ -137,12 +139,26 @@ pub async fn snapshot(harness: &SsoHarness, endpoint: &str) -> Snapshot {
             .expect("the count runs")
         }
     };
-    let (live, title, owner): (bool, Option<String>, Option<whl_store::Uuid>) =
-        sqlx::query_as("SELECT deleted_at IS NULL, title, owner_id FROM endpoints WHERE id = $1")
-            .bind(endpoint)
-            .fetch_one(harness.db.pool())
-            .await
-            .expect("the endpoint row exists");
+    let (live, title, owner, last_active_at): (
+        bool,
+        Option<String>,
+        Option<whl_store::Uuid>,
+        OffsetDateTime,
+    ) = sqlx::query_as(
+        "SELECT deleted_at IS NULL, title, owner_id, last_active_at FROM endpoints WHERE id = $1",
+    )
+    .bind(endpoint)
+    .fetch_one(harness.db.pool())
+    .await
+    .expect("the endpoint row exists");
+    let forward_jobs: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM forward_jobs j JOIN captures c ON c.id = j.capture_id \
+         WHERE c.endpoint_id = $1",
+    )
+    .bind(endpoint)
+    .fetch_one(harness.db.pool())
+    .await
+    .expect("the count runs");
     let enabled_rules: i64 =
         sqlx::query_scalar("SELECT count(*) FROM forward_rules WHERE endpoint_id = $1 AND enabled")
             .bind(endpoint)
@@ -157,6 +173,8 @@ pub async fn snapshot(harness: &SsoHarness, endpoint: &str) -> Snapshot {
         title,
         enabled_rules,
         owner,
+        last_active_at,
+        forward_jobs,
     }
 }
 
@@ -245,4 +263,70 @@ pub fn error_code(reply: &super::Reply) -> String {
         .as_str()
         .unwrap_or_default()
         .to_owned()
+}
+
+const UNDECODABLE_IDS: [&str; 5] = ["%ff", "%c0%af", "%80", "ab%fe%ffcd", "%e2%28%a1"];
+
+pub async fn assert_undecodable_ids_are_not_found(harness: &SsoHarness, actors: &[Option<&Actor>]) {
+    let probes: [(Method, &str, &str, bool); 7] = [
+        (Method::GET, "", "", true),
+        (Method::GET, "/captures", "", true),
+        (Method::PATCH, "", r#"{"title":"x"}"#, true),
+        (Method::DELETE, "", "", true),
+        (Method::GET, "/forward-rules", "", true),
+        (Method::GET, "/members", "", false),
+        (
+            Method::PUT,
+            "/members",
+            r#"{"email":"a@b.test","role":"viewer"}"#,
+            false,
+        ),
+    ];
+    for id in UNDECODABLE_IDS {
+        for (method, suffix, body, plain) in &probes {
+            for actor in actors {
+                let label = format!("{method} {id}{suffix}");
+                let bad = harness
+                    .send_as(
+                        *actor,
+                        method.clone(),
+                        &format!("/api/v1/endpoints/{id}{suffix}"),
+                        body,
+                    )
+                    .await;
+                let malformed = harness
+                    .send_as(
+                        *actor,
+                        method.clone(),
+                        &format!("/api/v1/endpoints/not-an-id{suffix}"),
+                        body,
+                    )
+                    .await;
+                assert_ne!(bad.status, StatusCode::INTERNAL_SERVER_ERROR, "{label}");
+                assert_eq!(bad.status, malformed.status, "{label}");
+                assert_eq!(bad.body, malformed.body, "{label}");
+                if *plain {
+                    assert_eq!(bad.status, StatusCode::NOT_FOUND, "{label}");
+                    assert_eq!(error_code(&bad), "not_found", "{label}");
+                }
+            }
+        }
+    }
+}
+
+pub async fn assert_undecodable_claim_is_not_found_once_signed_in(
+    harness: &SsoHarness,
+    signed_in: &Actor,
+) {
+    for id in UNDECODABLE_IDS {
+        let uri = format!("/api/v1/endpoints/{id}/claim");
+        let reply = harness
+            .send_as(Some(signed_in), Method::POST, &uri, "")
+            .await;
+        assert_eq!(reply.status, StatusCode::NOT_FOUND, "{id}");
+        assert_eq!(error_code(&reply), "not_found", "{id}");
+        let anonymous = harness.send_as(None, Method::POST, &uri, "").await;
+        assert_ne!(anonymous.status, StatusCode::INTERNAL_SERVER_ERROR, "{id}");
+        assert_ne!(anonymous.status, StatusCode::NOT_FOUND, "{id}");
+    }
 }

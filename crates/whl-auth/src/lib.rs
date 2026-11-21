@@ -22,11 +22,14 @@ pub use access::{Decision, decide_access};
 pub use cookies::{CookiePolicy, LoginCookie};
 pub use current_user::CurrentUser;
 pub use error::{AccessDenied, AuthError, AuthRejection, LoginFailure};
-pub use gate::{Access, AccessControl, AccessMode, Caller, Creation, Requirement};
+pub use gate::{Access, AccessControl, AccessMode, Caller, Creation, EndpointParam, Requirement};
 pub use origin::{OriginCheck, OriginCheckService};
 pub use provider::CLOCK_LEEWAY;
 pub use return_to::sanitize as sanitize_return_to;
-pub use settings::{AuthSettings, DEFAULT_MAX_PENDING_LOGINS, OidcClient, SessionLimits};
+pub use settings::{
+    AuthSettings, DEFAULT_MAX_PENDING_LOGINS, DEFAULT_MAX_PENDING_LOGINS_PER_NETWORK, OidcClient,
+    SessionLimits,
+};
 pub use state::{AuthState, DiscoveryBackoff};
 pub use whl_store::EndpointRole;
 

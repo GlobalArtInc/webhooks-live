@@ -1,3 +1,4 @@
+mod authorize;
 mod emit;
 mod event;
 mod guard;
@@ -9,6 +10,7 @@ mod route;
 mod sse;
 mod view;
 
+pub use authorize::{AllowAll, StreamAuthorizer, StreamRequest, StreamVerdict, VerdictFuture};
 pub use event::{DecodeError, Event, JsonText, Lookup, Notification, Outcome, ResyncReason};
 pub use guard::{WRITE_TIMEOUT, WriteTimeout};
 pub use hub::{HUB_CAPACITY, Hub, Subscription};

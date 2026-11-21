@@ -117,6 +117,7 @@ pub enum Event {
     Resync {
         reason: ResyncReason,
     },
+    AccessChanged,
     Bye,
 }
 
@@ -159,6 +160,7 @@ impl Notification {
                 lookup: Arc::default(),
             },
             "endpoint_deleted" => Event::EndpointDeleted,
+            "access_changed" => Event::AccessChanged,
             "forward_result" => forward_result(&envelope)?,
             _ => return Err(DecodeError::UnknownType { kind: envelope.t }),
         };
@@ -176,6 +178,7 @@ impl Event {
             Self::EndpointDeleted => "endpoint_deleted",
             Self::ForwardResult { .. } => "forward_result",
             Self::Resync { .. } => "resync",
+            Self::AccessChanged => "access_changed",
             Self::Bye => "bye",
         }
     }
@@ -200,6 +203,7 @@ impl Event {
             Self::CapturesCleared | Self::EndpointDeleted | Self::Bye => {
                 Some(EMPTY_OBJECT.to_owned())
             }
+            Self::AccessChanged => None,
             Self::Resync { reason } => Some(format!(r#"{{"reason":"{}"}}"#, reason.as_str())),
         }
     }
@@ -319,6 +323,10 @@ mod tests {
         assert_eq!(
             decoded(&without_data("endpoint_deleted")),
             Event::EndpointDeleted
+        );
+        assert_eq!(
+            decoded(&without_data("access_changed")),
+            Event::AccessChanged
         );
     }
 

@@ -82,7 +82,9 @@ async fn delivers_every_event_type_with_its_data() {
     assert_eq!(view["last_seq"], 1);
     assert_eq!(view["response"]["status"], 200);
     assert_eq!(view["forward_rules"], serde_json::json!([]));
-    assert_eq!(view["owner"], serde_json::Value::Null);
+    let keys = view.as_object().expect("the view is an object");
+    assert!(!keys.contains_key("owner"));
+    assert!(!keys.contains_key("my_role"));
 
     let result =
         forward_result_notification(&endpoint, &capture, &job).expect("the payload encodes");

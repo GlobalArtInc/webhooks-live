@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::time::Duration;
 
 use sqlx::postgres::PgRow;
@@ -87,6 +88,35 @@ impl Store {
             .await
             .map_err(classify)?;
         rows.iter().map(rule_from_row).collect()
+    }
+
+    pub async fn list_forward_rules_for(
+        &self,
+        endpoints: &[EndpointId],
+    ) -> Result<HashMap<EndpointId, Vec<ForwardRule>>, ForwardStoreError> {
+        let mut grouped: HashMap<EndpointId, Vec<ForwardRule>> = HashMap::new();
+        if endpoints.is_empty() {
+            return Ok(grouped);
+        }
+        let ids: Vec<&str> = endpoints.iter().map(EndpointId::unpack).collect();
+        let sql = format!(
+            "SELECT endpoint_id, {} FROM forward_rules WHERE endpoint_id = ANY($1) \
+             ORDER BY endpoint_id, created_at, position",
+            columns()
+        );
+        let rows = sqlx::query(&sql)
+            .bind(&ids)
+            .fetch_all(self.pool())
+            .await
+            .map_err(classify)?;
+        for row in &rows {
+            let owner: String = row.try_get("endpoint_id").map_err(classify)?;
+            let owner = EndpointId::parse(&owner).map_err(|error| {
+                ForwardStoreError::Invalid(format!("stored endpoint id {owner:?}: {error}"))
+            })?;
+            grouped.entry(owner).or_default().push(rule_from_row(row)?);
+        }
+        Ok(grouped)
     }
 
     pub async fn create_forward_rule(

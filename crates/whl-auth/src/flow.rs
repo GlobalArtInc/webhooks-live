@@ -1,8 +1,12 @@
-use axum::extract::{RawQuery, State};
+use std::net::{IpAddr, SocketAddr};
+
+use axum::Extension;
+use axum::extract::{ConnectInfo, RawQuery, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use url::form_urlencoded;
-use whl_store::LoginRecord;
+use whl_core::creator_net::CreatorNet;
+use whl_store::{LoginCaps, LoginRecord};
 
 use crate::cookies::{self, CookieError, LoginCookie};
 use crate::error::{AuthRejection, LoginFailure};
@@ -78,6 +82,7 @@ fn failed_login(auth: &AuthState, failure: LoginFailure, cookie: Option<&LoginCo
 
 pub(crate) async fn login(
     State(auth): State<AuthState>,
+    connect: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
     RawQuery(query): RawQuery,
 ) -> Response {
@@ -85,14 +90,27 @@ pub(crate) async fn login(
         Ok(provider) => provider,
         Err(rejection) => return rejection.into_response(),
     };
-    match start_login(&auth, provider, &headers, query.as_deref()).await {
+    let client =
+        connect.map(|Extension(ConnectInfo(peer))| client_network(&auth, peer.ip(), &headers));
+    match start_login(&auth, provider, &headers, query.as_deref(), client.as_ref()).await {
         Ok(response) => response,
         Err(LoginFailure::Busy) => {
             tracing::warn!("refused a sign-in because too many are pending");
             AuthRejection::LoginBusy.into_response()
         }
+        Err(LoginFailure::RateLimited) => {
+            tracing::warn!(
+                network = client.map(|net| net.to_string()),
+                "refused a sign-in because too many are pending from its network"
+            );
+            AuthRejection::LoginRateLimited.into_response()
+        }
         Err(failure) => failed_login(&auth, failure, None),
     }
+}
+
+fn client_network(auth: &AuthState, peer: IpAddr, headers: &HeaderMap) -> CreatorNet {
+    CreatorNet::from_ip(auth.proxies().resolve(peer, headers).client_ip)
 }
 
 async fn start_login(
@@ -100,6 +118,7 @@ async fn start_login(
     provider: &Provider,
     headers: &HeaderMap,
     query: Option<&str>,
+    client: Option<&CreatorNet>,
 ) -> Result<Response, LoginFailure> {
     let destination = return_to::sanitize(query_value(query, "return_to").as_deref());
     let state = random()?;
@@ -118,7 +137,11 @@ async fn start_login(
             &login_key(state.unpack(), &binding),
             &record,
             auth.settings().login_ttl(),
-            auth.settings().max_pending_logins(),
+            LoginCaps {
+                total: auth.settings().max_pending_logins(),
+                per_network: auth.settings().max_pending_logins_per_network(),
+            },
+            client,
         )
         .await?;
     let login_cookie = auth.cookies().login_cookie(&state);

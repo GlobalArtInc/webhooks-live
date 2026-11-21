@@ -12,7 +12,7 @@ use axum::response::Response;
 use axum::routing::get;
 use common::{Harness, Jar, send};
 use serde_json::{Value, json};
-use whl_auth::{Access, AccessControl, AccessMode, Caller, Requirement};
+use whl_auth::{Access, AccessControl, AccessMode, Caller, EndpointParam, Requirement};
 use whl_core::client_ip::TrustedProxies;
 use whl_store::{EndpointRole, EndpointSettings, Overflow};
 
@@ -30,14 +30,9 @@ async fn gate(
     request: Request,
     next: Next,
 ) -> Response {
-    let id = params.ok().and_then(|params| {
-        params
-            .iter()
-            .find(|(name, _)| *name == "id")
-            .map(|(_, value)| value.to_owned())
-    });
+    let id = EndpointParam::from_path(&params, "id");
     gate.access
-        .enforce(gate.requirement, id.as_deref(), request, next)
+        .enforce(gate.requirement, id, request, next)
         .await
 }
 

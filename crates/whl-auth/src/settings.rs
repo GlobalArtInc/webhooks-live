@@ -13,6 +13,7 @@ const MAX_TOUCH_INTERVAL: Duration = Duration::from_secs(60);
 const CALLBACK_PATH: &str = "/auth/callback";
 const MAX_SESSION_LIFETIME: Duration = Duration::from_secs(90 * 24 * 3600);
 pub const DEFAULT_MAX_PENDING_LOGINS: u32 = 50_000;
+pub const DEFAULT_MAX_PENDING_LOGINS_PER_NETWORK: u32 = 100;
 
 #[derive(Clone, Copy)]
 pub struct OidcClient<'a> {
@@ -52,6 +53,7 @@ pub struct AuthSettings {
     pub(crate) touch_after: Duration,
     pub(crate) provider_name: Option<String>,
     pub(crate) max_pending_logins: u32,
+    pub(crate) max_pending_logins_per_network: u32,
 }
 
 impl AuthSettings {
@@ -177,6 +179,7 @@ impl AuthSettings {
             touch_after: (limits.idle / 4).min(MAX_TOUCH_INTERVAL),
             provider_name: None,
             max_pending_logins: DEFAULT_MAX_PENDING_LOGINS,
+            max_pending_logins_per_network: DEFAULT_MAX_PENDING_LOGINS_PER_NETWORK,
         })
     }
 
@@ -196,12 +199,27 @@ impl AuthSettings {
         Ok(self)
     }
 
+    pub fn with_max_pending_logins_per_network(mut self, maximum: u32) -> Result<Self, AuthError> {
+        if maximum == 0 {
+            return Err(AuthError::InvalidConfig {
+                key: "max_pending_logins_per_network",
+                reason: "it must be at least 1".to_owned(),
+            });
+        }
+        self.max_pending_logins_per_network = maximum;
+        Ok(self)
+    }
+
     pub fn provider_name(&self) -> Option<&str> {
         self.provider_name.as_deref()
     }
 
     pub fn max_pending_logins(&self) -> u32 {
         self.max_pending_logins
+    }
+
+    pub fn max_pending_logins_per_network(&self) -> u32 {
+        self.max_pending_logins_per_network
     }
 
     pub fn login_ttl(&self) -> Duration {

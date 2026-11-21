@@ -3,7 +3,8 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::extract::{ConnectInfo, FromRequestParts, Request};
+use axum::extract::rejection::RawPathParamsRejection;
+use axum::extract::{ConnectInfo, FromRequestParts, RawPathParams, Request};
 use axum::http::HeaderMap;
 use axum::http::request::Parts;
 use axum::middleware::Next;
@@ -279,11 +280,30 @@ pub enum Requirement {
     OwnedRole(EndpointRole),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EndpointParam {
+    Present(String),
+    Undecodable,
+    Absent,
+}
+
+impl EndpointParam {
+    pub fn from_path(params: &Result<RawPathParams, RawPathParamsRejection>, name: &str) -> Self {
+        match params {
+            Err(_) => Self::Undecodable,
+            Ok(params) => params
+                .iter()
+                .find(|(candidate, _)| *candidate == name)
+                .map_or(Self::Absent, |(_, value)| Self::Present(value.to_owned())),
+        }
+    }
+}
+
 impl AccessControl {
     pub async fn enforce(
         &self,
         requirement: Requirement,
-        endpoint_param: Option<&str>,
+        endpoint_param: EndpointParam,
         mut request: Request,
         next: Next,
     ) -> Response {
@@ -314,7 +334,7 @@ impl AccessControl {
             Requirement::Role(needed) | Requirement::OwnedRole(needed) => {
                 let owned_only = matches!(requirement, Requirement::OwnedRole(_));
                 match self
-                    .decide_on_endpoint(&caller, needed, owned_only, endpoint_param)
+                    .decide_on_endpoint(&caller, needed, owned_only, &endpoint_param)
                     .await
                 {
                     Ok(role) => Some(Access {
@@ -325,6 +345,9 @@ impl AccessControl {
                 }
             }
         };
+        if endpoint_param == EndpointParam::Undecodable {
+            return AuthRejection::NotFound.into_response();
+        }
         request.extensions_mut().insert(caller);
         if let Some(access) = access {
             request.extensions_mut().insert(access);
@@ -337,16 +360,19 @@ impl AccessControl {
         caller: &Caller,
         needed: EndpointRole,
         owned_only: bool,
-        endpoint_param: Option<&str>,
+        endpoint_param: &EndpointParam,
     ) -> Result<Option<EndpointRole>, Refusal> {
-        let Some(raw) = endpoint_param else {
+        if *endpoint_param == EndpointParam::Absent {
             tracing::error!("a role-gated route has no endpoint id parameter");
             return Err(AuthRejection::Internal.into());
-        };
+        }
         let person_only = owned_only && self.is_mixed();
         if person_only && caller.user().is_none() {
             return Err(AuthRejection::SignInRequired.into());
         }
+        let EndpointParam::Present(raw) = endpoint_param else {
+            return Err(AuthRejection::NotFound.into());
+        };
         let Ok(endpoint) = EndpointId::parse(raw) else {
             return Err(AuthRejection::NotFound.into());
         };

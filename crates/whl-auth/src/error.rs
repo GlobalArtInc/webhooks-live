@@ -40,6 +40,8 @@ pub enum LoginFailure {
     EmailVerifiedInvalid,
     #[error("too many sign-ins are pending")]
     Busy,
+    #[error("too many sign-ins are pending from this network")]
+    RateLimited,
     #[error("the sign-in could not be completed right now")]
     Unavailable,
     #[error("the sign-in failed unexpectedly")]
@@ -58,6 +60,7 @@ impl LoginFailure {
             Self::EmailNotVerified => "email_not_verified",
             Self::EmailVerifiedInvalid => "email_verified_invalid",
             Self::Busy => "busy",
+            Self::RateLimited => "login_rate_limited",
             Self::Unavailable => "unavailable",
             Self::Internal => "internal_error",
         }
@@ -69,6 +72,7 @@ impl From<AuthStoreError> for LoginFailure {
         match error {
             AuthStoreError::Unavailable(_) => Self::Unavailable,
             AuthStoreError::LoginsFull => Self::Busy,
+            AuthStoreError::LoginsFullForNetwork => Self::RateLimited,
             AuthStoreError::Query(_) | AuthStoreError::Invalid(_) => Self::Internal,
         }
     }
@@ -96,6 +100,8 @@ pub enum AuthRejection {
     AuthUnavailable,
     #[error("too many sign-ins are pending, try again shortly")]
     LoginBusy,
+    #[error("too many sign-ins were started from this network, try again shortly")]
+    LoginRateLimited,
     #[error("the request could not be completed")]
     Internal,
 }
@@ -105,6 +111,7 @@ impl From<AuthStoreError> for AuthRejection {
         match error {
             AuthStoreError::Unavailable(_) => Self::StoreUnavailable,
             AuthStoreError::LoginsFull => Self::LoginBusy,
+            AuthStoreError::LoginsFullForNetwork => Self::LoginRateLimited,
             other @ (AuthStoreError::Query(_) | AuthStoreError::Invalid(_)) => {
                 tracing::error!(%other, "auth storage failed");
                 Self::Internal
@@ -161,10 +168,14 @@ impl IntoResponse for AuthRejection {
             Self::StoreUnavailable => (StatusCode::SERVICE_UNAVAILABLE, "store_unavailable"),
             Self::AuthUnavailable => (StatusCode::SERVICE_UNAVAILABLE, "auth_unavailable"),
             Self::LoginBusy => (StatusCode::SERVICE_UNAVAILABLE, "login_busy"),
+            Self::LoginRateLimited => (StatusCode::TOO_MANY_REQUESTS, "login_rate_limited"),
             Self::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "internal_error"),
         };
         let mut response = error_response(status, code, self.to_string());
-        if matches!(self, Self::AuthUnavailable | Self::LoginBusy) {
+        if matches!(
+            self,
+            Self::AuthUnavailable | Self::LoginBusy | Self::LoginRateLimited
+        ) {
             response.headers_mut().insert(
                 header::RETRY_AFTER,
                 HeaderValue::from_static(LONG_RETRY_AFTER),

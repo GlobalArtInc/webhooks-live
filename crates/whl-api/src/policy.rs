@@ -4,7 +4,7 @@ use axum::extract::{MatchedPath, RawPathParams, Request, State};
 use axum::http::Method;
 use axum::middleware::{Next, from_fn_with_state};
 use axum::response::Response;
-use whl_auth::{AccessControl, AccessMode, EndpointRole, Requirement};
+use whl_auth::{AccessControl, AccessMode, EndpointParam, EndpointRole, Requirement};
 
 const API_PREFIX: &str = "/api/v1";
 const ENDPOINT_PREFIX: &str = "/endpoints/{id}";
@@ -22,7 +22,7 @@ pub fn requirement(mode: AccessMode, method: &Method, pattern: &str) -> Requirem
             Some(CLAIM_TAIL) if *method == Method::POST => Requirement::SignedIn,
             Some(tail) if is_members_route(tail) => Requirement::OwnedRole(EndpointRole::Owner),
             Some(tail) => Requirement::Role(endpoint_role(method, tail)),
-            None => Requirement::SignedIn,
+            None => Requirement::Role(EndpointRole::Owner),
         },
     }
 }
@@ -70,15 +70,8 @@ async fn guard(
 ) -> Response {
     let pattern = matched.as_ref().map_or("", MatchedPath::as_str);
     let requirement = requirement(access.mode(), request.method(), pattern);
-    let endpoint = params.as_ref().ok().and_then(|params| {
-        params
-            .iter()
-            .find(|(name, _)| *name == ENDPOINT_PARAM)
-            .map(|(_, value)| value.to_owned())
-    });
-    access
-        .enforce(requirement, endpoint.as_deref(), request, next)
-        .await
+    let endpoint = EndpointParam::from_path(&params, ENDPOINT_PARAM);
+    access.enforce(requirement, endpoint, request, next).await
 }
 
 pub fn guard_routes<S>(routes: Router<S>, access: &AccessControl) -> Router<S>
@@ -192,7 +185,7 @@ mod tests {
     }
 
     #[test]
-    fn routes_without_an_endpoint_need_sign_in_except_the_instance() {
+    fn the_listing_needs_sign_in_the_instance_is_open_and_an_unknown_pattern_needs_the_owner() {
         for mode in MODES {
             assert_eq!(
                 requirement(mode, &GET, "/api/v1/instance"),
@@ -202,11 +195,13 @@ mod tests {
                 requirement(mode, &GET, "/api/v1/endpoints"),
                 Requirement::SignedIn
             );
-            assert_eq!(
-                requirement(mode, &GET, "/api/v1/tokens"),
-                Requirement::SignedIn
-            );
-            assert_eq!(requirement(mode, &GET, ""), Requirement::SignedIn);
+            for pattern in ["/api/v1/tokens", "", "/", "/api/v1", "/api/v1/endpointsx"] {
+                assert_eq!(
+                    requirement(mode, &GET, pattern),
+                    Requirement::Role(EndpointRole::Owner),
+                    "{mode:?} {pattern:?}"
+                );
+            }
         }
     }
 

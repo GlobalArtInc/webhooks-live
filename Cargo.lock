@@ -4584,6 +4584,7 @@ dependencies = [
  "whl-auth",
  "whl-core",
  "whl-forward",
+ "whl-live",
  "whl-store",
  "whl-telemetry",
  "whl-testkit",

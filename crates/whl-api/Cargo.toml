@@ -17,6 +17,7 @@ tracing.workspace = true
 whl-auth.workspace = true
 whl-core.workspace = true
 whl-forward.workspace = true
+whl-live.workspace = true
 whl-store.workspace = true
 whl-telemetry.workspace = true
 

@@ -6,6 +6,7 @@ use time::OffsetDateTime;
 use whl_core::endpoint_id::EndpointId;
 
 use crate::auth::{EndpointRole, UserRecord, user_from_row};
+use crate::captures::EVENT_CHANNEL;
 use crate::endpoints::{EndpointError, EndpointRecord, record_from_row};
 use crate::store::Store;
 
@@ -20,8 +21,10 @@ const LIVE_ENDPOINT_SQL: &str = "SELECT owner_id FROM endpoints \
 
 const FIND_USER_BY_EMAIL_SQL: &str = "SELECT id, email, display_name FROM users \
     WHERE lower(email) = lower($1) AND email_verified \
-    ORDER BY last_login_at DESC, created_at DESC, id \
-    LIMIT 1";
+    ORDER BY id \
+    LIMIT 2";
+
+const NOTIFY_SQL: &str = "SELECT pg_notify($1, $2)";
 
 const UPSERT_MEMBER_SQL: &str = "INSERT INTO endpoint_members (endpoint_id, user_id, role) \
     VALUES ($1, $2, $3) \
@@ -92,6 +95,7 @@ pub enum SetMemberOutcome {
     Set(MemberRecord),
     EndpointGone,
     UserNotFound,
+    EmailAmbiguous,
     TargetIsOwner,
 }
 
@@ -210,15 +214,17 @@ impl Store {
         let Some(owner) = owner else {
             return Ok(SetMemberOutcome::EndpointGone);
         };
-        let Some(row) = sqlx::query(FIND_USER_BY_EMAIL_SQL)
+        let candidates = sqlx::query(FIND_USER_BY_EMAIL_SQL)
             .bind(email)
-            .fetch_optional(&mut *tx)
+            .fetch_all(&mut *tx)
             .await
-            .map_err(classify)?
-        else {
-            return Ok(SetMemberOutcome::UserNotFound);
+            .map_err(classify)?;
+        let row = match candidates.as_slice() {
+            [] => return Ok(SetMemberOutcome::UserNotFound),
+            [only] => only,
+            _ => return Ok(SetMemberOutcome::EmailAmbiguous),
         };
-        let user = user_from_row(&row)?;
+        let user = user_from_row(row)?;
         if owner == Some(user.id) {
             return Ok(SetMemberOutcome::TargetIsOwner);
         }
@@ -259,12 +265,18 @@ impl Store {
             .execute(&mut *tx)
             .await
             .map_err(classify)?;
+        if outcome.rows_affected() == 0 {
+            return Ok(RemoveMemberOutcome::NotMember);
+        }
+        let payload = serde_json::json!({ "t": "access_changed", "e": endpoint.unpack() });
+        sqlx::query(NOTIFY_SQL)
+            .bind(EVENT_CHANNEL)
+            .bind(payload.to_string())
+            .execute(&mut *tx)
+            .await
+            .map_err(classify)?;
         tx.commit().await.map_err(classify)?;
-        Ok(if outcome.rows_affected() == 0 {
-            RemoveMemberOutcome::NotMember
-        } else {
-            RemoveMemberOutcome::Removed
-        })
+        Ok(RemoveMemberOutcome::Removed)
     }
 
     pub async fn endpoint_owner(

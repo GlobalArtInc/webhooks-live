@@ -27,6 +27,7 @@ pub struct Options {
     pub max: Duration,
     pub establish: bool,
     pub max_pending_logins: Option<u32>,
+    pub max_pending_per_network: Option<u32>,
 }
 
 impl Default for Options {
@@ -37,6 +38,7 @@ impl Default for Options {
             max: Duration::from_secs(7200),
             establish: true,
             max_pending_logins: None,
+            max_pending_per_network: None,
         }
     }
 }
@@ -77,6 +79,12 @@ pub async fn harness_with(options: Options) -> Harness {
     let settings = match options.max_pending_logins {
         Some(maximum) => settings
             .with_max_pending_logins(maximum)
+            .expect("the maximum is valid"),
+        None => settings,
+    };
+    let settings = match options.max_pending_per_network {
+        Some(maximum) => settings
+            .with_max_pending_logins_per_network(maximum)
             .expect("the maximum is valid"),
         None => settings,
     };
@@ -269,6 +277,15 @@ impl Harness {
 
     pub async fn begin(&self, return_to: Option<&str>) -> Begun {
         self.begin_with(return_to, Jar::default()).await
+    }
+
+    pub async fn begin_from(&self, peer: &str) -> Reply {
+        let mut request = request(Method::GET, "/auth/login", &Jar::default(), &[]);
+        let address = std::net::SocketAddr::new(peer.parse().expect("a valid peer"), 40000);
+        request
+            .extensions_mut()
+            .insert(axum::extract::ConnectInfo(address));
+        send(&self.app, request).await
     }
 
     pub async fn begin_with(&self, return_to: Option<&str>, mut jar: Jar) -> Begun {

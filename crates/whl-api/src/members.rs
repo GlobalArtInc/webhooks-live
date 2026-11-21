@@ -84,6 +84,7 @@ async fn set(
         SetMemberOutcome::Set(member) => Ok(Json(MemberDto::from(&member))),
         SetMemberOutcome::EndpointGone => Err(ApiError::EndpointGone),
         SetMemberOutcome::UserNotFound => Err(ApiError::UserNotFound),
+        SetMemberOutcome::EmailAmbiguous => Err(ApiError::EmailAmbiguous),
         SetMemberOutcome::TargetIsOwner => Err(ApiError::Validation(vec![FieldViolation::new(
             "email",
             FieldCode::NotAllowed,

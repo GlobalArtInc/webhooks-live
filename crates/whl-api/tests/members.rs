@@ -110,32 +110,39 @@ async fn adding_a_member_matches_only_verified_emails_of_known_users() {
 }
 
 #[tokio::test]
-async fn two_subjects_with_one_email_resolve_to_the_most_recent_verified_login() {
+async fn two_verified_subjects_with_one_email_make_the_email_ambiguous() {
     let harness = sso_harness().await;
     let owner = harness.actor("own", "owner@example.test", true).await;
-    let stale = harness.actor("old", "shared@example.test", true).await;
-    let fresh = harness.actor("new", "SHARED@example.test", true).await;
-    let unverified = harness.actor("unv", "shared@example.test", false).await;
-    sqlx::query("UPDATE users SET last_login_at = now() - interval '1 day' WHERE id = $1")
-        .bind(stale.id)
-        .execute(harness.db.pool())
+    harness.actor("old", "shared@example.test", true).await;
+    harness.actor("new", "SHARED@example.test", true).await;
+    let endpoint = harness.endpoint_for(&owner).await;
+
+    for email in ["shared@example.test", "Shared@Example.Test"] {
+        let reply = put_member(&harness, &owner, &endpoint, email, "viewer").await;
+        assert_eq!(reply.status, StatusCode::CONFLICT, "{email}");
+        assert_eq!(code(&reply), "email_ambiguous", "{email}");
+    }
+    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM endpoint_members")
+        .fetch_one(harness.db.pool())
         .await
-        .expect("the login time is aged");
-    sqlx::query("UPDATE users SET last_login_at = now() + interval '1 day' WHERE id = $1")
-        .bind(unverified.id)
-        .execute(harness.db.pool())
-        .await
-        .expect("the login time is moved");
+        .expect("the count runs");
+    assert_eq!(rows, 0);
+}
+
+#[tokio::test]
+async fn an_unverified_twin_does_not_make_a_verified_email_ambiguous() {
+    let harness = sso_harness().await;
+    let owner = harness.actor("own", "owner@example.test", true).await;
+    let verified = harness.actor("ver", "shared@example.test", true).await;
+    harness.actor("unv", "shared@example.test", false).await;
     let endpoint = harness.endpoint_for(&owner).await;
 
     let reply = put_member(&harness, &owner, &endpoint, "shared@example.test", "viewer").await;
     assert_eq!(reply.status, StatusCode::OK);
     assert_eq!(
         reply.json()["user"]["id"],
-        Value::String(fresh.id.hyphenated().to_string())
+        Value::String(verified.id.hyphenated().to_string())
     );
-    let again = put_member(&harness, &owner, &endpoint, "shared@example.test", "editor").await;
-    assert_eq!(again.json()["user"]["id"], reply.json()["user"]["id"]);
 }
 
 #[tokio::test]

@@ -68,8 +68,6 @@ struct EndpointData<'a> {
     created_at: &'a str,
     last_active_at: &'a str,
     expires_at: &'a str,
-    owner: Option<&'a str>,
-    my_role: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -158,8 +156,6 @@ pub fn endpoint_json(
         created_at: &view.created_at,
         last_active_at: &view.last_active_at,
         expires_at: &view.expires_at,
-        owner: None,
-        my_role: None,
     };
     serde_json::to_string(&data).map(JsonText::from_serialized)
 }

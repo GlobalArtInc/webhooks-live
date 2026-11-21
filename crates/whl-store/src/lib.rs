@@ -13,8 +13,8 @@ mod store;
 pub mod stream;
 
 pub use auth::{
-    AuthStoreError, EndpointRole, EndpointStanding, LoginRecord, SessionLifetime, UserRecord,
-    VerifiedIdentity,
+    AuthStoreError, EndpointRole, EndpointStanding, LoginCaps, LoginRecord, SessionLifetime,
+    UserRecord, VerifiedIdentity,
 };
 pub use capture_queries::{
     CaptureBody, CaptureDetail, CaptureError, CaptureFilter, CaptureForm, CapturePage,

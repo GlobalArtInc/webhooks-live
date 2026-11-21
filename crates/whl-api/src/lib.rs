@@ -13,6 +13,7 @@ mod policy;
 mod resolve;
 mod settings;
 mod state;
+mod stream;
 
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
@@ -26,6 +27,7 @@ pub use limit::{ApiLimits, enforce_rate_limit};
 pub use policy::guard_routes;
 pub use settings::ApiSettings;
 pub use state::ApiState;
+pub use stream::stream_authorizer;
 
 use error::ApiError;
 

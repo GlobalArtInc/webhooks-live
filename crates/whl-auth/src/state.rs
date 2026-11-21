@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use axum::http::HeaderMap;
 use openidconnect::reqwest;
+use whl_core::client_ip::TrustedProxies;
 use whl_store::{SessionLifetime, Store, UserRecord};
 
 use crate::cookies::CookiePolicy;
@@ -27,6 +28,7 @@ struct Inner {
 #[derive(Clone)]
 pub struct AuthState {
     inner: Arc<Inner>,
+    proxies: TrustedProxies,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,7 +76,17 @@ impl AuthState {
                 cookies,
                 origin,
             }),
+            proxies: TrustedProxies::default(),
         })
+    }
+
+    pub fn with_proxies(mut self, proxies: TrustedProxies) -> Self {
+        self.proxies = proxies;
+        self
+    }
+
+    pub(crate) fn proxies(&self) -> &TrustedProxies {
+        &self.proxies
     }
 
     pub async fn discover(store: Store, settings: AuthSettings) -> Result<Self, AuthError> {

@@ -116,6 +116,9 @@ struct Snapshot {
     live: bool,
     title: Option<String>,
     enabled_rules: i64,
+    owner: Option<whl_store::Uuid>,
+    last_active_at: OffsetDateTime,
+    forward_jobs: i64,
 }
 
 async fn snapshot(harness: &SsoHarness, endpoint: &str) -> Snapshot {
@@ -132,12 +135,26 @@ async fn snapshot(harness: &SsoHarness, endpoint: &str) -> Snapshot {
             .expect("the count runs")
         }
     };
-    let (live, title): (bool, Option<String>) =
-        sqlx::query_as("SELECT deleted_at IS NULL, title FROM endpoints WHERE id = $1")
-            .bind(endpoint)
-            .fetch_one(harness.db.pool())
-            .await
-            .expect("the endpoint row exists");
+    let (live, title, owner, last_active_at): (
+        bool,
+        Option<String>,
+        Option<whl_store::Uuid>,
+        OffsetDateTime,
+    ) = sqlx::query_as(
+        "SELECT deleted_at IS NULL, title, owner_id, last_active_at FROM endpoints WHERE id = $1",
+    )
+    .bind(endpoint)
+    .fetch_one(harness.db.pool())
+    .await
+    .expect("the endpoint row exists");
+    let forward_jobs: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM forward_jobs j JOIN captures c ON c.id = j.capture_id \
+         WHERE c.endpoint_id = $1",
+    )
+    .bind(endpoint)
+    .fetch_one(harness.db.pool())
+    .await
+    .expect("the count runs");
     let enabled_rules: i64 =
         sqlx::query_scalar("SELECT count(*) FROM forward_rules WHERE endpoint_id = $1 AND enabled")
             .bind(endpoint)
@@ -151,6 +168,9 @@ async fn snapshot(harness: &SsoHarness, endpoint: &str) -> Snapshot {
         live,
         title,
         enabled_rules,
+        owner,
+        last_active_at,
+        forward_jobs,
     }
 }
 
@@ -379,6 +399,22 @@ async fn a_malformed_endpoint_id_is_not_found_for_everyone() {
         assert_eq!(reply.status, StatusCode::NOT_FOUND);
         assert_eq!(error_code(&reply), "not_found");
     }
+}
+
+#[tokio::test]
+async fn an_undecodable_endpoint_id_is_not_found_like_a_malformed_one_for_every_caller() {
+    let harness = sso_harness().await;
+    let cast = cast(&harness).await;
+    let actors = [
+        None,
+        Some(&cast.other),
+        Some(&cast.viewer),
+        Some(&cast.editor),
+        Some(&cast.owner),
+    ];
+    common::matrix::assert_undecodable_ids_are_not_found(&harness, &actors).await;
+    common::matrix::assert_undecodable_claim_is_not_found_once_signed_in(&harness, &cast.other)
+        .await;
 }
 
 async fn get_with_cookies(harness: &SsoHarness, uri: &str, cookies: &[&str]) -> common::Reply {

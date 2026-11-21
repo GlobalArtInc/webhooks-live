@@ -12,6 +12,7 @@ use whl_core::entropy::IdGenerationError;
 use whl_core::header::HeaderInput;
 use whl_core::response::{ResponseConfig, ResponseConfigInput};
 
+use crate::captures::EVENT_CHANNEL;
 use crate::store::Store;
 
 pub(crate) const COLUMNS: &str = "id, title, response_status, response_content_type, \
@@ -212,6 +213,13 @@ impl Store {
             .await
             .map_err(|error| E::from(classify(error)))?;
         let record = record_from_row(&row, retention).map_err(E::from)?;
+        let payload = serde_json::json!({ "t": "endpoint_updated", "e": id.unpack() });
+        sqlx::query("SELECT pg_notify($1, $2)")
+            .bind(EVENT_CHANNEL)
+            .bind(payload.to_string())
+            .execute(&mut *transaction)
+            .await
+            .map_err(|error| E::from(classify(error)))?;
         transaction
             .commit()
             .await

@@ -375,8 +375,18 @@ enum NotBefore {
 fn not_before_of(payload: &serde_json::Value) -> NotBefore {
     match payload.get("nbf") {
         None | Some(serde_json::Value::Null) => NotBefore::Absent,
-        Some(value) => value.as_i64().map_or(NotBefore::Malformed, NotBefore::At),
+        Some(value) => whole_seconds(value).map_or(NotBefore::Malformed, NotBefore::At),
     }
+}
+
+const MAX_FRACTIONAL_SECONDS: f64 = 1e15;
+
+fn whole_seconds(value: &serde_json::Value) -> Option<i64> {
+    if let Some(seconds) = value.as_i64() {
+        return Some(seconds);
+    }
+    let seconds = value.as_f64()?.ceil();
+    (seconds.is_finite() && seconds.abs() < MAX_FRACTIONAL_SECONDS).then_some(seconds as i64)
 }
 
 fn classify_unparseable(body: &[u8]) -> LoginFailure {
@@ -486,13 +496,19 @@ mod tests {
     }
 
     #[test]
-    fn not_before_is_read_as_a_whole_number_or_flagged() {
+    fn not_before_is_read_as_a_number_rounded_up_or_flagged() {
         use serde_json::json;
         assert_eq!(not_before_of(&json!({})), NotBefore::Absent);
         assert_eq!(not_before_of(&json!({ "nbf": null })), NotBefore::Absent);
         assert_eq!(not_before_of(&json!({ "nbf": 12 })), NotBefore::At(12));
         assert_eq!(not_before_of(&json!({ "nbf": "12" })), NotBefore::Malformed);
-        assert_eq!(not_before_of(&json!({ "nbf": 12.5 })), NotBefore::Malformed);
+        assert_eq!(not_before_of(&json!({ "nbf": 12.5 })), NotBefore::At(13));
+        assert_eq!(not_before_of(&json!({ "nbf": 12.0 })), NotBefore::At(12));
+        assert_eq!(
+            not_before_of(&json!({ "nbf": 1e300 })),
+            NotBefore::Malformed
+        );
+        assert_eq!(not_before_of(&json!({ "nbf": true })), NotBefore::Malformed);
     }
 
     fn response_with(claims: &serde_json::Value) -> Vec<u8> {

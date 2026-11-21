@@ -84,7 +84,9 @@ impl Bound {
         let readiness = Arc::new(Readiness::default());
         let worker = self.forward.worker(&store)?;
         let auth = match self.auth.clone() {
-            Some(settings) => Some(AuthState::new(store.clone(), settings)?),
+            Some(settings) => {
+                Some(AuthState::new(store.clone(), settings)?.with_proxies(self.proxies.clone()))
+            }
             None => None,
         };
         let access = match &auth {
@@ -101,6 +103,7 @@ impl Bound {
             None => AccessControl::open(),
         }
         .with_proxies(self.proxies.clone());
+        let authorizer = whl_api::stream_authorizer(&access);
         let state = ApiState::new(store.clone(), self.api.clone())
             .with_access(access)
             .with_limits(self.api_limits.clone())
@@ -118,7 +121,8 @@ impl Bound {
             Arc::clone(&hub),
             StreamSettings::new(self.retention)
                 .with_instance(self.api.public_url.clone(), self.api.max_captures),
-        );
+        )
+        .with_authorizer(authorizer);
         let listener = whl_live::spawn_listener(
             store.clone(),
             Arc::clone(&hub),
