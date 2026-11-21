@@ -790,7 +790,9 @@ async fn the_stream_takes_the_grant_in_a_header_or_the_query_and_no_other_route_
     let mut by_query = app
         .open_with_headers(&format!("{stream}?last_event_id=0&grant={grant}"), &[])
         .await;
-    let mut by_header = app.open_with_headers(&stream, &[(GRANT_HEADER, &grant)]).await;
+    let mut by_header = app
+        .open_with_headers(&stream, &[(GRANT_HEADER, &grant)])
+        .await;
     let elsewhere = harness
         .send_with(
             None,

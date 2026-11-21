@@ -10,9 +10,9 @@ mod refusal;
 mod response;
 mod seams;
 mod state;
+mod target;
 mod template;
 mod verification;
-mod target;
 
 use axum::Router;
 use axum::middleware::from_fn_with_state;

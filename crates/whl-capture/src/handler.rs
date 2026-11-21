@@ -24,9 +24,9 @@ use crate::refusal::{Failure, Refusal};
 use crate::response::{Content, ReplyRequest, build_content, build_response, is_preflight};
 use crate::seams::Admission;
 use crate::state::CaptureState;
+use crate::target::{Target, resolve, route};
 use crate::template::{RenderInput, Rendering, Served};
 use crate::verification::{Presented, verify_capture};
-use crate::target::{Target, resolve, route};
 
 const REDACTED_VALUE: &str = "[redacted]";
 

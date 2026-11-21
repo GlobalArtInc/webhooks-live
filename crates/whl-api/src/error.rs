@@ -7,8 +7,8 @@ use whl_auth::{AccessDenied, AuthRejection};
 use whl_core::validation::{FieldPath, Violation, ViolationCode};
 use whl_script::LimitsError;
 use whl_secrets::{MAX_SECRETS_PER_ENDPOINT, MacError, SealError};
-use whl_store::composer::ComposerStoreError;
 use whl_store::captures::CaptureStoreError;
+use whl_store::composer::ComposerStoreError;
 use whl_store::forward::ForwardStoreError;
 use whl_store::notify::{
     MAX_CHANNELS_PER_ENDPOINT, MAX_PUSH_SUBSCRIPTIONS_PER_USER, NotifyStoreError,

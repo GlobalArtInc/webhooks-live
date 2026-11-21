@@ -140,8 +140,7 @@ async fn store_new_endpoint_with_view(
         Creation::Owned(user) => (Some(*user), None),
         Creation::Anonymous { network } => (None, network.as_ref()),
     };
-    let view_hash =
-        view_password::prepare(state, caller.ip(), &parsed.patch.view_password).await?;
+    let view_hash = view_password::prepare(state, caller.ip(), &parsed.patch.view_password).await?;
     let new = NewEndpoint {
         id: &id,
         owner: owner_id,

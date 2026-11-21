@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use axum::http::HeaderMap;
 use whl_auth::{AccessControl, AccessMode, AuthRejection, Caller, Decision, EndpointRole};
 use whl_core::endpoint_id::EndpointId;
 use whl_live::{INBOX_MAX_ANONYMOUS_ENDPOINTS, INBOX_MAX_ENDPOINTS};
@@ -121,6 +122,8 @@ pub struct SelectionRequest<'a> {
     pub endpoints: Option<&'a str>,
     pub folder: Option<&'a str>,
     pub resumed: Option<Vec<EndpointId>>,
+    pub headers: &'a HeaderMap,
+    pub grant_query: Option<&'a str>,
 }
 
 pub async fn select(
@@ -150,7 +153,16 @@ pub async fn select(
             }
         }
     };
-    let allowed = viewable(access, store, retention, caller, &candidates).await?;
+    let mut allowed = viewable(access, store, retention, caller, &candidates).await?;
+    for (endpoint, allowed) in candidates.iter().zip(allowed.iter_mut()) {
+        if *allowed
+            && !access
+                .view_grant_valid(endpoint, request.headers, request.grant_query)
+                .await?
+        {
+            *allowed = false;
+        }
+    }
     if strict && allowed.iter().any(|allowed| !allowed) {
         return Err(ApiError::EndpointGone);
     }

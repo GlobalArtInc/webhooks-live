@@ -924,6 +924,18 @@ mod tests {
             (&GET, ""),
             (&POST, "/api/v1/endpoints/import"),
             (&POST, "/api/v1/endpoints/{id}/import"),
+            (&POST, "/api/v1/endpoints/{id}/clone"),
+            (&GET, "/api/v1/templates"),
+            (&POST, "/api/v1/templates"),
+            (&GET, "/api/v1/email-addresses"),
+            (&POST, "/api/v1/email-addresses"),
+            (&DELETE, "/api/v1/email-addresses/{address_id}"),
+            (&POST, "/api/v1/email-addresses/verify"),
+            (&POST, "/api/v1/notifications/disable"),
+            (&GET, "/api/v1/push/public-key"),
+            (&GET, "/api/v1/push/subscriptions"),
+            (&POST, "/api/v1/push/subscriptions"),
+            (&DELETE, "/api/v1/push/subscriptions/{subscription_id}"),
         ] {
             assert_eq!(
                 token_policy(method, pattern),
@@ -931,5 +943,23 @@ mod tests {
                 "{method} {pattern}"
             );
         }
+    }
+
+    #[test]
+    fn the_usage_route_and_the_unlock_route_take_the_read_scope() {
+        for (method, pattern) in [
+            (&GET, "/api/v1/usage"),
+            (&POST, "/api/v1/endpoints/{id}/unlock"),
+        ] {
+            assert_eq!(
+                token_policy(method, pattern),
+                TokenPolicy::Scope(TokenScope::Read),
+                "{method} {pattern}"
+            );
+        }
+        assert_eq!(
+            token_policy(&POST, "/api/v1/usage"),
+            TokenPolicy::SessionOnly
+        );
     }
 }

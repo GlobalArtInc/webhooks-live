@@ -91,7 +91,7 @@ pub async fn send(
     }
     let identity = identify(&state, &caller, &input)?;
     if let Some(endpoint) = &input.endpoint {
-        authorize_endpoint(&state, &caller, endpoint, EndpointRole::Viewer).await?;
+        authorize_endpoint(&state, &caller, &headers, endpoint, EndpointRole::Viewer).await?;
     }
     let busy = || ApiError::RateLimited {
         retry_after_secs: OVERLOAD_RETRY_SECONDS,
@@ -265,6 +265,7 @@ async fn record(
 pub async fn history(
     State(state): State<ApiState>,
     caller: Caller,
+    headers: HeaderMap,
     Query(params): Query<HistoryParams>,
 ) -> Result<Json<HistoryDto>, ApiError> {
     if !state.composer.enabled {
@@ -278,7 +279,7 @@ pub async fn history(
     let owner = match params.endpoint_id.as_deref() {
         Some(raw) => {
             let endpoint = EndpointId::parse(raw).map_err(|_| ApiError::NotFound)?;
-            authorize_endpoint(&state, &caller, &endpoint, EndpointRole::Viewer).await?;
+            authorize_endpoint(&state, &caller, &headers, &endpoint, EndpointRole::Viewer).await?;
             SentOwner::Endpoint(endpoint)
         }
         None => match caller.user() {
@@ -296,6 +297,7 @@ pub async fn history(
 pub async fn delete(
     State(state): State<ApiState>,
     caller: Caller,
+    headers: HeaderMap,
     Path(raw): Path<String>,
 ) -> Result<StatusCode, ApiError> {
     if !state.composer.enabled {
@@ -310,7 +312,9 @@ pub async fn delete(
     let allowed = match &owner {
         SentOwner::User(user) => caller.user().is_some_and(|current| current.id == *user),
         SentOwner::Endpoint(endpoint) => {
-            match authorize_endpoint(&state, &caller, endpoint, EndpointRole::Editor).await {
+            match authorize_endpoint(&state, &caller, &headers, endpoint, EndpointRole::Editor)
+                .await
+            {
                 Ok(()) => true,
                 Err(ApiError::Access(_) | ApiError::EndpointGone) => false,
                 Err(other) => return Err(other),
@@ -357,19 +361,29 @@ fn sign_in_needed(access: &AccessControl) -> ApiError {
 async fn authorize_endpoint(
     state: &ApiState,
     caller: &Caller,
+    headers: &HeaderMap,
     endpoint: &EndpointId,
     needed: EndpointRole,
 ) -> Result<(), ApiError> {
     if state.access.mode() == AccessMode::Open {
-        return state
+        state
             .store
             .get_endpoint(endpoint, state.settings.retention)
             .await?
-            .map(|_| ())
-            .ok_or(ApiError::EndpointGone);
+            .ok_or(ApiError::EndpointGone)?;
+    } else {
+        let role = state.access.role_on(caller, endpoint).await?;
+        decide_access(role, needed)
+            .into_result()
+            .map_err(ApiError::Access)?;
     }
-    let role = state.access.role_on(caller, endpoint).await?;
-    decide_access(role, needed)
-        .into_result()
-        .map_err(ApiError::Access)
+    if state
+        .access
+        .view_grant_valid(endpoint, headers, None)
+        .await?
+    {
+        Ok(())
+    } else {
+        Err(ApiError::EndpointGone)
+    }
 }

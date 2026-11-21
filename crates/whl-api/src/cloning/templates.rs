@@ -1,6 +1,6 @@
 use axum::Json;
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 use serde::Serialize;
 use serde_json::Value;
@@ -161,6 +161,7 @@ pub async fn show(
 pub async fn create(
     State(state): State<ApiState>,
     caller: Caller,
+    headers: HeaderMap,
     RawBody(body): RawBody,
 ) -> Result<(StatusCode, Json<TemplateDto>), ApiError> {
     let user = signed_in(&state, &caller)?;
@@ -169,6 +170,13 @@ pub async fn create(
     decide_access(role, EndpointRole::Viewer)
         .into_result()
         .map_err(ApiError::Access)?;
+    if !state
+        .access
+        .view_grant_valid(&source, &headers, None)
+        .await?
+    {
+        return Err(ApiError::EndpointGone);
+    }
     let role = role.ok_or(ApiError::EndpointGone)?;
     let record = state
         .store

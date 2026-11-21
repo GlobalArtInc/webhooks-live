@@ -18,9 +18,7 @@ use super::export::Selection;
 use crate::access;
 use crate::error::{ApiError, FieldCode, FieldViolation};
 use crate::forward::build_rule;
-use crate::input::{
-    AccessPatch, EndpointPatch, ParsedInput, ResponsePatch, parse_endpoint_input,
-};
+use crate::input::{AccessPatch, EndpointPatch, ParsedInput, ResponsePatch, parse_endpoint_input};
 use crate::lifecycle::{self, Standing, combine};
 use crate::notify::build_channel;
 use crate::resolve::{defaults, resolve};

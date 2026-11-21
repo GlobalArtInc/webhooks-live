@@ -378,8 +378,8 @@ fn caps(
     }
     if let Some(recipient) = recipient {
         let email = shared.settings.email;
-        let tier_per_day = hourly(Some(tier.limits().email_notifications_per_day))
-            .unwrap_or(i32::MAX);
+        let tier_per_day =
+            hourly(Some(tier.limits().email_notifications_per_day)).unwrap_or(i32::MAX);
         caps.push(QuotaCap::daily(
             format!("m:{}", recipient.user_id.hyphenated()),
             email.per_user_per_day.min(tier_per_day),

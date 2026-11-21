@@ -466,13 +466,9 @@ impl Rig {
         ))
         .expect("the mailer is valid");
         let generous = limits(1000, 1000, 1000);
-        let mut settings = NotifySettings::new(
-            "https://hooks.example".to_owned(),
-            generous.limits,
-            4,
-            3,
-        )
-        .with_tiers(generous.tiers);
+        let mut settings =
+            NotifySettings::new("https://hooks.example".to_owned(), generous.limits, 4, 3)
+                .with_tiers(generous.tiers);
         settings.poll_interval = Duration::from_millis(100);
         settings.email = email;
         self.run(self.transport().with_mailer(mailer), settings)

@@ -17,8 +17,7 @@ use whl_store::quota::{
 };
 use whl_store::{
     AccessSettings, ClaimOutcome, EndpointChange, EndpointSettings, Lifecycle, LifecycleError,
-    LifecycleLimits,
-    NewEndpoint, Overflow, Store,
+    LifecycleLimits, NewEndpoint, Overflow, Store,
 };
 use whl_testkit::TestDb;
 

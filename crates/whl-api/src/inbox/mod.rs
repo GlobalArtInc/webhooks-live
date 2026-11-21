@@ -62,6 +62,8 @@ impl InboxSelector for RoleSelector {
                     endpoints: params.endpoints.as_deref(),
                     folder: params.folder.as_deref(),
                     resumed: None,
+                    headers: request.headers(),
+                    grant_query: uri.query(),
                 },
             )
             .await

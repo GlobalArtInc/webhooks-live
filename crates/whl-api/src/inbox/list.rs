@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use axum::Json;
 use axum::extract::{Query, State};
+use axum::http::HeaderMap;
 use serde::Serialize;
 use whl_auth::Caller;
 use whl_core::endpoint_id::EndpointId;
@@ -24,6 +25,7 @@ pub struct InboxListDto {
 pub async fn list(
     State(state): State<ApiState>,
     caller: Caller,
+    headers: HeaderMap,
     Query(params): Query<ListParams>,
 ) -> Result<Json<InboxListDto>, ApiError> {
     let query = inbox_query(&params)?;
@@ -51,6 +53,8 @@ pub async fn list(
                 .as_ref()
                 .filter(|_| !explicit)
                 .map(InboxCursor::endpoints),
+            headers: &headers,
+            grant_query: None,
         },
     )
     .await?;
