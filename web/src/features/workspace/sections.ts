@@ -55,6 +55,9 @@ const AccessSection = lazy(() =>
 const ScheduleSection = lazy(() =>
   import('../schedules/ScheduleSection').then((module) => ({ default: module.ScheduleSection })),
 );
+const NotificationsSection = lazy(() =>
+  import('../notifications/NotificationsSection').then((module) => ({ default: module.NotificationsSection })),
+);
 
 export const WORKSPACE_SECTIONS: readonly WorkspaceSection[] = [
   { id: 'general', labelKey: 'wl.workspace.section.general', Component: GeneralSection },
@@ -67,7 +70,12 @@ export const WORKSPACE_SECTIONS: readonly WorkspaceSection[] = [
     count: (endpoint) => endpoint.forward_rules.length,
   },
   { id: 'access', labelKey: 'wl.workspace.section.access', Component: AccessSection },
-  { id: 'notifications', labelKey: 'wl.workspace.section.notifications', Component: null },
+  {
+    id: 'notifications',
+    labelKey: 'wl.workspace.section.notifications',
+    Component: NotificationsSection,
+    available: (instance) => (instance?.features.notifications ?? []).length > 0,
+  },
   {
     id: 'schedules',
     labelKey: 'wl.workspace.section.schedules',

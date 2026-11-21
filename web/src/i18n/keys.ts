@@ -6,6 +6,7 @@ import detail from './en/detail.json';
 import diff from './en/diff.json';
 import editor from './en/editor.json';
 import email from './en/email.json';
+import emailpages from './en/emailpages.json';
 import endpoint from './en/endpoint.json';
 import exportMessages from './en/export.json';
 import exportDialog from './en/exportdialog.json';
@@ -14,6 +15,7 @@ import home from './en/home.json';
 import kinds from './en/kinds.json';
 import inbox from './en/inbox.json';
 import live from './en/live.json';
+import notifications from './en/notifications.json';
 import rules from './en/rules.json';
 import rail from './en/rail.json';
 import sample from './en/sample.json';
@@ -34,6 +36,7 @@ export type SourceMessages = typeof access &
   typeof diff &
   typeof editor &
   typeof email &
+  typeof emailpages &
   typeof endpoint &
   typeof exportMessages &
   typeof exportDialog &
@@ -42,6 +45,7 @@ export type SourceMessages = typeof access &
   typeof kinds &
   typeof inbox &
   typeof live &
+  typeof notifications &
   typeof rules &
   typeof rail &
   typeof sample &

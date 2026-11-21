@@ -245,6 +245,24 @@ const notFoundRoute = createRoute({
   component: NotFoundScreen,
 });
 
+const emailVerifyRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/email/verify',
+  component: lazyRouteComponent(
+    () => import('../features/notifications/emailpages/EmailVerifyScreen'),
+    'EmailVerifyScreen',
+  ),
+});
+
+const notificationsDisableRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/notifications/disable',
+  component: lazyRouteComponent(
+    () => import('../features/notifications/emailpages/DisableNotificationsScreen'),
+    'DisableNotificationsScreen',
+  ),
+});
+
 const devRoutes = import.meta.env.DEV
   ? [
       createRoute({
@@ -293,6 +311,8 @@ const routeTree = rootRoute.addChildren([
     inboxRoute.addChildren([inboxCaptureRoute]),
     notFoundRoute,
   ]),
+  emailVerifyRoute,
+  notificationsDisableRoute,
   ...devRoutes,
 ]);
 

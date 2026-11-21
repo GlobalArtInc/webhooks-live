@@ -386,6 +386,7 @@ export interface InstanceFeatures {
   forwarding: boolean;
   private_forward_targets_allowed: boolean;
   schedules: boolean;
+  notifications?: string[];
 }
 
 export interface Instance {

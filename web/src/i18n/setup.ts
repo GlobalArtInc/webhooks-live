@@ -8,6 +8,7 @@ import detail from './en/detail.json';
 import diff from './en/diff.json';
 import editor from './en/editor.json';
 import email from './en/email.json';
+import emailpages from './en/emailpages.json';
 import endpoint from './en/endpoint.json';
 import exportMessages from './en/export.json';
 import exportDialog from './en/exportdialog.json';
@@ -16,6 +17,7 @@ import home from './en/home.json';
 import kinds from './en/kinds.json';
 import inbox from './en/inbox.json';
 import live from './en/live.json';
+import notifications from './en/notifications.json';
 import rules from './en/rules.json';
 import rail from './en/rail.json';
 import sample from './en/sample.json';
@@ -48,6 +50,7 @@ export function createI18nInstance(): I18nInstance {
           ...diff,
           ...editor,
           ...email,
+          ...emailpages,
           ...endpoint,
           ...exportMessages,
           ...exportDialog,
@@ -56,6 +59,7 @@ export function createI18nInstance(): I18nInstance {
           ...kinds,
           ...inbox,
           ...live,
+          ...notifications,
           ...rules,
           ...rail,
           ...sample,
