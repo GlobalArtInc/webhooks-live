@@ -474,18 +474,14 @@ async fn a_second_import_from_the_same_caller_is_refused_while_the_first_runs() 
         .send(Ok(b"{".to_vec()))
         .await
         .expect("the first chunk is sent");
+    sender
+        .send(Ok(b" ".to_vec()))
+        .await
+        .expect("the first chunk is consumed, so the first import holds its slot");
 
-    let mut refused = None;
-    for _ in 0..100 {
-        let reply = import(&harness, Some(&owner), &uri, JSON, "{}").await;
-        if reply.status == StatusCode::TOO_MANY_REQUESTS {
-            refused = Some(reply);
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+    let refused = import(&harness, Some(&owner), &uri, JSON, "{}").await;
 
-    let refused = refused.expect("the second import is refused while the first holds its slot");
+    assert_eq!(refused.status, StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(error_code(&refused), "rate_limited");
     drop(sender);
     let finished = first.await.expect("the first import ends");
