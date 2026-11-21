@@ -10,7 +10,7 @@ use whl_store::forward::ForwardRule;
 use whl_store::{EndpointRecord, EndpointRole, StoredVerifier, UserRecord};
 
 use crate::forward::RuleDto;
-use crate::settings::ApiSettings;
+use crate::settings::{ApiSettings, MEMBER_ALIASES};
 
 const MAX_FORWARD_RULES: u32 = 5;
 
@@ -56,6 +56,7 @@ struct LimitsDto {
     max_captures_settable: u32,
     max_retention_seconds: i64,
     never_expire_endpoints: u32,
+    aliases: u32,
     max_delay_ms: i64,
     max_forward_rules: u32,
     max_response_body_bytes: usize,
@@ -94,6 +95,7 @@ impl InstanceDto {
                 max_captures_settable: ceilings.max_captures,
                 max_retention_seconds: ceilings.max_retention_seconds,
                 never_expire_endpoints: ceilings.never_expire_endpoints,
+                aliases: if user.is_some() { MEMBER_ALIASES } else { 0 },
                 max_delay_ms: MAX_DELAY_MS,
                 max_forward_rules: MAX_FORWARD_RULES,
                 max_response_body_bytes: RESPONSE_BODY_BYTES,

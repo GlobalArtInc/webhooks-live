@@ -61,6 +61,7 @@ pub struct Bound {
     grace: Duration,
     retention: Duration,
     api: ApiSettings,
+    alias_quarantine: Duration,
     capture: CaptureSettings,
     forward: ForwardRuntime,
     composer: ComposerSettings,
@@ -152,6 +153,7 @@ impl Bound {
         let state = ApiState::new(store.clone(), self.api.clone())
             .with_access(access)
             .with_limits(self.api_limits.clone())
+            .with_alias_quarantine(self.alias_quarantine)
             .with_forward(ForwardSettings::with_system_lookup(self.forward.guard()))
             .with_composer(self.composer.with_local(Arc::new(delivery)))
             .with_schedules(self.schedules.settings())
@@ -376,6 +378,7 @@ pub async fn bind(config: &Config) -> Result<Bound, ServerError> {
         grace: config.shutdown.grace,
         retention: config.capture.retention,
         api: ApiSettings::from_config(config),
+        alias_quarantine: config.alias.quarantine,
         capture: CaptureSettings::from_config(config)?,
         forward,
         composer: ComposerSettings::from_config(config),

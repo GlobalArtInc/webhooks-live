@@ -5,15 +5,17 @@ use std::time::Duration;
 use ipnet::IpNet;
 use time::OffsetDateTime;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use whl_core::alias::Alias;
 use whl_core::capture_id::CaptureId;
 use whl_core::config::Config;
 use whl_core::endpoint_id::EndpointId;
 use whl_core::entropy::IdGenerationError;
 use whl_core::limiter::Limiters;
 use whl_secrets::Keyring;
-use whl_store::Store;
 use whl_store::captures::CapturePolicy;
+use whl_store::{AliasStoreError, Store};
 
+use crate::alias_cache::{AliasCache, AliasCacheSettings, CachedAlias};
 use crate::client_ip::TrustedProxies;
 use crate::delay::DelaySlots;
 use crate::seams::{Admission, StorageFull, admit_client, admit_endpoint};
@@ -177,6 +179,7 @@ struct Inner {
     delays: DelaySlots,
     secrets: Option<Arc<Keyring>>,
     templates: Arc<TemplateEngine>,
+    aliases: AliasCache,
 }
 
 impl CaptureState {
@@ -203,6 +206,7 @@ impl CaptureState {
                 delays: DelaySlots::new(settings.max_delayed),
                 secrets: None,
                 templates: Arc::new(TemplateEngine::new(TemplateSettings::default())),
+                aliases: AliasCache::default(),
             }),
         })
     }
@@ -221,6 +225,7 @@ impl CaptureState {
                 delays: self.inner.delays.clone(),
                 secrets: self.inner.secrets.clone(),
                 templates: Arc::new(TemplateEngine::new(settings)),
+                aliases: self.inner.aliases.clone(),
             }),
         }
     }
@@ -239,6 +244,7 @@ impl CaptureState {
                 delays: self.inner.delays.clone(),
                 secrets: self.inner.secrets.clone(),
                 templates: Arc::clone(&self.inner.templates),
+                aliases: self.inner.aliases.clone(),
             }),
         }
     }
@@ -257,6 +263,7 @@ impl CaptureState {
                 delays: self.inner.delays.clone(),
                 secrets: Some(keyring),
                 templates: Arc::clone(&self.inner.templates),
+                aliases: self.inner.aliases.clone(),
             }),
         }
     }
@@ -275,6 +282,26 @@ impl CaptureState {
                 delays: self.inner.delays.clone(),
                 secrets: self.inner.secrets.clone(),
                 templates: Arc::clone(&self.inner.templates),
+                aliases: self.inner.aliases.clone(),
+            }),
+        }
+    }
+
+    pub fn with_alias_cache(self, settings: AliasCacheSettings) -> Self {
+        Self {
+            inner: Arc::new(Inner {
+                store: self.inner.store.clone(),
+                limits: self.inner.limits,
+                proxies: self.inner.proxies.clone(),
+                budget: self.inner.budget.clone(),
+                source: Arc::clone(&self.inner.source),
+                storage_full: self.inner.storage_full.clone(),
+                limiters: self.inner.limiters.clone(),
+                public_url: self.inner.public_url.clone(),
+                delays: self.inner.delays.clone(),
+                secrets: self.inner.secrets.clone(),
+                templates: Arc::clone(&self.inner.templates),
+                aliases: AliasCache::new(settings),
             }),
         }
     }
@@ -324,6 +351,20 @@ impl CaptureState {
             max_captures: self.inner.limits.max_captures,
             retention: self.inner.limits.retention,
         }
+    }
+
+    pub(crate) async fn resolve_alias(
+        &self,
+        alias: &Alias,
+    ) -> Result<Option<EndpointId>, AliasStoreError> {
+        match self.inner.aliases.get(alias) {
+            CachedAlias::Endpoint(id) => return Ok(Some(id)),
+            CachedAlias::Unknown => return Ok(None),
+            CachedAlias::Miss => {}
+        }
+        let resolved = self.inner.store.resolve_alias(alias).await?;
+        self.inner.aliases.remember(alias, resolved.clone());
+        Ok(resolved)
     }
 
     pub(crate) fn admit(&self, client_ip: IpAddr) -> Admission {

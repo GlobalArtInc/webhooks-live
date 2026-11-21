@@ -120,25 +120,28 @@ impl CaptureStoreError {
     }
 
     pub(crate) fn classify(source: sqlx::Error) -> Self {
-        let unavailable = match &source {
-            sqlx::Error::PoolTimedOut
-            | sqlx::Error::PoolClosed
-            | sqlx::Error::Io(_)
-            | sqlx::Error::Tls(_)
-            | sqlx::Error::Protocol(_)
-            | sqlx::Error::WorkerCrashed => true,
-            sqlx::Error::Database(database) => database.code().is_some_and(|code| {
-                ["08", "40", "53", "55", "57"]
-                    .iter()
-                    .any(|class| code.starts_with(class))
-            }),
-            _ => false,
-        };
-        if unavailable {
+        if is_unavailable_error(&source) {
             Self::Unavailable { source }
         } else {
             Self::Query { source }
         }
+    }
+}
+
+pub(crate) fn is_unavailable_error(source: &sqlx::Error) -> bool {
+    match source {
+        sqlx::Error::PoolTimedOut
+        | sqlx::Error::PoolClosed
+        | sqlx::Error::Io(_)
+        | sqlx::Error::Tls(_)
+        | sqlx::Error::Protocol(_)
+        | sqlx::Error::WorkerCrashed => true,
+        sqlx::Error::Database(database) => database.code().is_some_and(|code| {
+            ["08", "40", "53", "55", "57"]
+                .iter()
+                .any(|class| code.starts_with(class))
+        }),
+        _ => false,
     }
 }
 

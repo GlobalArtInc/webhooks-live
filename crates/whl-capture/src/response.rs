@@ -32,6 +32,7 @@ const NOSNIFF: &str = "nosniff";
 const NO_STORE: &str = "no-store";
 const ANY_ORIGIN: &str = "*";
 const EXPOSED_HEADERS: &str = "X-Request-Id, X-Endpoint-Id";
+const EXPOSED_HEADERS_VIA_ALIAS: &str = "X-Request-Id";
 const PREFLIGHT_MAX_AGE: &str = "600";
 const PREFLIGHT_MAX_HEADER_NAMES: usize = MAX_HEADERS;
 const SUBSTITUTE_STATUS: StatusCode = StatusCode::OK;
@@ -40,6 +41,7 @@ const SUBSTITUTE_STATUS: StatusCode = StatusCode::OK;
 pub struct ReplyRequest<'a> {
     pub method: &'a Method,
     pub headers: &'a HeaderMap,
+    pub via_alias: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -101,7 +103,7 @@ pub(crate) fn build_content(
         Ok(response) => response,
         Err(error) => {
             tracing::error!(%error, endpoint_id = endpoint.id.unpack(), "the configured response cannot be served");
-            failure(endpoint, capture)
+            failure(endpoint, capture, request.via_alias)
         }
     }
 }
@@ -127,12 +129,12 @@ fn compose(
         Some(_) => (StatusCode::NO_CONTENT, Bytes::new()),
         None => configured(endpoint, status_override, request, &mut headers, content)?,
     };
-    insert_mandatory(&mut headers, endpoint, capture)?;
+    insert_mandatory(&mut headers, endpoint, capture, request.via_alias)?;
     if let Some(code) = fallback {
         insert_fallback(&mut headers, code)?;
     }
     if endpoint.cors {
-        insert_cors(&mut headers);
+        insert_cors(&mut headers, request.via_alias);
     }
     if let Some(preflight) = &preflight {
         insert_preflight(&mut headers, preflight)?;
@@ -324,6 +326,7 @@ fn insert_mandatory(
     headers: &mut HeaderMap,
     endpoint: &Endpoint,
     capture: &StoredCapture,
+    via_alias: bool,
 ) -> Result<(), ResponseError> {
     let request_id = capture.id.to_string();
     headers.insert(
@@ -332,26 +335,36 @@ fn insert_mandatory(
             name: REQUEST_ID.as_str().to_owned(),
         })?,
     );
-    headers.insert(
-        ENDPOINT_ID,
-        HeaderValue::from_str(endpoint.id.unpack()).map_err(|_| ResponseError::HeaderValue {
-            name: ENDPOINT_ID.as_str().to_owned(),
-        })?,
-    );
+    if via_alias {
+        headers.remove(ENDPOINT_ID);
+    } else {
+        headers.insert(
+            ENDPOINT_ID,
+            HeaderValue::from_str(endpoint.id.unpack()).map_err(|_| {
+                ResponseError::HeaderValue {
+                    name: ENDPOINT_ID.as_str().to_owned(),
+                }
+            })?,
+        );
+    }
     headers.insert(CONTENT_SECURITY_POLICY, HeaderValue::from_static(SANDBOX));
     headers.insert(X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static(NOSNIFF));
     headers.insert(CACHE_CONTROL, HeaderValue::from_static(NO_STORE));
     Ok(())
 }
 
-fn insert_cors(headers: &mut HeaderMap) {
+fn insert_cors(headers: &mut HeaderMap, via_alias: bool) {
     headers.insert(
         ACCESS_CONTROL_ALLOW_ORIGIN,
         HeaderValue::from_static(ANY_ORIGIN),
     );
     headers.insert(
         ACCESS_CONTROL_EXPOSE_HEADERS,
-        HeaderValue::from_static(EXPOSED_HEADERS),
+        HeaderValue::from_static(if via_alias {
+            EXPOSED_HEADERS_VIA_ALIAS
+        } else {
+            EXPOSED_HEADERS
+        }),
     );
 }
 
@@ -413,11 +426,11 @@ fn is_header_token(text: &str) -> bool {
     text.len() <= MAX_HEADER_NAME_BYTES && is_token(text)
 }
 
-fn failure(endpoint: &Endpoint, capture: &StoredCapture) -> Response {
+fn failure(endpoint: &Endpoint, capture: &StoredCapture, via_alias: bool) -> Response {
     let mut response = Response::new(Body::empty());
     *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
     let headers = response.headers_mut();
-    if insert_mandatory(headers, endpoint, capture).is_err() {
+    if insert_mandatory(headers, endpoint, capture, via_alias).is_err() {
         headers.clear();
         headers.insert(CONTENT_SECURITY_POLICY, HeaderValue::from_static(SANDBOX));
         headers.insert(X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static(NOSNIFF));

@@ -5,6 +5,8 @@ use whl_core::config::Config;
 pub const MEMBER_MAX_RETENTION: Duration = Duration::from_secs(365 * 24 * 3600);
 pub const MEMBER_MAX_CAPTURES: u32 = 10_000;
 pub const MEMBER_NEVER_EXPIRE_ENDPOINTS: u32 = 10;
+pub const MEMBER_ALIASES: u32 = 5;
+pub const DEFAULT_ALIAS_QUARANTINE: Duration = Duration::from_secs(30 * 24 * 3600);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LifecycleCeilings {

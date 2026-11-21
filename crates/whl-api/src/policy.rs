@@ -18,12 +18,15 @@ const IMPORT_PATH: &str = "/endpoints/import";
 const TOKENS_PATH: &str = "/tokens";
 const TOKEN_PATH: &str = "/tokens/{token_id}";
 const SCHEDULES_TAIL: &str = "/schedules";
+const ALIAS_AVAILABILITY_PATH: &str = "/aliases/{alias}/availability";
+const ALIASES_TAIL: &str = "/aliases";
+const ALIAS_TAIL: &str = "/aliases/{alias}";
 
 pub fn requirement(mode: AccessMode, method: &Method, pattern: &str) -> Requirement {
     let rest = pattern.strip_prefix(API_PREFIX).unwrap_or(pattern);
     match rest {
         "/instance" | "/inbox/captures" | "/inbox/stream" => Requirement::Anyone,
-        TOKENS_PATH | TOKEN_PATH => Requirement::SignedIn,
+        TOKENS_PATH | TOKEN_PATH | ALIAS_AVAILABILITY_PATH => Requirement::SignedIn,
         "/send" | "/send/history" | "/send/history/{sent_id}" if mode == AccessMode::Sso => {
             Requirement::SignedIn
         }
@@ -45,6 +48,9 @@ pub fn requirement(mode: AccessMode, method: &Method, pattern: &str) -> Requirem
             Some(SCHEDULES_TAIL) if *method == Method::POST => {
                 Requirement::OwnedRole(EndpointRole::Owner)
             }
+            Some(ALIAS_TAIL) if matches!(*method, Method::PUT | Method::DELETE) => {
+                Requirement::OwnedRole(EndpointRole::Owner)
+            }
             Some(tail) => Requirement::Role(endpoint_role(method, tail)),
             None => Requirement::Role(EndpointRole::Owner),
         },
@@ -61,6 +67,7 @@ pub fn token_policy(method: &Method, pattern: &str) -> TokenPolicy {
         "/send" if *method == Method::POST => Some(TokenScope::Send),
         "/send/history" if read => Some(TokenScope::Read),
         "/send/history/{sent_id}" if *method == Method::DELETE => Some(TokenScope::Send),
+        ALIAS_AVAILABILITY_PATH if read => Some(TokenScope::Read),
         _ => rest
             .strip_prefix(ENDPOINT_PREFIX)
             .and_then(|tail| endpoint_scope(method, tail)),
@@ -81,6 +88,7 @@ fn endpoint_scope(method: &Method, tail: &str) -> Option<TokenScope> {
         | "/captures/{capture_id}/parts/{index}"
         | "/forward-rules"
         | "/secrets"
+        | ALIASES_TAIL
             if read =>
         {
             Some(TokenScope::Read)
@@ -122,6 +130,7 @@ fn endpoint_role(method: &Method, tail: &str) -> EndpointRole {
         | "/captures/{capture_id}"
         | "/captures/{capture_id}/body"
         | "/captures/{capture_id}/parts/{index}"
+        | ALIASES_TAIL
             if read =>
         {
             EndpointRole::Viewer
@@ -501,6 +510,60 @@ mod tests {
             assert_eq!(
                 requirement(mode, &GET, "/api/v1/endpoints/{id}/import"),
                 Requirement::Role(EndpointRole::Owner)
+            );
+        }
+    }
+
+    #[test]
+    fn the_alias_routes_need_the_owner_of_an_owned_endpoint_to_change_and_refuse_tokens_for_writes()
+    {
+        use EndpointRole::{Owner, Viewer};
+        for mode in MODES {
+            for (method, tail, expected) in [
+                (&GET, "/aliases", Requirement::Role(Viewer)),
+                (&PUT, "/aliases/{alias}", Requirement::OwnedRole(Owner)),
+                (&DELETE, "/aliases/{alias}", Requirement::OwnedRole(Owner)),
+                (&GET, "/aliases/{alias}", Requirement::Role(Owner)),
+                (&POST, "/aliases", Requirement::Role(Owner)),
+            ] {
+                let pattern = format!("/api/v1/endpoints/{{id}}{tail}");
+                assert_eq!(
+                    requirement(mode, method, &pattern),
+                    expected,
+                    "{mode:?} {method} {tail}"
+                );
+            }
+            assert_eq!(
+                requirement(mode, &GET, "/api/v1/aliases/{alias}/availability"),
+                Requirement::SignedIn
+            );
+        }
+        for (method, pattern, expected) in [
+            (
+                &GET,
+                "/api/v1/endpoints/{id}/aliases",
+                TokenPolicy::Scope(TokenScope::Read),
+            ),
+            (
+                &GET,
+                "/api/v1/aliases/{alias}/availability",
+                TokenPolicy::Scope(TokenScope::Read),
+            ),
+            (
+                &PUT,
+                "/api/v1/endpoints/{id}/aliases/{alias}",
+                TokenPolicy::SessionOnly,
+            ),
+            (
+                &DELETE,
+                "/api/v1/endpoints/{id}/aliases/{alias}",
+                TokenPolicy::SessionOnly,
+            ),
+        ] {
+            assert_eq!(
+                token_policy(method, pattern),
+                expected,
+                "{method} {pattern}"
             );
         }
     }

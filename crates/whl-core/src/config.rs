@@ -14,6 +14,7 @@ use serde::de::DeserializeOwned;
 use url::Url;
 use zeroize::Zeroizing;
 
+use crate::alias::POSITIVE_CACHE_TTL;
 use crate::rate::RateSpec;
 
 const FILE_ENV: &str = "WEBHOOKS_LIVE_CONFIG";
@@ -55,6 +56,9 @@ capture_ip = "30/s:60"
 capture_endpoint = "20/s:100"
 api_ip = "20/s:40"
 create_ip = "10/m:10"
+
+[alias]
+quarantine = "30d"
 
 [forward]
 enabled = true
@@ -151,6 +155,7 @@ const ENV_KEYS: &[(&str, &str)] = &[
     ("NOTIFY_NETWORK_PER_HOUR", "notify.network_per_hour"),
     ("NOTIFY_GLOBAL_PER_HOUR", "notify.global_per_hour"),
     ("VENDOR_PROXY", "notify.vendor_proxy"),
+    ("ALIAS_QUARANTINE", "alias.quarantine"),
     ("SECRETS_KEYS", "secrets.keys"),
     ("DNS_LISTEN_ADDR", "dns.listen_addr"),
     ("DNS_ZONE", "dns.zone"),
@@ -188,6 +193,7 @@ pub struct Config {
     pub composer: ComposerConfig,
     pub schedules: SchedulesConfig,
     pub notify: NotifyConfig,
+    pub alias: AliasConfig,
     #[serde(default)]
     pub secrets: SecretsConfig,
     pub dns: DnsConfig,
@@ -344,6 +350,12 @@ pub fn is_valid_mail_domain(domain: &str) -> bool {
         })
 }
 
+#[derive(Debug, Deserialize)]
+pub struct AliasConfig {
+    #[serde(deserialize_with = "de::duration")]
+    pub quarantine: Duration,
+}
+
 #[derive(Debug, Default, Deserialize)]
 pub struct SecretsConfig {
     pub keys: Option<SecretKeys>,
@@ -493,6 +505,7 @@ pub enum Problem {
     MailNeedsDomain,
     MailInvalidDomain,
     MailTlsIncomplete,
+    AliasQuarantineTooShort,
 }
 
 impl fmt::Display for Problem {
@@ -534,6 +547,11 @@ impl fmt::Display for Problem {
             Self::MailTlsIncomplete => write!(
                 f,
                 "{ENV_PREFIX}MAIL_TLS_CERT and {ENV_PREFIX}MAIL_TLS_KEY must be set together"
+            ),
+            Self::AliasQuarantineTooShort => write!(
+                f,
+                "{ENV_PREFIX}ALIAS_QUARANTINE must be at least {} seconds",
+                POSITIVE_CACHE_TTL.as_secs()
             ),
         }
     }
@@ -689,6 +707,9 @@ impl Config {
             problems.push(Problem::ScheduleRunsPerHourZero);
         }
         problems.extend(mail_problems(&self.mail));
+        if self.alias.quarantine < POSITIVE_CACHE_TTL {
+            problems.push(Problem::AliasQuarantineTooShort);
+        }
 
         if problems.is_empty() {
             Ok(())

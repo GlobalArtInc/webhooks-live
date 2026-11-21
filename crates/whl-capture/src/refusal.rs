@@ -14,8 +14,8 @@ const STORE_RETRY_SECONDS: u64 = 5;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Refusal {
     Malformed,
-    Gone(EndpointId),
-    Full(EndpointId),
+    Gone(Option<EndpointId>),
+    Full(Option<EndpointId>),
     TooLarge,
     RateLimited { retry_after: Duration },
     StoreUnavailable,
@@ -101,7 +101,7 @@ fn describe(refusal: Refusal, state: &CaptureState) -> Parts {
         },
         Refusal::Gone(id) => Parts {
             error: Some("endpoint_gone"),
-            endpoint: Some(id),
+            endpoint: id,
             ..plain(
                 StatusCode::GONE,
                 &format!(
@@ -112,7 +112,7 @@ fn describe(refusal: Refusal, state: &CaptureState) -> Parts {
         },
         Refusal::Full(id) => Parts {
             error: Some("endpoint_full"),
-            endpoint: Some(id),
+            endpoint: id,
             ..plain(
                 StatusCode::GONE,
                 "This endpoint holds the maximum number of captures. Delete captures to receive more.",

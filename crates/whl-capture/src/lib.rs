@@ -1,3 +1,4 @@
+mod alias_cache;
 mod body;
 mod client_ip;
 mod delay;
@@ -10,11 +11,16 @@ mod seams;
 mod state;
 mod template;
 mod verification;
+mod target;
 
 use axum::Router;
 use axum::middleware::from_fn_with_state;
 use axum::routing::any;
 
+pub use alias_cache::{
+    ALIAS_CACHE_CAPACITY, ALIAS_NEGATIVE_TTL, ALIAS_POSITIVE_TTL, AliasCache, AliasCacheSettings,
+    CachedAlias,
+};
 pub use body::{BufferedBody, ReadFailure, read_body};
 pub use client_ip::{ForwardedRequest, Scheme, TrustedProxies};
 pub use delay::{DELAY_SKIPPED_TOTAL, DelaySlots};

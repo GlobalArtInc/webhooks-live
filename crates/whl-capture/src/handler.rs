@@ -7,7 +7,7 @@ use axum::http::header::{CONTENT_LENGTH, CONTENT_TYPE, HOST};
 use axum::http::{HeaderMap, Uri};
 use axum::response::Response;
 use bytes::Bytes;
-use whl_core::endpoint_id::{ENDPOINT_ID_LEN, EndpointId};
+use whl_core::endpoint_id::EndpointId;
 use whl_core::status::{HttpStatus, status_override_from_path};
 use whl_store::captures::{
     CaptureOutcome, CaptureStoreError, Endpoint, EndpointState, NameValue, NewCapture,
@@ -23,6 +23,7 @@ use crate::seams::Admission;
 use crate::state::CaptureState;
 use crate::template::{RenderInput, Rendering, Served};
 use crate::verification::{Presented, verify_capture};
+use crate::target::{Target, resolve, route};
 
 pub(crate) async fn capture(State(state): State<CaptureState>, request: Request) -> Response {
     match run(&state, request).await {
@@ -36,8 +37,8 @@ async fn run(state: &CaptureState, request: Request) -> Result<Response, Failure
     let unread = !body.is_end_stream();
     let early = |refusal: Refusal| Failure::new(refusal, unread);
 
-    let id = endpoint_id_of(&parts.uri).ok_or_else(|| early(Refusal::Malformed))?;
-    let sub_path = &parts.uri.path()[1 + ENDPOINT_ID_LEN..];
+    let routed = route(&parts.uri).ok_or_else(|| early(Refusal::Malformed))?;
+    let sub_path = routed.sub_path;
 
     let Some(peer) = parts.extensions.get::<ConnectInfo<SocketAddr>>() else {
         tracing::error!("the capture router is served without connection info");
@@ -52,6 +53,10 @@ async fn run(state: &CaptureState, request: Request) -> Result<Response, Failure
         return Err(early(Refusal::StorageFull));
     }
 
+    let via_alias = matches!(routed.target, Target::Alias(_));
+    let id = resolve(state, routed.target).await.map_err(early)?;
+    let exposed = |id: &EndpointId| (!via_alias).then(|| id.clone());
+
     let admission = state.store().endpoint_admission(&id, state.policy()).await;
     match admission.as_ref().map(|admission| admission.state) {
         Ok(EndpointState::Live) => {
@@ -59,8 +64,8 @@ async fn run(state: &CaptureState, request: Request) -> Result<Response, Failure
                 return Err(early(Refusal::RateLimited { retry_after }));
             }
         }
-        Ok(EndpointState::Full) => return Err(early(Refusal::Full(id))),
-        Ok(EndpointState::Gone) => return Err(early(Refusal::Gone(id))),
+        Ok(EndpointState::Full) => return Err(early(Refusal::Full(exposed(&id)))),
+        Ok(EndpointState::Gone) => return Err(early(Refusal::Gone(exposed(&id)))),
         Err(error) => return Err(early(store_refusal(error))),
     }
 
@@ -139,6 +144,7 @@ async fn run(state: &CaptureState, request: Request) -> Result<Response, Failure
             let reply = ReplyRequest {
                 method: &parts.method,
                 headers: &parts.headers,
+                via_alias,
             };
             let response = if endpoint.templated && !is_preflight(&endpoint, &reply) {
                 let response = templated_response(
@@ -163,8 +169,8 @@ async fn run(state: &CaptureState, request: Request) -> Result<Response, Failure
                 .await;
             Ok(response)
         }
-        CaptureOutcome::Gone => Err(late(Refusal::Gone(id))),
-        CaptureOutcome::Full => Err(late(Refusal::Full(id))),
+        CaptureOutcome::Gone => Err(late(Refusal::Gone(exposed(&id)))),
+        CaptureOutcome::Full => Err(late(Refusal::Full(exposed(&id)))),
     }
 }
 
@@ -227,11 +233,6 @@ fn record_rendering(state: &CaptureState, capture: &StoredCapture, rendering: &R
             tracing::warn!(%error, capture_id = %id, "the template outcome could not be recorded");
         }
     });
-}
-
-pub(crate) fn endpoint_id_of(uri: &Uri) -> Option<EndpointId> {
-    let first = uri.path().strip_prefix('/')?.split('/').next()?;
-    EndpointId::parse(first).ok()
 }
 
 fn store_refusal(error: &CaptureStoreError) -> Refusal {

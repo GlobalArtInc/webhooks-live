@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use whl_auth::AccessControl;
 use whl_secrets::Keyring;
@@ -11,7 +12,7 @@ use crate::import::{IMPORT_COOLDOWN, ImportCooldown, import_slots};
 use crate::limit::ApiLimits;
 use crate::notify::NotifyApiSettings;
 use crate::schedules::ScheduleSettings;
-use crate::settings::ApiSettings;
+use crate::settings::{ApiSettings, DEFAULT_ALIAS_QUARANTINE};
 
 #[derive(Clone)]
 pub struct ApiState {
@@ -27,6 +28,7 @@ pub struct ApiState {
     pub(crate) notifications: NotifyApiSettings,
     pub(crate) imports: ExportSlots,
     pub(crate) import_cooldown: ImportCooldown,
+    pub(crate) alias_quarantine: Duration,
 }
 
 impl ApiState {
@@ -45,11 +47,17 @@ impl ApiState {
             notifications: NotifyApiSettings::default(),
             imports: import_slots(),
             import_cooldown: ImportCooldown::new(IMPORT_COOLDOWN),
+            alias_quarantine: DEFAULT_ALIAS_QUARANTINE,
         }
     }
 
     pub fn with_import_cooldown(mut self, window: std::time::Duration) -> Self {
         self.import_cooldown = ImportCooldown::new(window);
+        self
+    }
+
+    pub fn with_alias_quarantine(mut self, quarantine: Duration) -> Self {
+        self.alias_quarantine = quarantine;
         self
     }
 

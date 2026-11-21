@@ -475,6 +475,26 @@ fn env_keys_reach_their_fields() {
 }
 
 #[test]
+fn the_alias_quarantine_defaults_to_thirty_days_and_reads_from_the_environment() {
+    let config = load(&[PUBLIC_URL, DATABASE_URL]).expect("required keys are enough");
+    assert_eq!(config.alias.quarantine, Duration::from_secs(30 * 86_400));
+
+    let config = load(&with_required(&[("WEBHOOKS_LIVE_ALIAS_QUARANTINE", "12h")]))
+        .expect("the quarantine is valid");
+    assert_eq!(config.alias.quarantine, Duration::from_secs(12 * 3600));
+}
+
+#[test]
+fn an_alias_quarantine_shorter_than_the_cache_lifetime_is_refused() {
+    let error = load(&with_required(&[("WEBHOOKS_LIVE_ALIAS_QUARANTINE", "29s")]))
+        .expect_err("a quarantine below the cache lifetime is refused");
+    assert_eq!(problems_of(error), [Problem::AliasQuarantineTooShort]);
+    let config = load(&with_required(&[("WEBHOOKS_LIVE_ALIAS_QUARANTINE", "30s")]))
+        .expect("the cache lifetime itself is accepted");
+    assert_eq!(config.alias.quarantine, Duration::from_secs(30));
+}
+
+#[test]
 fn mixed_without_oidc_keys_reports_all_missing_keys_at_once() {
     let error = load(&with_required(&[("WEBHOOKS_LIVE_AUTH_MODE", "mixed")]))
         .expect_err("mixed needs OIDC keys");

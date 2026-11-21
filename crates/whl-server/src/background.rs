@@ -34,6 +34,7 @@ impl BackgroundSettings {
             config.capture.storage_cap_bytes.as_u64(),
         );
         maintenance.session_idle = config.auth.session_idle;
+        maintenance.alias_quarantine = config.alias.quarantine;
         Self {
             storage_refresh: STORAGE_REFRESH_INTERVAL,
             limiter_cleanup: LIMITER_CLEANUP_INTERVAL,

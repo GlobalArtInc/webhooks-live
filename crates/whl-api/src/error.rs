@@ -17,9 +17,13 @@ use whl_store::rules::RuleStoreError;
 use whl_store::schedules::ScheduleStoreError;
 use whl_store::secrets::SecretStoreError;
 use whl_store::vars::{MAX_VARS_PER_ENDPOINT, VarStoreError};
-use whl_store::{ApiTokenStoreError, EndpointError, FolderError, LifecycleError, MembershipError};
+use whl_store::{
+    AliasStoreError, ApiTokenStoreError, EndpointError, FolderError, LifecycleError,
+    MembershipError,
+};
 
 use crate::dto::timestamp;
+use crate::settings::MEMBER_ALIASES;
 use crate::tokens::{MAX_TOKENS_PER_HOUR, MAX_TOKENS_PER_USER};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -32,6 +36,7 @@ pub enum FieldCode {
     TooMany,
     Duplicate,
     NotAllowed,
+    Reserved,
     TargetRefused,
     TargetUnresolvable,
     SecretUnknown,
@@ -275,6 +280,24 @@ pub enum ApiError {
     NotifyStorage(NotifyStoreError),
     #[error("{0}")]
     InternalFault(&'static str),
+    #[error("the alias is not found on this endpoint")]
+    AliasNotFound,
+    #[error("the alias is in use or in quarantine")]
+    AliasTaken,
+    #[error("the user already has the maximum number of aliases")]
+    AliasLimit,
+    #[error("alias storage failed: {0}")]
+    AliasStorage(AliasStoreError),
+}
+
+impl From<AliasStoreError> for ApiError {
+    fn from(error: AliasStoreError) -> Self {
+        if error.is_unavailable() {
+            Self::StoreUnavailable
+        } else {
+            Self::AliasStorage(error)
+        }
+    }
 }
 
 impl From<ApiTokenStoreError> for ApiError {
@@ -490,6 +513,10 @@ impl IntoResponse for ApiError {
                 resets_at: Some(timestamp(*resets_at)),
             }),
             Self::FolderLimit => Some(LimitDetail::count("folders", MAX_FOLDERS_PER_USER)),
+            Self::AliasLimit => Some(LimitDetail::count(
+                "aliases",
+                usize::try_from(MEMBER_ALIASES).unwrap_or(usize::MAX),
+            )),
             Self::NeverExpireLimit { max } => Some(LimitDetail::count(
                 "never_expire",
                 usize::try_from(*max).unwrap_or(usize::MAX),
@@ -794,6 +821,28 @@ impl IntoResponse for ApiError {
             }
             Self::TokenStorage(error) => {
                 tracing::error!(%error, "API token storage failed");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal_error",
+                    "the request could not be completed".to_owned(),
+                    None,
+                )
+            }
+            Self::AliasNotFound => (
+                StatusCode::NOT_FOUND,
+                "alias_not_found",
+                self.to_string(),
+                None,
+            ),
+            Self::AliasTaken => (StatusCode::CONFLICT, "alias_taken", self.to_string(), None),
+            Self::AliasLimit => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "limit_reached",
+                self.to_string(),
+                None,
+            ),
+            Self::AliasStorage(error) => {
+                tracing::error!(%error, "alias storage failed");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "internal_error",
