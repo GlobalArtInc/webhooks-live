@@ -93,6 +93,9 @@ const ENQUEUE_SUMMARIES: &str = "INSERT INTO notification_deliveries \
          count(*)::int4 AS total \
        FROM notification_deliveries \
        WHERE state = 'suppressed' AND finished_at >= now() - make_interval(hours => $1::int4) \
+         AND NOT EXISTS ( \
+           SELECT 1 FROM notification_channels ch \
+           WHERE ch.id = notification_deliveries.channel_id AND ch.kind = 'email') \
        GROUP BY 1, 2) s \
      WHERE s.hour + interval '1 hour' <= now() \
      ON CONFLICT (channel_id, window_start) WHERE kind = 'summary' DO NOTHING";

@@ -26,7 +26,7 @@ use axum::routing::{get, post};
 
 pub use forward::ForwardSettings;
 pub use limit::{ApiLimits, enforce_rate_limit};
-pub use notify::NotifyApiSettings;
+pub use notify::{EmailApi, EmailApiLimits, NotifyApiSettings};
 pub use policy::guard_routes;
 pub use settings::ApiSettings;
 pub use state::ApiState;

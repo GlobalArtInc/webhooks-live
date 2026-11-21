@@ -67,7 +67,7 @@ pub enum DeleteChannelOutcome {
 fn columns() -> String {
     format!(
         "id, endpoint_id, kind, name, enabled, trigger, condition::text AS condition, \
-         config::text AS config, template, per_hour, \
+         config::text AS config, template, per_hour, created_by, \
          to_char(created_at AT TIME ZONE 'UTC', {TIMESTAMP_SQL}) AS created_at"
     )
 }
@@ -299,6 +299,7 @@ fn channel_from_row(row: &PgRow) -> Result<Channel, NotifyStoreError> {
         config: parse_json(&config, "channel config")?,
         template: row.try_get("template").map_err(classify)?,
         per_hour: row.try_get("per_hour").map_err(classify)?,
+        created_by: row.try_get("created_by").map_err(classify)?,
         created_at: row.try_get("created_at").map_err(classify)?,
     })
 }

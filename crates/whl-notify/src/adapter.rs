@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 use whl_store::Uuid;
 use whl_store::notify::ChannelKind;
 
+use crate::mailtext::compose_mail;
 use crate::notice::{Notice, truncate};
 use crate::target::{
     TELEGRAM_HOST, TargetRefusal, validate_bot_token, validate_chat_id, validate_discord_url,
@@ -17,9 +18,17 @@ pub const TELEGRAM_TEXT_UNITS: usize = 4096;
 const ZERO_WIDTH_SPACE: char = '\u{200b}';
 
 #[derive(Clone, PartialEq, Eq)]
+pub struct MailPlan {
+    pub to: String,
+    pub subject: String,
+    pub unsubscribe: String,
+}
+
+#[derive(Clone, PartialEq, Eq)]
 pub enum Destination {
     Guarded(String),
     Vendor(String),
+    Mail(MailPlan),
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -49,10 +58,17 @@ pub enum PrepareError {
     Encode,
 }
 
+pub struct MailContext<'a> {
+    pub recipient: &'a str,
+    pub disable_token: &'a str,
+    pub public_url: &'a str,
+}
+
 pub struct AdapterInput<'a> {
     pub config: &'a Value,
     pub url: Option<&'a str>,
     pub token: Option<&'a str>,
+    pub mail: Option<MailContext<'a>>,
     pub notice: &'a Notice,
     pub delivery: Uuid,
 }
@@ -67,7 +83,8 @@ pub fn adapter_for(kind: ChannelKind) -> Option<&'static dyn Adapter> {
         ChannelKind::Slack => Some(&SlackAdapter),
         ChannelKind::Discord => Some(&DiscordAdapter),
         ChannelKind::Telegram => Some(&TelegramAdapter),
-        ChannelKind::Email | ChannelKind::Push => None,
+        ChannelKind::Email => Some(&EmailAdapter),
+        ChannelKind::Push => None,
     }
 }
 
@@ -127,6 +144,7 @@ struct WebhookAdapter;
 struct SlackAdapter;
 struct DiscordAdapter;
 struct TelegramAdapter;
+struct EmailAdapter;
 
 impl Adapter for WebhookAdapter {
     fn prepare(&self, input: &AdapterInput<'_>) -> Result<Prepared, PrepareError> {
@@ -201,6 +219,22 @@ impl Adapter for TelegramAdapter {
     }
 }
 
+impl Adapter for EmailAdapter {
+    fn prepare(&self, input: &AdapterInput<'_>) -> Result<Prepared, PrepareError> {
+        let mail = input.mail.as_ref().ok_or(PrepareError::Config)?;
+        let message = compose_mail(input.notice, mail.public_url, mail.disable_token);
+        Ok(Prepared {
+            destination: Destination::Mail(MailPlan {
+                to: mail.recipient.to_owned(),
+                subject: message.subject,
+                unsubscribe: message.unsubscribe,
+            }),
+            body: message.body.into_bytes(),
+            delivery_header: None,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -235,8 +269,8 @@ mod tests {
     }
 
     #[test]
-    fn email_and_push_have_no_adapter_yet() {
-        assert!(adapter_for(ChannelKind::Email).is_none());
+    fn push_has_no_adapter_yet_and_email_has_one() {
+        assert!(adapter_for(ChannelKind::Email).is_some());
         assert!(adapter_for(ChannelKind::Push).is_none());
     }
 }

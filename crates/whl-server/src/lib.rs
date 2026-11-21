@@ -121,6 +121,10 @@ impl Bound {
             .with_limits(self.api_limits.clone())
             .with_forward(ForwardSettings::with_system_lookup(self.forward.guard()))
             .with_notifications(self.notify.api_settings());
+        let state = match self.notify.email_api() {
+            Some(email) => state.with_email(email),
+            None => state,
+        };
         let state = match &self.secrets {
             Some(keyring) => state.with_secrets(Arc::clone(keyring)),
             None => state,

@@ -1,10 +1,13 @@
 use std::sync::Arc;
 
 use url::Url;
-use whl_api::NotifyApiSettings;
+use whl_api::{EmailApi, EmailApiLimits, NotifyApiSettings};
 use whl_core::config::Config;
 use whl_forward::GuardConfig;
-use whl_notify::{NotifyLimits, NotifySettings, NotifyWorker, Transport, VendorHosts};
+use whl_notify::{
+    EmailLimits, MailSettings, Mailer, NotifyLimits, NotifySettings, NotifyWorker, Transport,
+    VendorHosts,
+};
 use whl_secrets::Keyring;
 use whl_store::Store;
 
@@ -16,6 +19,8 @@ pub struct NotifyRuntime {
     settings: NotifySettings,
     guard: GuardConfig,
     proxy: Option<Url>,
+    mailer: Option<Mailer>,
+    email_limits: EmailApiLimits,
 }
 
 impl NotifyRuntime {
@@ -31,13 +36,36 @@ impl NotifyRuntime {
             network_per_hour: to_limit(notify.network_per_hour),
             global_per_hour: to_limit(notify.global_per_hour),
         };
-        let settings = NotifySettings::new(
+        let mut settings = NotifySettings::new(
             config.public_url.as_str().trim_end_matches('/').to_owned(),
             limits,
             usize::try_from(notify.concurrency).unwrap_or(usize::MAX),
             notify.max_attempts,
         );
+        settings.email = EmailLimits {
+            per_user_per_day: to_limit(notify.email_per_day),
+            per_address_per_day: to_limit(notify.email_per_address_per_day),
+        };
         settings.validate()?;
+        let mailer = match (&notify.smtp_url, &notify.from) {
+            (Some(url), Some(from)) => Some(Mailer::new(&MailSettings::new(
+                url.unpack().clone(),
+                from.clone(),
+            ))?),
+            (None, None) => None,
+            _ => return Err(ServerError::MailIncomplete),
+        };
+        let email_limits = EmailApiLimits {
+            verifications_per_user_per_day: to_limit(notify.email_verifications_per_day),
+            verifications_per_address_per_day: to_limit(
+                notify.email_verifications_per_address_per_day,
+            ),
+            verifications_per_domain_per_day: to_limit(
+                notify.email_verifications_per_domain_per_day,
+            ),
+            verifications_per_day_global: to_limit(notify.email_verifications_per_day_global),
+            ..EmailApiLimits::default()
+        };
         Ok(Self {
             enabled: notify.enabled,
             keyring,
@@ -47,6 +75,8 @@ impl NotifyRuntime {
                 .vendor_proxy
                 .as_ref()
                 .map(|proxy| proxy.unpack().clone()),
+            mailer,
+            email_limits,
         })
     }
 
@@ -54,6 +84,11 @@ impl NotifyRuntime {
         NotifyApiSettings {
             enabled: self.enabled && self.keyring.is_some(),
         }
+    }
+
+    pub fn email_api(&self) -> Option<EmailApi> {
+        let mailer = self.mailer.clone()?;
+        (self.enabled && self.keyring.is_some()).then(|| EmailApi::new(mailer, self.email_limits))
     }
 
     pub fn worker(&self, store: &Store) -> Result<Option<NotifyWorker>, ServerError> {
@@ -65,6 +100,10 @@ impl NotifyRuntime {
             self.proxy.as_ref(),
             VendorHosts::production(),
         )?;
+        let transport = match &self.mailer {
+            Some(mailer) => transport.with_mailer(mailer.clone()),
+            None => transport,
+        };
         let worker = NotifyWorker::new(store.clone(), keyring, transport, self.settings.clone())?;
         Ok(Some(worker))
     }

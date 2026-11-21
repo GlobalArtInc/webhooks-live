@@ -6,7 +6,7 @@ use whl_auth::AuthError;
 use whl_capture::StateError;
 use whl_core::limiter::LimiterError;
 use whl_forward::{ForwardError, WorkerError};
-use whl_notify::{SendError, SettingsError};
+use whl_notify::{MailConfigError, SendError, SettingsError};
 use whl_store::StoreError;
 
 use crate::secrets::SecretsSetupError;
@@ -29,6 +29,10 @@ pub enum ServerError {
     Notify(#[from] SettingsError),
     #[error("cannot set up notification delivery: {0}")]
     NotifyTransport(#[from] SendError),
+    #[error("the email settings are invalid: {0}")]
+    Mail(#[from] MailConfigError),
+    #[error("WEBHOOKS_LIVE_SMTP_URL and WEBHOOKS_LIVE_NOTIFY_FROM must be set together")]
+    MailIncomplete,
     #[error("cannot set up secrets: {0}")]
     Secrets(#[from] SecretsSetupError),
     #[error("cannot bind the {listener} listener on {addr}: {source}")]

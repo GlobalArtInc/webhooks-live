@@ -12,11 +12,14 @@ use whl_secrets::{Keyring, Secret, SecretName};
 use whl_store::Store;
 use whl_store::forward::{RecordOutcome, Settlement};
 use whl_store::notify::{
-    ChannelKind, ClaimPolicy, ClaimedDelivery, DeliveryKind, DeliveryResult, QuotaCap, QuotaVerdict,
+    ChannelKind, ClaimPolicy, ClaimedDelivery, DeliveryKind, DeliveryResult, MailRecipient,
+    QuotaCap, QuotaVerdict,
 };
 use whl_telemetry::series::{NOTIFICATION_QUEUE_DEPTH, NOTIFICATIONS_TOTAL};
 
-use crate::adapter::{AdapterInput, Destination, adapter_for};
+use crate::adapter::{AdapterInput, Destination, MailContext, adapter_for};
+use crate::address::address_digest;
+use crate::disable::issue_disable_token;
 use crate::notice::{ComposeInput, compose};
 use crate::secret::channel_secret_name;
 use crate::settings::{MAX_CLAIM_BATCH, NotifySettings, SUMMARY_LOOK_BACK_HOURS, SettingsError};
@@ -322,34 +325,70 @@ fn count(kind: ChannelKind, outcome: &'static str) {
     counter!(NOTIFICATIONS_TOTAL, "channel" => kind.as_str(), "outcome" => outcome).increment(1);
 }
 
-fn caps(delivery: &ClaimedDelivery, shared: &Shared) -> Vec<QuotaCap> {
+fn caps(
+    delivery: &ClaimedDelivery,
+    shared: &Shared,
+    recipient: Option<&MailRecipient>,
+) -> Vec<QuotaCap> {
     let limits = shared.settings.limits;
     let channel = &delivery.channel;
     let mut caps = vec![
-        QuotaCap {
-            subject: format!("c:{}", delivery.channel_id.hyphenated()),
-            limit: channel.per_hour,
-        },
-        QuotaCap {
-            subject: format!("e:{}", channel.endpoint_id),
-            limit: limits.endpoint_per_hour,
-        },
+        QuotaCap::hourly(
+            format!("c:{}", delivery.channel_id.hyphenated()),
+            channel.per_hour,
+        ),
+        QuotaCap::hourly(
+            format!("e:{}", channel.endpoint_id),
+            limits.endpoint_per_hour,
+        ),
     ];
     match (&channel.owner_id, &channel.creator_net) {
-        (Some(owner), _) => caps.push(QuotaCap {
-            subject: format!("u:{}", owner.hyphenated()),
-            limit: limits.owner_per_hour,
-        }),
-        (None, Some(network)) => caps.push(QuotaCap {
-            subject: format!("n:{network}"),
-            limit: limits.network_per_hour,
-        }),
-        (None, None) => caps.push(QuotaCap {
-            subject: GLOBAL_SUBJECT.to_owned(),
-            limit: limits.global_per_hour,
-        }),
+        (Some(owner), _) => caps.push(QuotaCap::hourly(
+            format!("u:{}", owner.hyphenated()),
+            limits.owner_per_hour,
+        )),
+        (None, Some(network)) => caps.push(QuotaCap::hourly(
+            format!("n:{network}"),
+            limits.network_per_hour,
+        )),
+        (None, None) => caps.push(QuotaCap::hourly(
+            GLOBAL_SUBJECT.to_owned(),
+            limits.global_per_hour,
+        )),
+    }
+    if let Some(recipient) = recipient {
+        let email = shared.settings.email;
+        caps.push(QuotaCap::daily(
+            format!("m:{}", recipient.user_id.hyphenated()),
+            email.per_user_per_day,
+        ));
+        caps.push(QuotaCap::daily(
+            format!("ma:{}", address_digest(&recipient.address)),
+            email.per_address_per_day,
+        ));
     }
     caps
+}
+
+async fn resolve_recipient(
+    shared: &Shared,
+    delivery: &ClaimedDelivery,
+) -> Result<MailRecipient, Option<Finished>> {
+    if delivery.channel.owner_id.is_none() {
+        return Err(Some(Finished::failed(
+            "email_requires_owner: email notifications need an endpoint with an owner",
+        )));
+    }
+    match shared.store.verified_recipient(delivery.channel_id).await {
+        Ok(Some(recipient)) => Ok(recipient),
+        Ok(None) => Err(Some(Finished::failed(
+            "recipient_unverified: the channel has no verified address",
+        ))),
+        Err(error) => {
+            tracing::warn!(delivery_id = %delivery.id, %error, "cannot resolve the recipient of an email delivery");
+            Err(None)
+        }
+    }
 }
 
 async fn process(shared: &Shared, delivery: &ClaimedDelivery) -> Option<Finished> {
@@ -363,10 +402,22 @@ async fn process(shared: &Shared, delivery: &ClaimedDelivery) -> Option<Finished
             "channel_disabled: the channel is disabled",
         ));
     }
+    let recipient = if delivery.channel.kind == ChannelKind::Email {
+        match resolve_recipient(shared, delivery).await {
+            Ok(recipient) => Some(recipient),
+            Err(finished) => return finished,
+        }
+    } else {
+        None
+    };
     if !delivery.quota_checked {
         let charged = shared
             .store
-            .charge_delivery(delivery.id, delivery.attempt, &caps(delivery, shared))
+            .charge_delivery(
+                delivery.id,
+                delivery.attempt,
+                &caps(delivery, shared, recipient.as_ref()),
+            )
             .await;
         match charged {
             Ok(QuotaVerdict::Allowed) => {}
@@ -408,10 +459,31 @@ async fn process(shared: &Shared, delivery: &ClaimedDelivery) -> Option<Finished
         capture: capture.as_ref(),
         public_url: &shared.settings.public_url,
     });
+    let disable_token = match &recipient {
+        Some(_) => match issue_disable_token(&shared.keyring, delivery.channel_id) {
+            Ok(token) => Some(token),
+            Err(error) => {
+                tracing::error!(delivery_id = %delivery.id, %error, "cannot sign a disable token");
+                return Some(Finished::failed(
+                    "internal: the disable link cannot be signed",
+                ));
+            }
+        },
+        None => None,
+    };
+    let mail = recipient
+        .as_ref()
+        .zip(disable_token.as_deref())
+        .map(|(recipient, token)| MailContext {
+            recipient: &recipient.address,
+            disable_token: token,
+            public_url: &shared.settings.public_url,
+        });
     let prepared = adapter.prepare(&AdapterInput {
         config: &delivery.channel.config,
         url: opened.url.as_ref().map(Secret::unpack),
         token: opened.token.as_ref().map(Secret::unpack),
+        mail,
         notice: &notice,
         delivery: delivery.id,
     });

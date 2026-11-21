@@ -13,7 +13,6 @@ CREATE TABLE notification_channels (
   secret_ciphertext  bytea CHECK (secret_ciphertext IS NULL OR octet_length(secret_ciphertext) <= 4112),
   template           text CHECK (template IS NULL OR char_length(template) <= 4096),
   per_hour           integer NOT NULL CHECK (per_hour BETWEEN 1 AND 3600),
-  disable_token_hash bytea,
   created_at         timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT notification_channels_secret_complete CHECK (
     (secret_key_id IS NULL AND secret_nonce IS NULL AND secret_ciphertext IS NULL)

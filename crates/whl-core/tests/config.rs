@@ -545,3 +545,39 @@ fn notification_limits_have_defaults_and_read_the_environment() {
     assert_eq!(proxy.unpack().host_str(), Some("proxy.test"));
     assert_eq!(format!("{proxy:?}"), "ProxyUrl(<redacted>)");
 }
+
+#[test]
+fn email_settings_are_off_by_default_and_the_smtp_url_is_never_printed() {
+    let defaults = load(&with_required(&[])).expect("the defaults load");
+    assert!(defaults.notify.smtp_url.is_none());
+    assert!(defaults.notify.from.is_none());
+    assert_eq!(defaults.notify.email_per_day, 50);
+    assert_eq!(defaults.notify.email_per_address_per_day, 100);
+    assert_eq!(defaults.notify.email_verifications_per_day, 5);
+    assert_eq!(defaults.notify.email_verifications_per_address_per_day, 3);
+    assert_eq!(defaults.notify.email_verifications_per_domain_per_day, 200);
+    assert_eq!(defaults.notify.email_verifications_per_day_global, 2000);
+
+    let set = load(&with_required(&[
+        (
+            "WEBHOOKS_LIVE_SMTP_URL",
+            "smtps://mailer:placeholder-value@smtp.example.test:465",
+        ),
+        ("WEBHOOKS_LIVE_NOTIFY_FROM", "noreply@hooks.example.test"),
+        ("WEBHOOKS_LIVE_NOTIFY_EMAIL_PER_DAY", "7"),
+        (
+            "WEBHOOKS_LIVE_NOTIFY_EMAIL_VERIFICATIONS_PER_DAY_GLOBAL",
+            "9",
+        ),
+    ]))
+    .expect("the keys load");
+    let url = set.notify.smtp_url.as_ref().expect("the url is set");
+    assert_eq!(url.unpack().host_str(), Some("smtp.example.test"));
+    assert_eq!(
+        set.notify.from.as_deref(),
+        Some("noreply@hooks.example.test")
+    );
+    assert_eq!(set.notify.email_per_day, 7);
+    assert_eq!(set.notify.email_verifications_per_day_global, 9);
+    assert!(!format!("{set:?}").contains("placeholder-value"));
+}

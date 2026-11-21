@@ -16,6 +16,8 @@ pub fn requirement(mode: AccessMode, method: &Method, pattern: &str) -> Requirem
     let rest = pattern.strip_prefix(API_PREFIX).unwrap_or(pattern);
     match rest {
         "/instance" => Requirement::Anyone,
+        "/email-addresses/verify" | "/notifications/disable" => Requirement::Anyone,
+        "/email-addresses" | "/email-addresses/{address_id}" => Requirement::SignedIn,
         "/endpoints" if mode == AccessMode::Mixed && *method == Method::POST => Requirement::Anyone,
         "/endpoints" => Requirement::SignedIn,
         _ => match rest.strip_prefix(ENDPOINT_PREFIX) {
@@ -244,6 +246,36 @@ mod tests {
                 requirement(mode, &POST, "/api/v1/endpoints"),
                 Requirement::SignedIn
             );
+        }
+    }
+
+    #[test]
+    fn the_email_routes_need_sign_in_except_the_two_token_routes() {
+        for mode in MODES {
+            for (method, pattern, expected) in [
+                (&GET, "/api/v1/email-addresses", Requirement::SignedIn),
+                (&POST, "/api/v1/email-addresses", Requirement::SignedIn),
+                (
+                    &DELETE,
+                    "/api/v1/email-addresses/{address_id}",
+                    Requirement::SignedIn,
+                ),
+                (&POST, "/api/v1/email-addresses/verify", Requirement::Anyone),
+                (&POST, "/api/v1/notifications/disable", Requirement::Anyone),
+                (&GET, "/api/v1/notifications/disable", Requirement::Anyone),
+                (&GET, "/api/v1/email-addresses/verify", Requirement::Anyone),
+                (
+                    &PATCH,
+                    "/api/v1/email-addresses/{address_id}",
+                    Requirement::SignedIn,
+                ),
+            ] {
+                assert_eq!(
+                    requirement(mode, method, pattern),
+                    expected,
+                    "{mode:?} {method} {pattern}"
+                );
+            }
         }
     }
 

@@ -10,13 +10,15 @@ use whl_forward::{
     SystemLookup, validate_target_url,
 };
 
-use crate::adapter::{Destination, Prepared};
+use crate::adapter::{Destination, MailPlan, Prepared};
+use crate::mail::{MailError, Mailer, OutgoingMail};
 use crate::vendor::{PinError, VendorHosts};
 
 pub const REPLY_BODY_BYTES: usize = 4096;
 pub const DELIVERY_HEADER: &str = "x-webhooks-live-delivery";
 pub const HOP_HEADER: &str = "x-webhooks-live-hop";
 const HOP_VALUE: &str = "1";
+const SMTP_ACCEPTED: u16 = 250;
 
 const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(15);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -54,6 +56,7 @@ pub struct Transport {
     vendor: VendorRoute,
     hosts: VendorHosts,
     guard: GuardConfig,
+    mailer: Option<Mailer>,
 }
 
 #[derive(Debug, Clone)]
@@ -96,7 +99,13 @@ impl Transport {
             vendor,
             hosts,
             guard,
+            mailer: None,
         })
+    }
+
+    pub fn with_mailer(mut self, mailer: Mailer) -> Self {
+        self.mailer = Some(mailer);
+        self
     }
 
     pub fn attempt_deadline(&self) -> Duration {
@@ -122,6 +131,29 @@ impl Transport {
                     VendorRoute::Proxy(client) => send_proxied(client, resolved, prepared).await,
                 }
             }
+            Destination::Mail(plan) => self.send_mail(plan, prepared).await,
+        }
+    }
+
+    async fn send_mail(&self, plan: &MailPlan, prepared: &Prepared) -> Result<Reply, SendError> {
+        let mailer = self.mailer.as_ref().ok_or_else(|| {
+            SendError::Configuration("email notifications are not configured".to_owned())
+        })?;
+        let body = String::from_utf8(prepared.body.clone())
+            .map_err(|_| SendError::Final("invalid_message: the body is not text".to_owned()))?;
+        let mail = OutgoingMail {
+            to: plan.to.clone(),
+            subject: plan.subject.clone(),
+            body,
+            unsubscribe: Some(plan.unsubscribe.clone()),
+        };
+        match mailer.send(&mail).await {
+            Ok(()) => Ok(Reply {
+                status: SMTP_ACCEPTED,
+                body: Bytes::new(),
+            }),
+            Err(error) if error.is_retryable() => Err(SendError::Transient(error.to_string())),
+            Err(error) => Err(SendError::Final(mail_failure(&error))),
         }
     }
 
@@ -152,6 +184,10 @@ impl Transport {
             Err(error) => Err(classify_forward(error)),
         }
     }
+}
+
+fn mail_failure(error: &MailError) -> String {
+    format!("mail_refused: {error}")
 }
 
 fn json_headers() -> HeaderMap {

@@ -68,6 +68,12 @@ endpoint_per_hour = 30
 owner_per_hour = 300
 network_per_hour = 60
 global_per_hour = 600
+email_per_day = 50
+email_per_address_per_day = 100
+email_verifications_per_day = 5
+email_verifications_per_address_per_day = 3
+email_verifications_per_domain_per_day = 200
+email_verifications_per_day_global = 2000
 
 [shutdown]
 drain = "5s"
@@ -114,6 +120,29 @@ const ENV_KEYS: &[(&str, &str)] = &[
     ("NOTIFY_OWNER_PER_HOUR", "notify.owner_per_hour"),
     ("NOTIFY_NETWORK_PER_HOUR", "notify.network_per_hour"),
     ("NOTIFY_GLOBAL_PER_HOUR", "notify.global_per_hour"),
+    ("NOTIFY_EMAIL_PER_DAY", "notify.email_per_day"),
+    (
+        "NOTIFY_EMAIL_PER_ADDRESS_PER_DAY",
+        "notify.email_per_address_per_day",
+    ),
+    (
+        "NOTIFY_EMAIL_VERIFICATIONS_PER_DAY",
+        "notify.email_verifications_per_day",
+    ),
+    (
+        "NOTIFY_EMAIL_VERIFICATIONS_PER_ADDRESS_PER_DAY",
+        "notify.email_verifications_per_address_per_day",
+    ),
+    (
+        "NOTIFY_EMAIL_VERIFICATIONS_PER_DOMAIN_PER_DAY",
+        "notify.email_verifications_per_domain_per_day",
+    ),
+    (
+        "NOTIFY_EMAIL_VERIFICATIONS_PER_DAY_GLOBAL",
+        "notify.email_verifications_per_day_global",
+    ),
+    ("SMTP_URL", "notify.smtp_url"),
+    ("NOTIFY_FROM", "notify.from"),
     ("VENDOR_PROXY", "notify.vendor_proxy"),
     ("SECRETS_KEYS", "secrets.keys"),
     ("LOG", "log"),
@@ -232,6 +261,14 @@ pub struct NotifyConfig {
     pub owner_per_hour: u32,
     pub network_per_hour: u32,
     pub global_per_hour: u32,
+    pub email_per_day: u32,
+    pub email_per_address_per_day: u32,
+    pub email_verifications_per_day: u32,
+    pub email_verifications_per_address_per_day: u32,
+    pub email_verifications_per_domain_per_day: u32,
+    pub email_verifications_per_day_global: u32,
+    pub smtp_url: Option<SmtpUrl>,
+    pub from: Option<String>,
     pub vendor_proxy: Option<ProxyUrl>,
 }
 
@@ -283,6 +320,22 @@ impl ProxyUrl {
 impl fmt::Debug for ProxyUrl {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("ProxyUrl(<redacted>)")
+    }
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(transparent)]
+pub struct SmtpUrl(Url);
+
+impl SmtpUrl {
+    pub fn unpack(&self) -> &Url {
+        &self.0
+    }
+}
+
+impl fmt::Debug for SmtpUrl {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("SmtpUrl(<redacted>)")
     }
 }
 

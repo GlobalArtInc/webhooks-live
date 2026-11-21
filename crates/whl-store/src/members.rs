@@ -39,6 +39,9 @@ const LIST_MEMBERS_SQL: &str = "SELECT u.id, u.email, u.display_name, m.role, m.
 const DELETE_MEMBER_SQL: &str =
     "DELETE FROM endpoint_members WHERE endpoint_id = $1 AND user_id = $2";
 
+const DISABLE_EMAIL_CHANNELS_SQL: &str = "UPDATE notification_channels SET enabled = false \
+    WHERE endpoint_id = $1 AND created_by = $2 AND kind = 'email'";
+
 const ENDPOINT_OWNER_SQL: &str = "SELECT u.id, u.email, u.display_name \
     FROM endpoints e JOIN users u ON u.id = e.owner_id WHERE e.id = $1";
 
@@ -235,6 +238,14 @@ impl Store {
             .fetch_one(&mut *tx)
             .await
             .map_err(classify)?;
+        if role == GrantedRole::Viewer {
+            sqlx::query(DISABLE_EMAIL_CHANNELS_SQL)
+                .bind(endpoint.unpack())
+                .bind(user.id)
+                .execute(&mut *tx)
+                .await
+                .map_err(classify)?;
+        }
         tx.commit().await.map_err(classify)?;
         Ok(SetMemberOutcome::Set(MemberRecord {
             user,
@@ -268,6 +279,12 @@ impl Store {
         if outcome.rows_affected() == 0 {
             return Ok(RemoveMemberOutcome::NotMember);
         }
+        sqlx::query(DISABLE_EMAIL_CHANNELS_SQL)
+            .bind(endpoint.unpack())
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(classify)?;
         let payload = serde_json::json!({ "t": "access_changed", "e": endpoint.unpack() });
         sqlx::query(NOTIFY_SQL)
             .bind(EVENT_CHANNEL)

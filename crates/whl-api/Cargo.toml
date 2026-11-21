@@ -33,4 +33,5 @@ tower.workspace = true
 tracing-subscriber.workspace = true
 url.workspace = true
 whl-forward = { workspace = true, features = ["test-support"] }
+whl-notify = { workspace = true, features = ["test-support"] }
 whl-testkit.workspace = true

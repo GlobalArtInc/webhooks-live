@@ -33,6 +33,7 @@ clap = { version = "4", features = ["derive"] }
 figment = { version = "0.10", features = ["env", "toml"] }
 http = "1"
 ipnet = "2"
+lettre = { version = "0.11", default-features = false, features = ["smtp-transport", "tokio1-rustls-tls"] }
 metrics-exporter-prometheus = { version = "0.17", default-features = false }
 mimalloc = "0.1"
 rand = { version = "0.9", default-features = false, features = ["os_rng"] }
@@ -56,6 +57,7 @@ http-body-util = "0.1"
 hyper = { version = "1", default-features = false, features = ["http1", "http2", "server"] }
 hyper-util = { version = "0.1", default-features = false, features = ["http1", "http2", "server-auto", "server-graceful", "tokio"] }
 mime_guess = "2"
+percent-encoding = "2"
 multer = "3"
 openidconnect = { version = "4.1", default-features = false, features = ["reqwest", "rustls-tls"] }
 p256 = { version = "0.14", default-features = false, features = ["ecdsa", "std"] }

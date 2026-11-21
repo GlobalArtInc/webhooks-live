@@ -2,9 +2,10 @@ use sqlx::PgPool;
 use whl_store::{Store, StoreError};
 use whl_testkit::TestDb;
 
-const TABLES: [&str; 14] = [
+const TABLES: [&str; 15] = [
     "capture_bodies",
     "captures",
+    "email_addresses",
     "endpoint_members",
     "endpoint_secrets",
     "endpoints",
@@ -19,7 +20,8 @@ const TABLES: [&str; 14] = [
     "users",
 ];
 
-const KEY_INDEXES: [&str; 11] = [
+const KEY_INDEXES: [&str; 12] = [
+    "email_addresses_verify_token",
     "users_email",
     "sessions_expires",
     "endpoints_owner",

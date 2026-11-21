@@ -12,6 +12,7 @@ use crate::key::{KEY_BYTES, KeyId};
 use crate::keyring::Keyring;
 
 const CAPTURE_AUTH_CONTEXT: &[u8] = b"whl-capture-auth";
+const NOTIFY_DISABLE_CONTEXT: &[u8] = b"whl-notify-disable";
 const CONTEXT_SEPARATOR: u8 = 0;
 pub const MAC_BYTES: usize = 32;
 
@@ -26,16 +27,7 @@ impl Keyring {
         key_id: KeyId,
         endpoint: &EndpointId,
     ) -> Result<MacKey, MacError> {
-        let master = self.master(key_id).ok_or(MacError::UnknownKey(key_id))?;
-        let mut info = Vec::with_capacity(CAPTURE_AUTH_CONTEXT.len() + 1 + endpoint.unpack().len());
-        info.extend_from_slice(CAPTURE_AUTH_CONTEXT);
-        info.push(CONTEXT_SEPARATOR);
-        info.extend_from_slice(endpoint.unpack().as_bytes());
-        let mut derived = Zeroizing::new([0_u8; KEY_BYTES]);
-        Hkdf::<Sha256>::new(None, master.unpack())
-            .expand(&info, &mut *derived)
-            .map_err(|_| MacError::Derivation)?;
-        Ok(MacKey(derived))
+        self.derive_mac_key(key_id, CAPTURE_AUTH_CONTEXT, endpoint.unpack().as_bytes())
     }
 
     pub fn active_capture_mac_key(
@@ -44,6 +36,28 @@ impl Keyring {
     ) -> Result<(KeyId, MacKey), MacError> {
         let key_id = self.active_id();
         Ok((key_id, self.capture_mac_key(key_id, endpoint)?))
+    }
+
+    pub fn notify_disable_mac_key(&self, key_id: KeyId) -> Result<MacKey, MacError> {
+        self.derive_mac_key(key_id, NOTIFY_DISABLE_CONTEXT, &[])
+    }
+
+    fn derive_mac_key(
+        &self,
+        key_id: KeyId,
+        context: &[u8],
+        scope: &[u8],
+    ) -> Result<MacKey, MacError> {
+        let master = self.master(key_id).ok_or(MacError::UnknownKey(key_id))?;
+        let mut info = Vec::with_capacity(context.len() + 1 + scope.len());
+        info.extend_from_slice(context);
+        info.push(CONTEXT_SEPARATOR);
+        info.extend_from_slice(scope);
+        let mut derived = Zeroizing::new([0_u8; KEY_BYTES]);
+        Hkdf::<Sha256>::new(None, master.unpack())
+            .expand(&info, &mut *derived)
+            .map_err(|_| MacError::Derivation)?;
+        Ok(MacKey(derived))
     }
 }
 
