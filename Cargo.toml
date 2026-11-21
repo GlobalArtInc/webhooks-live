@@ -14,6 +14,7 @@ whl-api = { path = "crates/whl-api" }
 whl-auth = { path = "crates/whl-auth" }
 whl-capture = { path = "crates/whl-capture" }
 whl-core = { path = "crates/whl-core" }
+whl-export = { path = "crates/whl-export" }
 whl-forward = { path = "crates/whl-forward" }
 whl-live = { path = "crates/whl-live" }
 whl-secrets = { path = "crates/whl-secrets" }
@@ -23,6 +24,7 @@ whl-telemetry = { path = "crates/whl-telemetry" }
 whl-testkit = { path = "crates/whl-testkit" }
 whl-web = { path = "crates/whl-web" }
 
+async_zip = { version = "0.0.19", default-features = false, features = ["tokio", "deflate"] }
 axum = "0.8"
 axum-extra = { version = "0.12", default-features = false, features = ["cookie"] }
 bytes = "1"

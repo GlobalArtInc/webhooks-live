@@ -128,6 +128,7 @@ pub fn api_settings() -> ApiSettings {
         forwarding: true,
         private_forward_targets_allowed: false,
         ring_mode_allowed: true,
+        export_concurrency: 2,
     }
 }
 

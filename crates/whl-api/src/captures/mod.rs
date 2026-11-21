@@ -2,7 +2,7 @@ mod body;
 mod cursor;
 mod dto;
 mod handlers;
-mod query;
+pub(crate) mod query;
 
 use axum::Router;
 use axum::routing::get;

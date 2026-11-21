@@ -47,6 +47,7 @@ fn endpoint_role(method: &Method, tail: &str) -> EndpointRole {
         {
             EndpointRole::Viewer
         }
+        "/export" if read || *method == Method::POST => EndpointRole::Viewer,
         "/forward-rules" if *method == Method::POST => EndpointRole::Editor,
         "/forward-rules/{rule_id}" if matches!(*method, Method::PATCH | Method::DELETE) => {
             EndpointRole::Editor
@@ -107,7 +108,7 @@ mod tests {
     #[test]
     fn every_documented_route_needs_the_role_of_the_api_table() {
         use EndpointRole::{Editor, Owner, Viewer};
-        let table: [(&Method, &str, Requirement); 27] = [
+        let table: [(&Method, &str, Requirement); 30] = [
             (&GET, "/secrets", Requirement::Role(Editor)),
             (&Method::HEAD, "/secrets", Requirement::Role(Editor)),
             (&PUT, "/secrets/{name}", Requirement::Role(Editor)),
@@ -151,6 +152,9 @@ mod tests {
                 Requirement::Role(Editor),
             ),
             (&GET, "/stream", Requirement::Role(Viewer)),
+            (&GET, "/export", Requirement::Role(Viewer)),
+            (&POST, "/export", Requirement::Role(Viewer)),
+            (&Method::HEAD, "/export", Requirement::Role(Viewer)),
             (&Method::HEAD, "", Requirement::Role(Viewer)),
             (&Method::HEAD, "/captures", Requirement::Role(Viewer)),
             (&Method::HEAD, "/stream", Requirement::Role(Viewer)),

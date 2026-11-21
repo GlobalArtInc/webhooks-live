@@ -11,7 +11,7 @@ const MAX_LIMIT: i64 = 200;
 const MAX_SEARCH_CHARS: usize = 200;
 
 #[derive(Debug, Default, Deserialize)]
-pub struct ListParams {
+pub(crate) struct ListParams {
     order: Option<String>,
     limit: Option<String>,
     cursor: Option<String>,
@@ -28,15 +28,7 @@ pub fn list_query(params: &ListParams) -> Result<CaptureQuery, ApiError> {
     let mut violations = Vec::new();
     let order = parse_order(params.order.as_deref(), &mut violations).unwrap_or(Order::Desc);
     let limit = parse_limit(params.limit.as_deref(), &mut violations).unwrap_or(DEFAULT_LIMIT);
-    let filter = CaptureFilter {
-        methods: parse_methods(params.method.as_deref(), &mut violations),
-        statuses: parse_statuses(params.status.as_deref(), &mut violations),
-        kinds: parse_kinds(params.kind.as_deref(), &mut violations),
-        search: parse_search(params.q.as_deref(), &mut violations),
-        after_seq: parse_after_seq(params.after_seq.as_deref(), &mut violations),
-        since: parse_timestamp("since", params.since.as_deref(), &mut violations),
-        until: parse_timestamp("until", params.until.as_deref(), &mut violations),
-    };
+    let filter = parse_filter(params, &mut violations);
     if !violations.is_empty() {
         return Err(ApiError::Validation(violations));
     }
@@ -56,6 +48,28 @@ pub fn list_query(params: &ListParams) -> Result<CaptureQuery, ApiError> {
         limit,
         position,
     })
+}
+
+pub(crate) fn export_filter(params: &ListParams) -> Result<CaptureFilter, ApiError> {
+    let mut violations = Vec::new();
+    let filter = parse_filter(params, &mut violations);
+    if violations.is_empty() {
+        Ok(filter)
+    } else {
+        Err(ApiError::Validation(violations))
+    }
+}
+
+fn parse_filter(params: &ListParams, violations: &mut Vec<FieldViolation>) -> CaptureFilter {
+    CaptureFilter {
+        methods: parse_methods(params.method.as_deref(), violations),
+        statuses: parse_statuses(params.status.as_deref(), violations),
+        kinds: parse_kinds(params.kind.as_deref(), violations),
+        search: parse_search(params.q.as_deref(), violations),
+        after_seq: parse_after_seq(params.after_seq.as_deref(), violations),
+        since: parse_timestamp("since", params.since.as_deref(), violations),
+        until: parse_timestamp("until", params.until.as_deref(), violations),
+    }
 }
 
 fn violation(field: &str, code: FieldCode, message: &str) -> FieldViolation {

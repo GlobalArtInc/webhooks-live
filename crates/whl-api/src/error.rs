@@ -140,6 +140,8 @@ pub enum ApiError {
     SecretNotFound,
     #[error("the endpoint already has the maximum number of secrets")]
     SecretLimit,
+    #[error("the selection is larger than the export limit")]
+    ExportTooLarge,
     #[error("secrets are not configured on this instance")]
     SecretsDisabled,
     #[error("secret storage failed: {0}")]
@@ -397,6 +399,12 @@ impl IntoResponse for ApiError {
             Self::SecretLimit => (
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "limit_reached",
+                self.to_string(),
+                None,
+            ),
+            Self::ExportTooLarge => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "export_too_large",
                 self.to_string(),
                 None,
             ),

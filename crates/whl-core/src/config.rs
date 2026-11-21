@@ -60,6 +60,9 @@ concurrency = 32
 max_attempts = 3
 allow_cidrs = []
 
+[export]
+concurrency = 2
+
 [shutdown]
 drain = "5s"
 grace = "25s"
@@ -96,6 +99,7 @@ const ENV_KEYS: &[(&str, &str)] = &[
     ("FORWARD_CONCURRENCY", "forward.concurrency"),
     ("FORWARD_MAX_ATTEMPTS", "forward.max_attempts"),
     ("FORWARD_ALLOW_CIDRS", "forward.allow_cidrs"),
+    ("EXPORT_CONCURRENCY", "export.concurrency"),
     ("SHUTDOWN_DRAIN", "shutdown.drain"),
     ("SHUTDOWN_GRACE", "shutdown.grace"),
     ("SECRETS_KEYS", "secrets.keys"),
@@ -115,6 +119,7 @@ pub struct Config {
     pub capture: CaptureConfig,
     pub rate: RateConfig,
     pub forward: ForwardConfig,
+    pub export: ExportConfig,
     #[serde(default)]
     pub secrets: SecretsConfig,
     pub shutdown: ShutdownConfig,
@@ -203,6 +208,11 @@ pub struct ForwardConfig {
     pub max_attempts: u32,
     #[serde(deserialize_with = "de::list")]
     pub allow_cidrs: Vec<IpNet>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ExportConfig {
+    pub concurrency: u32,
 }
 
 #[derive(Debug, Default, Deserialize)]

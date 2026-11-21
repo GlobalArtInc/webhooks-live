@@ -5,6 +5,7 @@ pub mod captures;
 mod claim;
 pub mod endpoints;
 mod error;
+mod export;
 pub mod forward;
 mod kind;
 pub mod maintenance;
@@ -24,6 +25,7 @@ pub use capture_queries::{
 pub use claim::{ClaimOutcome, ClaimRefusal};
 pub use endpoints::{EndpointError, EndpointRecord, EndpointSettings, Overflow};
 pub use error::StoreError;
+pub use export::{ExportSelection, ExportSnapshot};
 pub use kind::CaptureKind;
 pub use members::{
     GrantedRole, ListPosition, MemberRecord, MembershipError, RemoveMemberOutcome, RoleFilter,

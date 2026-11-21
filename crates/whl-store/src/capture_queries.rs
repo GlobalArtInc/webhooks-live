@@ -346,7 +346,7 @@ impl Store {
     }
 }
 
-fn push_filters(
+pub(crate) fn push_filters(
     query: &mut QueryBuilder<'_, Postgres>,
     endpoint: &EndpointId,
     filter: &CaptureFilter,
@@ -415,7 +415,11 @@ fn detail_from_row(row: &PgRow) -> Result<CaptureDetail, CaptureError> {
     })
 }
 
-fn decode<T: DeserializeOwned>(id: &str, column: &str, text: &str) -> Result<T, CaptureError> {
+pub(crate) fn decode<T: DeserializeOwned>(
+    id: &str,
+    column: &str,
+    text: &str,
+) -> Result<T, CaptureError> {
     serde_json::from_str(text).map_err(|error| CaptureError::Invalid {
         reason: format!("capture {id} column {column}: {error}"),
     })
@@ -448,7 +452,7 @@ async fn notify(
     Ok(())
 }
 
-fn classify(error: sqlx::Error) -> CaptureError {
+pub(crate) fn classify(error: sqlx::Error) -> CaptureError {
     if matches!(
         error,
         sqlx::Error::PoolTimedOut | sqlx::Error::PoolClosed | sqlx::Error::Io(_)
