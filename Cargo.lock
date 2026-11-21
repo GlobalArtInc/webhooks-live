@@ -5012,6 +5012,8 @@ dependencies = [
  "whl-export",
  "whl-forward",
  "whl-live",
+ "whl-rules",
+ "whl-script",
  "whl-secrets",
  "whl-store",
  "whl-telemetry",
@@ -5196,6 +5198,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "whl-rules"
+version = "0.1.0-dev"
+dependencies = [
+ "ipnet",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "uuid",
+ "whl-core",
+ "whl-script",
+ "whl-secrets",
+ "whl-template",
+]
+
+[[package]]
 name = "whl-script"
 version = "0.1.0-dev"
 dependencies = [
@@ -5278,6 +5296,7 @@ dependencies = [
  "tracing",
  "uuid",
  "whl-core",
+ "whl-rules",
  "whl-secrets",
  "whl-telemetry",
  "whl-testkit",

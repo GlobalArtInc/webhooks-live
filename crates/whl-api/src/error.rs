@@ -5,9 +5,12 @@ use serde::Serialize;
 use time::OffsetDateTime;
 use whl_auth::AuthRejection;
 use whl_core::validation::{FieldPath, Violation, ViolationCode};
+use whl_rules::MAX_RULES_PER_ENDPOINT;
+use whl_script::LimitsError;
 use whl_secrets::{MAX_SECRETS_PER_ENDPOINT, SealError};
 use whl_store::MAX_FOLDERS_PER_USER;
 use whl_store::forward::ForwardStoreError;
+use whl_store::rules::RuleStoreError;
 use whl_store::secrets::SecretStoreError;
 use whl_store::{ApiTokenStoreError, EndpointError, FolderError, LifecycleError, MembershipError};
 
@@ -22,6 +25,7 @@ pub enum FieldCode {
     TooLong,
     OutOfRange,
     TooMany,
+    Duplicate,
     NotAllowed,
     TargetRefused,
     TargetUnresolvable,
@@ -112,6 +116,10 @@ pub enum ApiError {
     ForwardRuleNotFound,
     #[error("the endpoint already has the maximum number of forward rules")]
     ForwardRuleLimit,
+    #[error("the rule is not found in this endpoint")]
+    RuleNotFound,
+    #[error("the endpoint already has the maximum number of rules")]
+    RuleLimit,
     #[error("forwarding is disabled on this instance")]
     ForwardingDisabled,
     #[error("the cursor is malformed or does not match the order and filters")]
@@ -178,6 +186,10 @@ pub enum ApiError {
     EntropyUnavailable,
     #[error("API token storage failed: {0}")]
     TokenStorage(ApiTokenStoreError),
+    #[error("rule storage failed: {0}")]
+    RuleStorage(RuleStoreError),
+    #[error("the script engine cannot be configured: {0}")]
+    RuleEngine(LimitsError),
 }
 
 impl From<ApiTokenStoreError> for ApiError {
@@ -215,6 +227,16 @@ impl From<ForwardStoreError> for ApiError {
             Self::StoreUnavailable
         } else {
             Self::ForwardStorage(error)
+        }
+    }
+}
+
+impl From<RuleStoreError> for ApiError {
+    fn from(error: RuleStoreError) -> Self {
+        if error.is_unavailable() {
+            Self::StoreUnavailable
+        } else {
+            Self::RuleStorage(error)
         }
     }
 }
@@ -331,6 +353,7 @@ impl IntoResponse for ApiError {
                 "never_expire",
                 usize::try_from(*max).unwrap_or(usize::MAX),
             )),
+            Self::RuleLimit => Some(LimitDetail::count("rules", MAX_RULES_PER_ENDPOINT)),
             _ => None,
         };
         let references = match &self {
@@ -402,6 +425,36 @@ impl IntoResponse for ApiError {
             ),
             Self::ForwardingDisabled => {
                 (StatusCode::NOT_FOUND, "not_found", self.to_string(), None)
+            }
+            Self::RuleNotFound => (
+                StatusCode::NOT_FOUND,
+                "rule_not_found",
+                self.to_string(),
+                None,
+            ),
+            Self::RuleLimit => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "limit_reached",
+                self.to_string(),
+                None,
+            ),
+            Self::RuleStorage(error) => {
+                tracing::error!(%error, "rule storage failed");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal_error",
+                    "the request could not be completed".to_owned(),
+                    None,
+                )
+            }
+            Self::RuleEngine(error) => {
+                tracing::error!(%error, "the script engine cannot be configured");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal_error",
+                    "the request could not be completed".to_owned(),
+                    None,
+                )
             }
             Self::InvalidCursor => (
                 StatusCode::BAD_REQUEST,
