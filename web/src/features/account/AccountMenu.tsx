@@ -17,9 +17,7 @@ export function AccountMenu({ user }: AccountMenuProps) {
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
         <button type="button" className={styles.trigger} aria-label={t('wl.account.menu.trigger', { name })}>
-          <span className={styles.avatar} aria-hidden="true">
-            {initialsOf(user)}
-          </span>
+          <span className={styles.avatar} aria-hidden="true" data-initials={initialsOf(user)} />
           <span className={styles.name}>{name}</span>
         </button>
       </DropdownMenu.Trigger>
