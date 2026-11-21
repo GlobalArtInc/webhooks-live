@@ -11,13 +11,14 @@ use whl_core::endpoint_id::EndpointId;
 use whl_core::entropy::IdGenerationError;
 use whl_core::header::HeaderInput;
 use whl_core::response::{ResponseConfig, ResponseConfigInput};
+use whl_verify::{Verifier, VerifierDocument};
 
 use crate::captures::EVENT_CHANNEL;
 use crate::store::Store;
 
 pub(crate) const COLUMNS: &str = "id, title, response_status, response_content_type, \
     response_headers::text AS response_headers, response_body, response_delay_ms, cors, overflow, \
-    capture_count, bytes_used, last_seq, created_at, last_active_at";
+    capture_count, bytes_used, last_seq, created_at, last_active_at, verifier::text AS verifier";
 
 const GET_SQL: &str = "WITH live AS ( \
         SELECT id FROM endpoints \
@@ -30,7 +31,8 @@ const GET_SQL: &str = "WITH live AS ( \
     SELECT e.id, e.title, e.response_status, e.response_content_type, \
         e.response_headers::text AS response_headers, e.response_body, e.response_delay_ms, e.cors, \
         e.overflow, e.capture_count, e.bytes_used, e.last_seq, e.created_at, \
-        COALESCE(b.last_active_at, e.last_active_at) AS last_active_at \
+        COALESCE(b.last_active_at, e.last_active_at) AS last_active_at, \
+        e.verifier::text AS verifier \
     FROM endpoints e LEFT JOIN bumped b ON b.id = e.id \
     WHERE e.id IN (SELECT id FROM live)";
 
@@ -60,12 +62,19 @@ impl Overflow {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StoredVerifier {
+    Configured(Verifier),
+    Unreadable(String),
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct EndpointSettings {
     pub title: Option<String>,
     pub response: ResponseConfig,
     pub cors: bool,
     pub overflow: Overflow,
+    pub verifier: Option<StoredVerifier>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -94,6 +103,10 @@ pub enum EndpointError {
     Invalid { id: String, reason: String },
     #[error("retention {0:?} cannot be applied to a timestamp")]
     Retention(Duration),
+    #[error("the verifier names a secret this endpoint does not hold")]
+    VerifierSecretUnknown,
+    #[error("cannot encode the verifier: {0}")]
+    EncodeVerifier(#[source] serde_json::Error),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -137,6 +150,9 @@ impl Store {
         settings: &EndpointSettings,
         retention: Duration,
     ) -> Result<EndpointRecord, EndpointError> {
+        if settings.verifier.is_some() {
+            return Err(EndpointError::VerifierSecretUnknown);
+        }
         let id = EndpointId::generate()?;
         let sql = format!(
             "INSERT INTO endpoints (id, title, response_status, response_content_type, \
@@ -201,14 +217,31 @@ impl Store {
         };
         let current = record_from_row(&row, retention).map_err(E::from)?;
         let settings = merge(&current)?;
+        if let Some(StoredVerifier::Configured(configured)) = &settings.verifier
+            && settings.verifier != current.settings.verifier
+        {
+            let held: bool = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM endpoint_secrets WHERE endpoint_id = $1 AND name = $2)",
+            )
+            .bind(id.unpack())
+            .bind(configured.secret_name().unpack())
+            .fetch_one(&mut *transaction)
+            .await
+            .map_err(|error| E::from(classify(error)))?;
+            if !held {
+                return Err(E::from(EndpointError::VerifierSecretUnknown));
+            }
+        }
+        let verifier = encode_verifier(&settings).map_err(E::from)?;
         let update_sql = format!(
             "UPDATE endpoints SET title = $2, response_status = $3, response_content_type = $4, \
              response_headers = $5::text::jsonb, response_body = $6, response_delay_ms = $7, \
-             cors = $8, overflow = $9, last_active_at = now() \
+             cors = $8, overflow = $9, verifier = $10::text::jsonb, last_active_at = now() \
              WHERE id = $1 RETURNING {COLUMNS}"
         );
         let row = bind_settings(sqlx::query(&update_sql).bind(id.unpack()), &settings)
             .map_err(E::from)?
+            .bind(verifier)
             .fetch_one(&mut *transaction)
             .await
             .map_err(|error| E::from(classify(error)))?;
@@ -239,6 +272,16 @@ impl Store {
             .await
             .map_err(classify)?;
         Ok(result.rows_affected() == 1)
+    }
+}
+
+fn encode_verifier(settings: &EndpointSettings) -> Result<Option<String>, EndpointError> {
+    match &settings.verifier {
+        None => Ok(None),
+        Some(StoredVerifier::Unreadable(raw)) => Ok(Some(raw.clone())),
+        Some(StoredVerifier::Configured(verifier)) => serde_json::to_string(&verifier.document())
+            .map(Some)
+            .map_err(EndpointError::EncodeVerifier),
     }
 }
 
@@ -322,6 +365,16 @@ pub(crate) fn record_from_row(
     .map_err(|error| invalid(error.to_string()))?;
     let overflow = Overflow::parse(&overflow_text)
         .ok_or_else(|| invalid(format!("unknown overflow mode {overflow_text}")))?;
+    let verifier_text: Option<String> = row.try_get("verifier").map_err(EndpointError::Query)?;
+    let verifier = verifier_text.map(|text| {
+        let readable = serde_json::from_str::<VerifierDocument>(&text)
+            .map_err(|_| ())
+            .and_then(|document| Verifier::from_document(&document).map_err(|_| ()));
+        match readable {
+            Ok(verifier) => StoredVerifier::Configured(verifier),
+            Err(()) => StoredVerifier::Unreadable(text),
+        }
+    });
     let expires_at = expiry(last_active_at, retention)?;
 
     Ok(EndpointRecord {
@@ -331,6 +384,7 @@ pub(crate) fn record_from_row(
             response,
             cors,
             overflow,
+            verifier,
         },
         capture_count,
         bytes_used,

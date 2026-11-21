@@ -22,7 +22,7 @@ pub use capture_queries::{
     CaptureQuery, DeleteOutcome, FormFile, NameValue, Order, StatusFilter,
 };
 pub use claim::{ClaimOutcome, ClaimRefusal};
-pub use endpoints::{EndpointError, EndpointRecord, EndpointSettings, Overflow};
+pub use endpoints::{EndpointError, EndpointRecord, EndpointSettings, Overflow, StoredVerifier};
 pub use error::StoreError;
 pub use kind::CaptureKind;
 pub use members::{

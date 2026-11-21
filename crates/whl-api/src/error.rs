@@ -20,6 +20,7 @@ pub enum FieldCode {
     NotAllowed,
     TargetRefused,
     TargetUnresolvable,
+    SecretUnknown,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -140,6 +141,8 @@ pub enum ApiError {
     SecretNotFound,
     #[error("the endpoint already has the maximum number of secrets")]
     SecretLimit,
+    #[error("the secret is still used by the signature verifier of this endpoint")]
+    SecretInUse { endpoint: String },
     #[error("secrets are not configured on this instance")]
     SecretsDisabled,
     #[error("secret storage failed: {0}")]
@@ -187,6 +190,11 @@ impl From<EndpointError> for ApiError {
     fn from(error: EndpointError) -> Self {
         match error {
             EndpointError::Unavailable(_) => Self::StoreUnavailable,
+            EndpointError::VerifierSecretUnknown => Self::Validation(vec![FieldViolation::new(
+                "verifier.secret_name",
+                FieldCode::SecretUnknown,
+                "names a secret this endpoint does not hold",
+            )]),
             other => Self::Internal(other),
         }
     }
@@ -205,6 +213,14 @@ struct ErrorDetail {
     fields: Option<Vec<FieldViolation>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     limit: Option<LimitDetail>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    references: Option<Vec<ReferenceDetail>>,
+}
+
+#[derive(Serialize)]
+struct ReferenceDetail {
+    kind: &'static str,
+    id: String,
 }
 
 #[derive(Serialize)]
@@ -227,6 +243,13 @@ impl IntoResponse for ApiError {
                 name: "secrets",
                 max: MAX_SECRETS_PER_ENDPOINT,
             }),
+            _ => None,
+        };
+        let references = match &self {
+            Self::SecretInUse { endpoint } => Some(vec![ReferenceDetail {
+                kind: "verifier",
+                id: endpoint.clone(),
+            }]),
             _ => None,
         };
         let (status, code, message, fields) = match self {
@@ -394,6 +417,12 @@ impl IntoResponse for ApiError {
                 self.to_string(),
                 None,
             ),
+            Self::SecretInUse { .. } => (
+                StatusCode::CONFLICT,
+                "secret_in_use",
+                self.to_string(),
+                None,
+            ),
             Self::SecretLimit => (
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "limit_reached",
@@ -433,6 +462,7 @@ impl IntoResponse for ApiError {
                     message,
                     fields,
                     limit,
+                    references,
                 },
             }),
         )

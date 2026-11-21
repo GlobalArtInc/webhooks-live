@@ -20,3 +20,4 @@ pub const EVICTIONS_TOTAL: &str = "webhooks_live_evictions_total";
 pub const DB_POOL_CONNECTIONS: &str = "webhooks_live_db_pool_connections";
 pub const AUTH_AVAILABLE: &str = "webhooks_live_auth_available";
 pub const MAINTENANCE_LEADER: &str = "webhooks_live_maintenance_leader";
+pub const VERIFICATIONS_TOTAL: &str = "webhooks_live_verifications_total";

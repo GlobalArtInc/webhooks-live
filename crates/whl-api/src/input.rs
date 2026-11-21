@@ -3,11 +3,21 @@ use base64::engine::general_purpose::STANDARD;
 use serde_json::{Map, Value};
 use whl_core::header::HeaderInput;
 use whl_store::Overflow;
+use whl_verify::VerifierInput;
 
 use crate::error::{ApiError, FieldCode, FieldViolation};
 
 const TITLE_MAX_CHARS: usize = 100;
-const ENDPOINT_KEYS: &[&str] = &["title", "response", "cors", "overflow"];
+const ENDPOINT_KEYS: &[&str] = &["title", "response", "cors", "overflow", "verifier"];
+const VERIFIER_KEYS: &[&str] = &[
+    "scheme",
+    "secret_name",
+    "header",
+    "algorithm",
+    "encoding",
+    "prefix",
+    "timestamp_header",
+];
 const RESPONSE_KEYS: &[&str] = &["status", "content_type", "headers", "body", "delay_ms"];
 const HEADER_KEYS: &[&str] = &["name", "value"];
 const BODY_KEYS: &[&str] = &["encoding", "data", "truncated"];
@@ -18,6 +28,7 @@ pub struct EndpointPatch {
     pub response: ResponsePatch,
     pub cors: Option<bool>,
     pub overflow: Option<Overflow>,
+    pub verifier: Option<Option<VerifierInput>>,
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -97,7 +108,49 @@ impl Walk {
         if let Some(value) = object.get("overflow") {
             patch.overflow = self.overflow(value);
         }
+        if let Some(value) = object.get("verifier") {
+            patch.verifier = self.verifier(value);
+        }
         patch
+    }
+
+    fn verifier(&mut self, value: &Value) -> Option<Option<VerifierInput>> {
+        if value.is_null() {
+            return Some(None);
+        }
+        let object = self.object(value, "verifier")?;
+        self.unknown_keys(object, "verifier", VERIFIER_KEYS);
+        let scheme = self.required_text(object, "verifier", "scheme");
+        let secret_name = self.required_text(object, "verifier", "secret_name");
+        let header = self.optional_text(object, "header");
+        let algorithm = self.optional_text(object, "algorithm");
+        let encoding = self.optional_text(object, "encoding");
+        let prefix = self.optional_text(object, "prefix");
+        let timestamp_header = self.optional_text(object, "timestamp_header");
+        Some(Some(VerifierInput {
+            scheme: scheme?,
+            secret_name: secret_name?,
+            header: header?,
+            algorithm: algorithm?,
+            encoding: encoding?,
+            prefix: prefix?,
+            timestamp_header: timestamp_header?,
+        }))
+    }
+
+    fn optional_text(&mut self, object: &Map<String, Value>, key: &str) -> Option<Option<String>> {
+        match object.get(key) {
+            None | Some(Value::Null) => Some(None),
+            Some(Value::String(text)) => Some(Some(text.clone())),
+            Some(_) => {
+                self.push(
+                    join("verifier", key),
+                    FieldCode::InvalidFormat,
+                    "must be a string or null",
+                );
+                None
+            }
+        }
     }
 
     fn title(&mut self, value: &Value) -> Option<Option<String>> {

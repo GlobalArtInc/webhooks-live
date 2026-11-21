@@ -9,7 +9,7 @@ use whl_store::{EndpointRole, UserRecord};
 use crate::body::RawBody;
 use crate::dto::{EndpointDto, InstanceDto};
 use crate::error::ApiError;
-use crate::input::parse_endpoint_input;
+use crate::input::{EndpointPatch, parse_endpoint_input};
 use crate::resolve::{defaults, resolve};
 use crate::state::ApiState;
 
@@ -29,6 +29,7 @@ pub async fn create(
 ) -> Result<Response, ApiError> {
     let creation = state.access.creation(&caller)?;
     let parsed = parse_endpoint_input(&body, true)?;
+    require_secrets_for_verifier(&state, &parsed.patch)?;
     let settings = resolve(
         &state.settings,
         &defaults(),
@@ -92,6 +93,7 @@ pub async fn update(
 ) -> Result<Json<EndpointDto>, ApiError> {
     let id = endpoint_id(&raw_id)?;
     let parsed = parse_endpoint_input(&body, false)?;
+    require_secrets_for_verifier(&state, &parsed.patch)?;
     let record = state
         .store
         .update_endpoint(&id, state.settings.retention, |current| {
@@ -127,6 +129,13 @@ pub async fn delete(
     } else {
         Err(ApiError::EndpointGone)
     }
+}
+
+fn require_secrets_for_verifier(state: &ApiState, patch: &EndpointPatch) -> Result<(), ApiError> {
+    if matches!(patch.verifier, Some(Some(_))) && !state.secrets_enabled() {
+        return Err(ApiError::SecretsDisabled);
+    }
+    Ok(())
 }
 
 async fn owner_of(state: &ApiState, id: &EndpointId) -> Result<Option<UserRecord>, ApiError> {

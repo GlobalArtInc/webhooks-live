@@ -21,6 +21,7 @@ whl-live.workspace = true
 whl-secrets.workspace = true
 whl-store.workspace = true
 whl-telemetry.workspace = true
+whl-verify.workspace = true
 
 [dev-dependencies]
 futures-util.workspace = true

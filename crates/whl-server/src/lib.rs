@@ -124,6 +124,10 @@ impl Bound {
 
         let capture =
             CaptureState::new(store.clone(), self.capture)?.with_limiters(self.limiters.clone());
+        let capture = match &self.secrets {
+            Some(keyring) => capture.with_secrets(Arc::clone(keyring)),
+            None => capture,
+        };
         let storage_full = capture.storage_full().clone();
         let (stop_tx, stop_rx) = watch::channel(false);
         let background_stop = stop_rx.clone();

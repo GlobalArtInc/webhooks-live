@@ -10,6 +10,7 @@ use whl_core::config::Config;
 use whl_core::endpoint_id::EndpointId;
 use whl_core::entropy::IdGenerationError;
 use whl_core::limiter::Limiters;
+use whl_secrets::Keyring;
 use whl_store::Store;
 use whl_store::captures::CapturePolicy;
 
@@ -173,6 +174,7 @@ struct Inner {
     limiters: Option<Limiters>,
     public_url: String,
     delays: DelaySlots,
+    secrets: Option<Arc<Keyring>>,
 }
 
 impl CaptureState {
@@ -197,6 +199,7 @@ impl CaptureState {
                 limiters: None,
                 public_url: settings.public_url,
                 delays: DelaySlots::new(settings.max_delayed),
+                secrets: None,
             }),
         })
     }
@@ -213,6 +216,24 @@ impl CaptureState {
                 limiters: Some(limiters),
                 public_url: self.inner.public_url.clone(),
                 delays: self.inner.delays.clone(),
+                secrets: self.inner.secrets.clone(),
+            }),
+        }
+    }
+
+    pub fn with_secrets(self, keyring: Arc<Keyring>) -> Self {
+        Self {
+            inner: Arc::new(Inner {
+                store: self.inner.store.clone(),
+                limits: self.inner.limits,
+                proxies: self.inner.proxies.clone(),
+                budget: self.inner.budget.clone(),
+                source: Arc::clone(&self.inner.source),
+                storage_full: self.inner.storage_full.clone(),
+                limiters: self.inner.limiters.clone(),
+                public_url: self.inner.public_url.clone(),
+                delays: self.inner.delays.clone(),
+                secrets: Some(keyring),
             }),
         }
     }
@@ -229,6 +250,7 @@ impl CaptureState {
                 limiters: self.inner.limiters.clone(),
                 public_url: self.inner.public_url.clone(),
                 delays: self.inner.delays.clone(),
+                secrets: self.inner.secrets.clone(),
             }),
         }
     }
@@ -259,6 +281,10 @@ impl CaptureState {
 
     pub(crate) fn source(&self) -> &dyn CaptureSource {
         self.inner.source.as_ref()
+    }
+
+    pub(crate) fn secrets(&self) -> Option<&Keyring> {
+        self.inner.secrets.as_deref()
     }
 
     pub(crate) fn public_url(&self) -> &str {

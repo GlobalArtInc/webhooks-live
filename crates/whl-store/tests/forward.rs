@@ -34,6 +34,7 @@ async fn fixture() -> Fixture {
                 response: ResponseConfig::default(),
                 cors: false,
                 overflow: Overflow::Refuse,
+                verifier: None,
             },
             RETENTION,
         )
@@ -208,6 +209,7 @@ async fn rules_of_several_endpoints_load_in_one_query_grouped_by_endpoint() {
                 response: ResponseConfig::default(),
                 cors: false,
                 overflow: Overflow::Refuse,
+                verifier: None,
             },
             RETENTION,
         )

@@ -7,7 +7,7 @@ use whl_auth::AccessControl;
 use whl_core::header::MAX_HEADERS;
 use whl_core::response::{MAX_BODY_BYTES as RESPONSE_BODY_BYTES, MAX_DELAY_MS};
 use whl_store::forward::ForwardRule;
-use whl_store::{EndpointRecord, EndpointRole, UserRecord};
+use whl_store::{EndpointRecord, EndpointRole, StoredVerifier, UserRecord};
 
 use crate::forward::RuleDto;
 use crate::settings::ApiSettings;
@@ -111,6 +111,7 @@ pub struct EndpointDto {
     cors: bool,
     overflow: &'static str,
     forward_rules: Vec<RuleDto>,
+    verifier: Option<serde_json::Value>,
     max_captures: u32,
     capture_count: i32,
     bytes_used: i64,
@@ -194,6 +195,7 @@ impl EndpointDto {
             cors: stored.cors,
             overflow: stored.overflow.as_str(),
             forward_rules: rules.iter().map(RuleDto::from).collect(),
+            verifier: stored.verifier.as_ref().map(verifier_value),
             max_captures: settings.max_captures,
             capture_count: record.capture_count,
             bytes_used: record.bytes_used,
@@ -210,6 +212,17 @@ impl EndpointDto {
         self.my_role = role.map(EndpointRole::as_str);
         self.owner = owner.map(UserDto::from);
         self
+    }
+}
+
+fn verifier_value(stored: &StoredVerifier) -> serde_json::Value {
+    match stored {
+        StoredVerifier::Configured(verifier) => {
+            serde_json::to_value(verifier.document()).unwrap_or(serde_json::Value::Null)
+        }
+        StoredVerifier::Unreadable(raw) => {
+            serde_json::from_str(raw).unwrap_or(serde_json::Value::Null)
+        }
     }
 }
 

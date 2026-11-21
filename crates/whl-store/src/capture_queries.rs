@@ -70,6 +70,9 @@ impl From<StreamError> for CaptureError {
             StreamError::UnknownCaptureKind { kind } => Self::Invalid {
                 reason: format!("unknown capture kind {kind:?}"),
             },
+            StreamError::UnknownVerification { verification } => Self::Invalid {
+                reason: format!("unknown verification {verification:?}"),
+            },
         }
     }
 }

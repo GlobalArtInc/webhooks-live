@@ -331,6 +331,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2f6c7dbe95a6ed67ad9f18e57daf93a2f034c524b99fd2b76d18fdfeb6660aa"
 dependencies = [
  "hybrid-array",
+ "zeroize",
 ]
 
 [[package]]
@@ -896,6 +897,7 @@ dependencies = [
  "const-oid 0.10.3",
  "crypto-common 0.2.2",
  "ctutils",
+ "zeroize",
 ]
 
 [[package]]
@@ -3638,6 +3640,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha1"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aacc4cc499359472b4abe1bf11d0b12e688af9a805fa5e3016f9a386dc2d0214"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.3.1",
+ "digest 0.11.3",
+]
+
+[[package]]
 name = "sha2"
 version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3949,7 +3962,7 @@ dependencies = [
  "rand 0.8.8",
  "rsa",
  "serde",
- "sha1",
+ "sha1 0.10.7",
  "sha2 0.10.9",
  "smallvec",
  "sqlx-core",
@@ -4814,6 +4827,7 @@ dependencies = [
  "whl-store",
  "whl-telemetry",
  "whl-testkit",
+ "whl-verify",
 ]
 
 [[package]]
@@ -4847,11 +4861,13 @@ dependencies = [
  "axum",
  "bytes",
  "futures-util",
+ "hmac 0.13.0",
  "http-body-util",
  "ipnet",
  "metrics",
  "multer",
  "serde_json",
+ "sha2 0.11.1",
  "sqlx",
  "thiserror 2.0.21",
  "time",
@@ -4860,9 +4876,11 @@ dependencies = [
  "tracing",
  "url",
  "whl-core",
+ "whl-secrets",
  "whl-store",
  "whl-telemetry",
  "whl-testkit",
+ "whl-verify",
 ]
 
 [[package]]
@@ -5017,6 +5035,7 @@ dependencies = [
  "whl-secrets",
  "whl-telemetry",
  "whl-testkit",
+ "whl-verify",
 ]
 
 [[package]]
@@ -5056,6 +5075,23 @@ dependencies = [
  "tokio",
  "url",
  "whl-store",
+]
+
+[[package]]
+name = "whl-verify"
+version = "0.1.0-dev"
+dependencies = [
+ "base64 0.22.1",
+ "hmac 0.13.0",
+ "http",
+ "serde",
+ "serde_json",
+ "sha1 0.11.0",
+ "sha2 0.11.1",
+ "thiserror 2.0.21",
+ "time",
+ "whl-secrets",
+ "zeroize",
 ]
 
 [[package]]

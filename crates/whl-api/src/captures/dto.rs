@@ -22,6 +22,7 @@ pub struct SummaryDto {
     response_status: i16,
     forward_state: Option<&'static str>,
     kind: &'static str,
+    verification: Option<&'static str>,
 }
 
 impl From<&CaptureSummary> for SummaryDto {
@@ -41,6 +42,9 @@ impl From<&CaptureSummary> for SummaryDto {
             response_status: summary.response_status,
             forward_state: summary.forward_state.map(|state| state.as_str()),
             kind: summary.kind.as_str(),
+            verification: summary
+                .verification
+                .map(|verification| verification.as_str()),
         }
     }
 }

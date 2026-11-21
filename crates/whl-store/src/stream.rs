@@ -6,6 +6,7 @@ use sqlx::Row;
 use sqlx::postgres::PgRow;
 use sqlx::types::Uuid;
 use whl_core::endpoint_id::EndpointId;
+use whl_verify::Verification;
 
 use crate::Store;
 use crate::kind::CaptureKind;
@@ -56,7 +57,8 @@ pub(crate) fn summary_columns(path_limit: Option<i32>) -> String {
   c.status_override,
   c.response_status,
   {FORWARD_STATE} AS forward_state,
-  c.kind"#
+  c.kind,
+  c.verification"#
     )
 }
 
@@ -170,6 +172,8 @@ pub enum StreamError {
     UnknownForwardState { state: String },
     #[error("a capture row carries the unknown kind {kind:?}")]
     UnknownCaptureKind { kind: String },
+    #[error("a capture row carries the unknown verification {verification:?}")]
+    UnknownVerification { verification: String },
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -267,6 +271,7 @@ pub struct CaptureSummary {
     pub response_status: i16,
     pub forward_state: Option<ForwardState>,
     pub kind: CaptureKind,
+    pub verification: Option<Verification>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -480,6 +485,13 @@ fn forward_attempt_from_row(row: &PgRow) -> Result<ForwardAttemptView, ViewError
 pub(crate) fn summary_from_row(row: &PgRow) -> Result<CaptureSummary, StreamError> {
     let forward_state: Option<String> = row.try_get("forward_state")?;
     let kind: String = row.try_get("kind")?;
+    let verification: Option<String> = row.try_get("verification")?;
+    let verification = verification
+        .map(|text| {
+            Verification::parse(&text)
+                .ok_or(StreamError::UnknownVerification { verification: text })
+        })
+        .transpose()?;
     Ok(CaptureSummary {
         id: row.try_get("id")?,
         seq: row.try_get("seq")?,
@@ -498,6 +510,7 @@ pub(crate) fn summary_from_row(row: &PgRow) -> Result<CaptureSummary, StreamErro
             .map(ForwardState::parse)
             .transpose()?,
         kind: CaptureKind::parse(&kind).ok_or(StreamError::UnknownCaptureKind { kind })?,
+        verification,
     })
 }
 

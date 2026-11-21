@@ -81,6 +81,9 @@ pub async fn delete(
         }
         DeleteSecretOutcome::EndpointGone => Err(ApiError::EndpointGone),
         DeleteSecretOutcome::NotFound => Err(ApiError::SecretNotFound),
+        DeleteSecretOutcome::InUse => Err(ApiError::SecretInUse {
+            endpoint: endpoint.unpack().to_owned(),
+        }),
     }
 }
 
