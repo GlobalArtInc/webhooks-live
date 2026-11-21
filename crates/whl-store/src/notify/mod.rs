@@ -1,6 +1,7 @@
 mod channels;
 mod deliveries;
 mod model;
+mod push;
 mod quota;
 mod wake;
 
@@ -15,6 +16,11 @@ pub use deliveries::{
     ClaimPolicy, ClaimedDelivery, DeliveryChannel, DeliveryResult, NotifyCapture, TestOutcome,
 };
 pub use model::{Channel, ChannelKind, Delivery, DeliveryKind, DeliveryState, ParseError, Trigger};
+pub use push::{
+    MAX_PUSH_ENDPOINT_BYTES, MAX_PUSH_SUBSCRIPTIONS_PER_USER, MAX_REJECTED_ATTEMPTS,
+    MAX_USER_AGENT_CHARS, NewPushSubscription, PushResults, PushSubscription, PushSubscriptionInfo,
+    SavePushOutcome, SavedPushSubscription, StoredVapid, VAPID_SCOPE, VAPID_SECRET,
+};
 pub use quota::{QuotaCap, QuotaVerdict};
 pub use wake::NotifyWakeListener;
 

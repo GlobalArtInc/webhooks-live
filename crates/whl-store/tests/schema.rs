@@ -2,7 +2,7 @@ use sqlx::PgPool;
 use whl_store::{Store, StoreError};
 use whl_testkit::TestDb;
 
-const TABLES: [&str; 14] = [
+const TABLES: [&str; 16] = [
     "capture_bodies",
     "captures",
     "endpoint_members",
@@ -15,11 +15,13 @@ const TABLES: [&str; 14] = [
     "notification_channels",
     "notification_counters",
     "notification_deliveries",
+    "push_subscriptions",
+    "push_vapid_keys",
     "sessions",
     "users",
 ];
 
-const KEY_INDEXES: [&str; 11] = [
+const KEY_INDEXES: [&str; 12] = [
     "users_email",
     "sessions_expires",
     "endpoints_owner",
@@ -31,6 +33,7 @@ const KEY_INDEXES: [&str; 11] = [
     "notification_channels_capture",
     "notification_deliveries_due",
     "notification_counters_window",
+    "push_subscriptions_user",
 ];
 
 async fn migration_names(store: &Store) -> Vec<String> {

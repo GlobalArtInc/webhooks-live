@@ -246,7 +246,13 @@ impl Store {
             .fetch_one(self.pool())
             .await
             .map_err(classify)?;
-        u64::try_from(count)
+        let vapid: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM push_vapid_keys WHERE secret_key_id <> $1")
+                .bind(active.to_column())
+                .fetch_one(self.pool())
+                .await
+                .map_err(classify)?;
+        u64::try_from(count + vapid)
             .map_err(|_| SecretStoreError::Invalid("a negative row count".to_owned()))
     }
 

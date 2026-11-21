@@ -18,6 +18,8 @@ pub fn requirement(mode: AccessMode, method: &Method, pattern: &str) -> Requirem
         "/instance" => Requirement::Anyone,
         "/endpoints" if mode == AccessMode::Mixed && *method == Method::POST => Requirement::Anyone,
         "/endpoints" => Requirement::SignedIn,
+        "/push/public-key" => Requirement::Anyone,
+        "/push/subscriptions" | "/push/subscriptions/{subscription_id}" => Requirement::SignedIn,
         _ => match rest.strip_prefix(ENDPOINT_PREFIX) {
             Some(CLAIM_TAIL) if *method == Method::POST => Requirement::SignedIn,
             Some(tail) if is_members_route(tail) => Requirement::OwnedRole(EndpointRole::Owner),
@@ -228,6 +230,27 @@ mod tests {
                     requirement(mode, &GET, pattern),
                     Requirement::Role(EndpointRole::Owner),
                     "{mode:?} {pattern:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_push_key_is_public_and_the_subscription_routes_need_sign_in_in_every_mode() {
+        for mode in MODES {
+            assert_eq!(
+                requirement(mode, &GET, "/api/v1/push/public-key"),
+                Requirement::Anyone
+            );
+            for (method, pattern) in [
+                (&GET, "/api/v1/push/subscriptions"),
+                (&POST, "/api/v1/push/subscriptions"),
+                (&DELETE, "/api/v1/push/subscriptions/{subscription_id}"),
+            ] {
+                assert_eq!(
+                    requirement(mode, method, pattern),
+                    Requirement::SignedIn,
+                    "{mode:?} {method} {pattern}"
                 );
             }
         }

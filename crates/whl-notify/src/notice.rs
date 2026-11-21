@@ -18,6 +18,7 @@ pub struct Notice {
     pub endpoint_id: String,
     pub text: String,
     pub capture: Option<Value>,
+    pub delivery_kind: DeliveryKind,
 }
 
 pub struct ComposeInput<'a> {
@@ -43,6 +44,7 @@ pub fn compose(input: &ComposeInput<'_>) -> Notice {
         capture: input
             .capture
             .map(|capture| capture_summary(capture, &delivery.channel.endpoint_id)),
+        delivery_kind: delivery.kind,
     }
 }
 

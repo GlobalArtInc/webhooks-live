@@ -11,6 +11,7 @@ mod listing;
 mod members;
 mod notify;
 mod policy;
+mod push;
 mod resolve;
 mod secrets;
 mod settings;
@@ -50,6 +51,7 @@ pub fn router(state: ApiState) -> Router {
         .merge(captures::routes())
         .merge(forward::routes())
         .merge(notify::routes())
+        .merge(push::routes())
         .merge(secrets::routes());
     let api = guard_routes(api, &state.access)
         .fallback(not_found)

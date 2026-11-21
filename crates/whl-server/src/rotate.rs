@@ -1,5 +1,7 @@
-use whl_secrets::{Keyring, SealError};
+use whl_core::endpoint_id::EndpointId;
+use whl_secrets::{KeyId, Keyring, SealError, SecretName};
 use whl_store::Store;
+use whl_store::notify::{NotifyStoreError, VAPID_SCOPE, VAPID_SECRET};
 use whl_store::secrets::{
     ReplaceSealedOutcome, RotationCandidate, RotationCursor, SecretStoreError,
 };
@@ -27,6 +29,8 @@ pub enum RotateError {
     BatchSize,
     #[error("the secret store failed: {0}")]
     Store(#[from] SecretStoreError),
+    #[error("the push key store failed: {0}")]
+    Push(#[from] NotifyStoreError),
     #[error("re-sealing failed: {0}")]
     Seal(#[from] SealError),
 }
@@ -48,6 +52,25 @@ pub async fn rotate_secrets(
     }
     let active = keyring.active_id();
     let pending_at_start = store.count_secrets_outside_key(active).await?;
+    let mut report =
+        rotate_rows(store, keyring, batch_size, pending_at_start, &mut progress).await?;
+    match rotate_vapid(store, keyring, active).await? {
+        Some(Step::Rotated) => report.rotated += 1,
+        Some(Step::Skipped) => report.skipped += 1,
+        Some(Step::Failed) => report.failed += 1,
+        None => {}
+    }
+    Ok(report)
+}
+
+async fn rotate_rows(
+    store: &Store,
+    keyring: &Keyring,
+    batch_size: u32,
+    pending_at_start: u64,
+    progress: &mut impl FnMut(&RotateProgress),
+) -> Result<RotateReport, RotateError> {
+    let active = keyring.active_id();
     let mut report = RotateReport::default();
     let mut cursor = RotationCursor::start();
     loop {
@@ -77,6 +100,56 @@ pub async fn rotate_secrets(
             return Ok(report);
         }
     }
+}
+
+async fn rotate_vapid(
+    store: &Store,
+    keyring: &Keyring,
+    active: KeyId,
+) -> Result<Option<Step>, RotateError> {
+    let Some(stored) = store.get_vapid_key().await? else {
+        return Ok(None);
+    };
+    if stored.sealed.key_id() == active {
+        return Ok(None);
+    }
+    let (Ok(scope), Ok(name)) = (
+        EndpointId::parse(VAPID_SCOPE),
+        SecretName::parse(VAPID_SECRET),
+    ) else {
+        tracing::error!("the VAPID storage scope is not valid and the key was left untouched");
+        return Ok(Some(Step::Failed));
+    };
+    let value = match keyring.open(&scope, &name, &stored.sealed) {
+        Ok(value) => value,
+        Err(error) => {
+            tracing::warn!(
+                key_id = %stored.sealed.key_id(),
+                %error,
+                "the VAPID key cannot be opened with the configured keys and was left untouched"
+            );
+            return Ok(Some(Step::Failed));
+        }
+    };
+    let replacement = keyring.seal(&scope, &name, &value)?;
+    let verified = keyring
+        .open(&scope, &name, &replacement)
+        .is_ok_and(|check| check == value);
+    if !verified {
+        tracing::error!(
+            "the re-sealed VAPID key did not open back to the same value and was not written"
+        );
+        return Ok(Some(Step::Failed));
+    }
+    Ok(Some(
+        match store
+            .replace_sealed_vapid(&stored.sealed, &replacement)
+            .await?
+        {
+            ReplaceSealedOutcome::Replaced => Step::Rotated,
+            ReplaceSealedOutcome::Changed => Step::Skipped,
+        },
+    ))
 }
 
 async fn rotate_one(

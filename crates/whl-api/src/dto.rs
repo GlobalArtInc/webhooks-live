@@ -65,6 +65,7 @@ struct FeaturesDto {
     forwarding: bool,
     private_forward_targets_allowed: bool,
     secrets: bool,
+    push_public_key: Option<String>,
 }
 
 impl InstanceDto {
@@ -73,6 +74,7 @@ impl InstanceDto {
         access: &AccessControl,
         user: Option<&UserRecord>,
         secrets: bool,
+        push_public_key: Option<&str>,
     ) -> Self {
         Self {
             version: env!("CARGO_PKG_VERSION"),
@@ -97,6 +99,7 @@ impl InstanceDto {
                 forwarding: settings.forwarding,
                 private_forward_targets_allowed: settings.private_forward_targets_allowed,
                 secrets,
+                push_public_key: push_public_key.map(str::to_owned),
             },
         }
     }

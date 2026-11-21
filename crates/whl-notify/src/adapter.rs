@@ -5,6 +5,7 @@ use whl_store::Uuid;
 use whl_store::notify::ChannelKind;
 
 use crate::notice::{Notice, truncate};
+use crate::push::{PushHeaders, PushTarget};
 use crate::target::{
     TELEGRAM_HOST, TargetRefusal, validate_bot_token, validate_chat_id, validate_discord_url,
     validate_slack_url,
@@ -20,6 +21,7 @@ const ZERO_WIDTH_SPACE: char = '\u{200b}';
 pub enum Destination {
     Guarded(String),
     Vendor(String),
+    Push(String),
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -27,6 +29,7 @@ pub struct Prepared {
     pub destination: Destination,
     pub body: Vec<u8>,
     pub delivery_header: Option<String>,
+    pub push: Option<PushHeaders>,
 }
 
 impl fmt::Debug for Prepared {
@@ -55,6 +58,7 @@ pub struct AdapterInput<'a> {
     pub token: Option<&'a str>,
     pub notice: &'a Notice,
     pub delivery: Uuid,
+    pub push: Option<&'a PushTarget<'a>>,
 }
 
 pub trait Adapter: Send + Sync {
@@ -67,7 +71,8 @@ pub fn adapter_for(kind: ChannelKind) -> Option<&'static dyn Adapter> {
         ChannelKind::Slack => Some(&SlackAdapter),
         ChannelKind::Discord => Some(&DiscordAdapter),
         ChannelKind::Telegram => Some(&TelegramAdapter),
-        ChannelKind::Email | ChannelKind::Push => None,
+        ChannelKind::Push => Some(&PushAdapter),
+        ChannelKind::Email => None,
     }
 }
 
@@ -127,6 +132,7 @@ struct WebhookAdapter;
 struct SlackAdapter;
 struct DiscordAdapter;
 struct TelegramAdapter;
+struct PushAdapter;
 
 impl Adapter for WebhookAdapter {
     fn prepare(&self, input: &AdapterInput<'_>) -> Result<Prepared, PrepareError> {
@@ -140,6 +146,7 @@ impl Adapter for WebhookAdapter {
             destination: Destination::Guarded(url.to_owned()),
             body,
             delivery_header: Some(input.delivery.hyphenated().to_string()),
+            push: None,
         })
     }
 }
@@ -153,6 +160,7 @@ impl Adapter for SlackAdapter {
             destination: Destination::Vendor(url.to_owned()),
             body: encode(&json!({ "text": text }))?,
             delivery_header: None,
+            push: None,
         })
     }
 }
@@ -172,6 +180,7 @@ impl Adapter for DiscordAdapter {
                 "allowed_mentions": { "parse": [] },
             }))?,
             delivery_header: None,
+            push: None,
         })
     }
 }
@@ -197,7 +206,14 @@ impl Adapter for TelegramAdapter {
                 "disable_web_page_preview": true,
             }))?,
             delivery_header: None,
+            push: None,
         })
+    }
+}
+
+impl Adapter for PushAdapter {
+    fn prepare(&self, input: &AdapterInput<'_>) -> Result<Prepared, PrepareError> {
+        crate::push::prepare(input)
     }
 }
 
@@ -235,8 +251,8 @@ mod tests {
     }
 
     #[test]
-    fn email_and_push_have_no_adapter_yet() {
+    fn email_has_no_adapter_yet_and_push_has_one() {
         assert!(adapter_for(ChannelKind::Email).is_none());
-        assert!(adapter_for(ChannelKind::Push).is_none());
+        assert!(adapter_for(ChannelKind::Push).is_some());
     }
 }

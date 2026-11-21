@@ -3,6 +3,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde_json::json;
+use whl_auth::{AuthRejection, Caller};
 use whl_core::endpoint_id::EndpointId;
 use whl_forward::vet_target;
 use whl_notify::{channel_secret_name, mask_url, targets_instance};
@@ -37,6 +38,7 @@ pub async fn list(
 
 pub async fn create(
     State(state): State<ApiState>,
+    caller: Caller,
     Path(raw_id): Path<String>,
     RawBody(body): RawBody,
 ) -> Result<Response, ApiError> {
@@ -45,6 +47,9 @@ pub async fn create(
     let endpoint = endpoint_id(&raw_id)?;
     live_endpoint(&state, &endpoint).await?;
     let mut parsed = parse_channel(&body, true, None)?;
+    if parsed.kind == Some(ChannelKind::Push) {
+        ensure_push_ready(&state, &caller)?;
+    }
     let id = Uuid::now_v7();
     let stored = resolve_config(&state, keyring, &endpoint, id, &mut parsed).await?;
     let (Some(kind), Some(name), Some(change)) = (
@@ -64,7 +69,7 @@ pub async fn create(
         sealed: change.sealed,
         template: parsed.template.take().flatten(),
         per_hour: parsed.per_hour.unwrap_or(DEFAULT_PER_HOUR),
-        created_by: None,
+        created_by: caller.user().map(|user| user.id),
     };
     match state
         .store
@@ -222,8 +227,30 @@ async fn resolve_config(
                 sealed: None,
             }
         }
+        ChannelConfig::Push => {
+            if !parsed.violations.is_empty() {
+                return Ok(None);
+            }
+            ConfigChange {
+                config: json!({}),
+                sealed: None,
+            }
+        }
     };
     Ok(Some(stored))
+}
+
+fn ensure_push_ready(state: &ApiState, caller: &Caller) -> Result<(), ApiError> {
+    if state.push.is_none() {
+        return Err(ApiError::PushDisabled);
+    }
+    if !state.access.has_users() {
+        return Err(ApiError::NotAvailableInMode);
+    }
+    if caller.user().is_none() {
+        return Err(ApiError::Auth(AuthRejection::SignInRequired));
+    }
+    Ok(())
 }
 
 async fn check_webhook(state: &ApiState, url: &str, violations: &mut Vec<FieldViolation>) {

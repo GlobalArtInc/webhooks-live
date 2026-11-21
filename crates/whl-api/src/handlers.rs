@@ -4,6 +4,7 @@ use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use whl_auth::{Access, Caller, Creation};
 use whl_core::endpoint_id::EndpointId;
+use whl_notify::PushService;
 use whl_store::{EndpointRole, UserRecord};
 
 use crate::body::RawBody;
@@ -19,6 +20,7 @@ pub async fn instance(State(state): State<ApiState>, caller: Caller) -> Json<Ins
         &state.access,
         caller.user(),
         state.secrets_enabled(),
+        state.push.as_ref().map(PushService::public_key),
     ))
 }
 

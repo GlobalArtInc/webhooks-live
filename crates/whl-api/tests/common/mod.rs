@@ -157,7 +157,19 @@ pub async fn mixed_harness_behind(proxies: TrustedProxies) -> SsoHarness {
     build_with_users(true, proxies).await
 }
 
+pub async fn mixed_harness_with(configure: impl FnOnce(ApiState) -> ApiState) -> SsoHarness {
+    build_configured(true, TrustedProxies::default(), configure).await
+}
+
 async fn build_with_users(mixed: bool, proxies: TrustedProxies) -> SsoHarness {
+    build_configured(mixed, proxies, |state| state).await
+}
+
+async fn build_configured(
+    mixed: bool,
+    proxies: TrustedProxies,
+    configure: impl FnOnce(ApiState) -> ApiState,
+) -> SsoHarness {
     let db = TestDb::new().await;
     let store = Store::from_pool(db.pool().clone());
     let issuer = Url::parse("https://sso.test").expect("the issuer URL parses");
@@ -184,7 +196,7 @@ async fn build_with_users(mixed: bool, proxies: TrustedProxies) -> SsoHarness {
         AccessControl::sso(auth, RETENTION)
     }
     .with_proxies(proxies);
-    let state = ApiState::new(store.clone(), api_settings()).with_access(access.clone());
+    let state = configure(ApiState::new(store.clone(), api_settings()).with_access(access.clone()));
     SsoHarness {
         db,
         app: whl_api::router(state),

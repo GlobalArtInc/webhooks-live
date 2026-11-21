@@ -1,9 +1,13 @@
 mod adapter;
 mod notice;
+mod push;
+mod push_delivery;
+mod push_encrypt;
 mod secret;
 mod settings;
 mod target;
 mod transport;
+mod vapid;
 mod vendor;
 mod worker;
 
@@ -13,6 +17,17 @@ pub use adapter::{
     escape_slack, truncate_utf16,
 };
 pub use notice::{ComposeInput, MAX_NOTICE_CHARS, Notice, compose};
+pub use push::{
+    HostPatternError, MAX_EXTRA_PUSH_HOSTS, MAX_PAYLOAD_BYTES, PUSH_TTL_SECONDS, PushHeaders,
+    PushHosts, PushService, PushTarget, PushUrlRefusal,
+};
+#[cfg(any(test, feature = "test-support"))]
+pub use push_encrypt::decrypt;
+pub use push_encrypt::{
+    AUTH_SECRET_BYTES, EncryptError, KeyError, MAX_ENCODED_KEY_CHARS, MAX_PLAINTEXT_BYTES,
+    P256DH_BYTES, RECORD_SIZE, SALT_BYTES, SubscriptionKeys, decode_auth_secret, decode_p256dh,
+    encrypt,
+};
 pub use secret::channel_secret_name;
 pub use settings::{
     DEFAULT_HOUSEKEEPING_INTERVAL, DEFAULT_LEASE, DEFAULT_POLL_INTERVAL, MAX_ATTEMPTS_LIMIT,
@@ -24,5 +39,9 @@ pub use target::{
     validate_slack_url,
 };
 pub use transport::{DELIVERY_HEADER, HOP_HEADER, REPLY_BODY_BYTES, Reply, SendError, Transport};
+pub use vapid::{
+    MAX_SUBJECT_BYTES, TOKEN_LIFETIME_SECONDS, Vapid, VapidError, VapidSubject,
+    load_or_create_vapid,
+};
 pub use vendor::{PinError, VendorHosts};
 pub use worker::{NotifyHandle, NotifyWorker};

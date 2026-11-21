@@ -68,6 +68,7 @@ endpoint_per_hour = 30
 owner_per_hour = 300
 network_per_hour = 60
 global_per_hour = 600
+push_extra_hosts = []
 
 [shutdown]
 drain = "5s"
@@ -115,6 +116,8 @@ const ENV_KEYS: &[(&str, &str)] = &[
     ("NOTIFY_NETWORK_PER_HOUR", "notify.network_per_hour"),
     ("NOTIFY_GLOBAL_PER_HOUR", "notify.global_per_hour"),
     ("VENDOR_PROXY", "notify.vendor_proxy"),
+    ("VAPID_SUBJECT", "notify.vapid_subject"),
+    ("PUSH_EXTRA_HOSTS", "notify.push_extra_hosts"),
     ("SECRETS_KEYS", "secrets.keys"),
     ("LOG", "log"),
 ];
@@ -233,6 +236,9 @@ pub struct NotifyConfig {
     pub network_per_hour: u32,
     pub global_per_hour: u32,
     pub vendor_proxy: Option<ProxyUrl>,
+    pub vapid_subject: Option<String>,
+    #[serde(deserialize_with = "de::list")]
+    pub push_extra_hosts: Vec<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]

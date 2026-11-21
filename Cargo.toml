@@ -50,6 +50,7 @@ uuid = { version = "1", features = ["v7", "serde"] }
 migrator = { package = "sqlmig", version = "0.2.1" }
 sea-orm = { version = "1.1", default-features = false, features = ["sqlx-postgres", "runtime-tokio-rustls"] }
 sqlx = { version = "0.8", default-features = false, features = ["postgres", "runtime-tokio", "tls-rustls", "uuid", "time"] }
+aes-gcm = { version = "0.11", default-features = false, features = ["aes", "alloc", "zeroize"] }
 base64 = "0.22"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 http-body-util = "0.1"
@@ -58,7 +59,7 @@ hyper-util = { version = "0.1", default-features = false, features = ["http1", "
 mime_guess = "2"
 multer = "3"
 openidconnect = { version = "4.1", default-features = false, features = ["reqwest", "rustls-tls"] }
-p256 = { version = "0.14", default-features = false, features = ["ecdsa", "std"] }
+p256 = { version = "0.14", default-features = false, features = ["ecdh", "ecdsa", "std"] }
 rust-embed = "8"
 sha2 = "0.11"
 tower = { version = "0.5", features = ["util"] }

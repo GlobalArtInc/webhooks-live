@@ -6,7 +6,7 @@ use whl_auth::AuthError;
 use whl_capture::StateError;
 use whl_core::limiter::LimiterError;
 use whl_forward::{ForwardError, WorkerError};
-use whl_notify::{SendError, SettingsError};
+use whl_notify::{HostPatternError, SendError, SettingsError, VapidError};
 use whl_store::StoreError;
 
 use crate::secrets::SecretsSetupError;
@@ -29,6 +29,10 @@ pub enum ServerError {
     Notify(#[from] SettingsError),
     #[error("cannot set up notification delivery: {0}")]
     NotifyTransport(#[from] SendError),
+    #[error("the push host list is invalid: {0}")]
+    PushHosts(#[from] HostPatternError),
+    #[error("cannot set up web push: {0}")]
+    Push(#[from] VapidError),
     #[error("cannot set up secrets: {0}")]
     Secrets(#[from] SecretsSetupError),
     #[error("cannot bind the {listener} listener on {addr}: {source}")]

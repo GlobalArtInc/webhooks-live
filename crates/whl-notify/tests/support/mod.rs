@@ -6,6 +6,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use bytes::Bytes;
+use p256::SecretKey;
+use p256::elliptic_curve::sec1::ToSec1Point;
 use serde_json::Value;
 use time::OffsetDateTime;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -16,16 +18,19 @@ use url::Url;
 use whl_core::capture_id::CaptureId;
 use whl_core::creator_net::CreatorNet;
 use whl_core::endpoint_id::EndpointId;
+use whl_core::entropy::random_bytes;
 use whl_core::response::ResponseConfig;
 use whl_forward::GuardConfig;
 use whl_notify::{
-    NotifyHandle, NotifyLimits, NotifySettings, NotifyWorker, Transport, VendorHosts,
-    channel_secret_name,
+    NotifyHandle, NotifyLimits, NotifySettings, NotifyWorker, PushHosts, PushService, Transport,
+    Vapid, VapidSubject, VendorHosts, channel_secret_name,
 };
 use whl_secrets::{Keyring, Secret, SecretName};
 use whl_store::captures::{CaptureOutcome, CapturePolicy, NameValue, NewCapture};
-use whl_store::notify::{ChannelKind, CreateChannelOutcome, NewChannel, Trigger};
-use whl_store::{EndpointSettings, Overflow, Store, Uuid};
+use whl_store::notify::{
+    ChannelKind, CreateChannelOutcome, NewChannel, NewPushSubscription, SavePushOutcome, Trigger,
+};
+use whl_store::{EndpointSettings, Overflow, Store, Uuid, VerifiedIdentity};
 use whl_testkit::TestDb;
 
 pub const RETENTION: Duration = Duration::from_secs(3600);
@@ -33,6 +38,11 @@ pub const SLACK_URL: &str = "https://hooks.slack.com/services/T0/B0/slack-secret
 pub const DISCORD_URL: &str = "https://discord.com/api/webhooks/123456/discord-secret-part";
 pub const TELEGRAM_TOKEN: &str = "123456:telegram-secret-part";
 const KEYS: &str = "1:AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=";
+pub const PUSH_HOSTS: [&str; 3] = [
+    "fcm.googleapis.com",
+    "updates.push.services.mozilla.com",
+    "web.push.apple.com",
+];
 const VENDOR_HOSTS: [&str; 4] = [
     "hooks.slack.com",
     "discord.com",
@@ -67,18 +77,46 @@ pub struct MockServer {
     task: JoinHandle<()>,
 }
 
+pub struct StatusMap {
+    pub default: u16,
+    pub by_target: Vec<StatusRoute>,
+}
+
+pub struct StatusRoute {
+    pub target: String,
+    pub status: u16,
+}
+
+impl StatusMap {
+    fn status_of(&self, target: &str) -> u16 {
+        self.by_target
+            .iter()
+            .find(|route| route.target == target)
+            .map_or(self.default, |route| route.status)
+    }
+}
+
 impl MockServer {
     pub async fn start(status: u16) -> Self {
+        Self::start_routed(StatusMap {
+            default: status,
+            by_target: Vec::new(),
+        })
+        .await
+    }
+
+    pub async fn start_routed(statuses: StatusMap) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
             .expect("the mock binds");
         let addr = listener.local_addr().expect("the address is known");
         let seen = Arc::new(Mutex::new(Vec::new()));
+        let statuses = Arc::new(statuses);
         let task = tokio::spawn({
             let seen = Arc::clone(&seen);
             async move {
                 while let Ok((stream, _)) = listener.accept().await {
-                    tokio::spawn(serve(stream, Arc::clone(&seen), status));
+                    tokio::spawn(serve(stream, Arc::clone(&seen), Arc::clone(&statuses)));
                 }
             }
         });
@@ -100,7 +138,7 @@ impl Drop for MockServer {
     }
 }
 
-async fn serve(mut stream: TcpStream, seen: Arc<Mutex<Vec<Seen>>>, status: u16) {
+async fn serve(mut stream: TcpStream, seen: Arc<Mutex<Vec<Seen>>>, statuses: Arc<StatusMap>) {
     let mut data = Vec::new();
     let mut buffer = [0_u8; 4096];
     let head_end = loop {
@@ -133,6 +171,7 @@ async fn serve(mut stream: TcpStream, seen: Arc<Mutex<Vec<Seen>>>, status: u16) 
             Ok(read) => data.extend_from_slice(&buffer[..read]),
         }
     }
+    let status = statuses.status_of(&target);
     seen.lock().expect("the log is writable").push(Seen {
         method,
         target,
@@ -157,6 +196,14 @@ pub async fn rig() -> Rig {
 }
 
 pub async fn rig_replying(status: u16) -> Rig {
+    rig_with(MockServer::start(status).await).await
+}
+
+pub async fn rig_routed(statuses: StatusMap) -> Rig {
+    rig_with(MockServer::start_routed(statuses).await).await
+}
+
+async fn rig_with(server: MockServer) -> Rig {
     let db = TestDb::new().await;
     let store = Store::from_pool(db.pool().clone());
     let record = store
@@ -168,7 +215,7 @@ pub async fn rig_replying(status: u16) -> Rig {
         store,
         endpoint: record.id,
         keyring: Arc::new(Keyring::parse(KEYS).expect("the key set is valid")),
-        server: MockServer::start(status).await,
+        server,
     }
 }
 
@@ -200,6 +247,7 @@ pub struct ChannelSpec {
     pub secret: Option<String>,
     pub per_hour: i32,
     pub template: Option<&'static str>,
+    pub created_by: Option<Uuid>,
 }
 
 impl ChannelSpec {
@@ -210,6 +258,18 @@ impl ChannelSpec {
             secret: Some(url.to_owned()),
             per_hour: 100,
             template: None,
+            created_by: None,
+        }
+    }
+
+    pub fn push(created_by: Uuid) -> Self {
+        Self {
+            kind: ChannelKind::Push,
+            config: serde_json::json!({}),
+            secret: None,
+            per_hour: 100,
+            template: None,
+            created_by: Some(created_by),
         }
     }
 }
@@ -243,7 +303,7 @@ impl Rig {
                     sealed,
                     template: spec.template.map(str::to_owned),
                     per_hour: spec.per_hour,
-                    created_by: None,
+                    created_by: spec.created_by,
                 },
             )
             .await
@@ -376,11 +436,121 @@ impl Rig {
             settings,
         )
         .expect("the worker settings are valid");
-        let (stop, stopped) = oneshot::channel::<()>();
-        let handle = worker.spawn(async move {
-            let _ = stopped.await;
-        });
-        Running { stop, handle }
+        launch(worker)
+    }
+
+    pub fn start_push(&self, limits: NotifyLimits, service: PushService) -> Running {
+        self.start_push_with(self.push_transport(), limits, service)
+    }
+
+    pub fn start_push_with(
+        &self,
+        transport: Transport,
+        limits: NotifyLimits,
+        service: PushService,
+    ) -> Running {
+        let mut settings = NotifySettings::new("https://hooks.example".to_owned(), limits, 4, 3);
+        settings.poll_interval = Duration::from_millis(100);
+        let worker = NotifyWorker::new(
+            self.store.clone(),
+            Arc::clone(&self.keyring),
+            transport,
+            settings,
+        )
+        .expect("the worker settings are valid")
+        .with_push(service);
+        launch(worker)
+    }
+
+    pub async fn owned_endpoint(&self, owner: Uuid) -> EndpointId {
+        self.store
+            .create_endpoint_owned(Some(owner), &settings(), RETENTION)
+            .await
+            .expect("the endpoint is created")
+            .id
+    }
+
+    pub fn push_transport(&self) -> Transport {
+        let mut hosts = VendorHosts::production();
+        for host in PUSH_HOSTS {
+            hosts = hosts.with_override(host, self.server.origin());
+        }
+        Transport::new(loopback_guard(), None, hosts).expect("the transport is built")
+    }
+
+    pub fn push_service(&self) -> PushService {
+        let subject = VapidSubject::parse("mailto:ops@hooks.example").expect("a valid subject");
+        let vapid = Vapid::generate(subject).expect("a key pair");
+        PushService::new(vapid, PushHosts::vendors())
+    }
+
+    pub async fn user(&self, tag: &str) -> Uuid {
+        self.store
+            .upsert_user(&VerifiedIdentity {
+                issuer: "https://sso.test".to_owned(),
+                subject: format!("subject-{tag}"),
+                email: format!("{tag}@hooks.example"),
+                email_verified: true,
+                display_name: None,
+            })
+            .await
+            .expect("the user is stored")
+            .id
+    }
+
+    pub async fn device(&self, user: Uuid, url: &str) -> Device {
+        let scalar = SecretKey::from_slice(&random_bytes::<32>().expect("random bytes"))
+            .expect("a valid scalar");
+        let point = scalar.public_key().to_sec1_point(false);
+        let auth = random_bytes::<16>().expect("random bytes").to_vec();
+        let outcome = self
+            .store
+            .save_push_subscription(&NewPushSubscription {
+                id: Uuid::now_v7(),
+                user_id: user,
+                endpoint_url: url.to_owned(),
+                host: Url::parse(url)
+                    .expect("a valid endpoint URL")
+                    .host_str()
+                    .expect("an endpoint host")
+                    .to_owned(),
+                p256dh: point.as_bytes().to_vec(),
+                auth: auth.clone(),
+                user_agent: None,
+            })
+            .await
+            .expect("the subscription is stored");
+        let SavePushOutcome::Saved(saved) = outcome else {
+            panic!("the subscription was not saved: {outcome:?}");
+        };
+        Device {
+            scalar: scalar.to_bytes().to_vec(),
+            auth,
+            subscription: saved.id,
+        }
+    }
+
+    pub async fn subscription_count(&self) -> i64 {
+        sqlx::query_scalar("SELECT count(*) FROM push_subscriptions")
+            .fetch_one(self.db.pool())
+            .await
+            .expect("the count is readable")
+    }
+
+    pub async fn delivery_outcome(&self) -> DeliveryOutcome {
+        let row: (String, Option<i16>, Option<String>, i16) = sqlx::query_as(
+            "SELECT state, status, error, attempts FROM notification_deliveries \
+             ORDER BY created_at DESC LIMIT 1",
+        )
+        .fetch_one(self.db.pool())
+        .await
+        .expect("a delivery exists");
+        DeliveryOutcome {
+            state: row.0,
+            status: row.1,
+            error: row.2,
+            attempts: row.3,
+        }
     }
 
     pub async fn count_in_state(&self, state: &str) -> i64 {
@@ -397,6 +567,28 @@ pub fn loopback_guard() -> GuardConfig {
         allow: vec!["127.0.0.0/8".parse().expect("a valid network")],
         ..GuardConfig::default()
     }
+}
+
+pub struct Device {
+    pub scalar: Vec<u8>,
+    pub auth: Vec<u8>,
+    pub subscription: Uuid,
+}
+
+#[derive(Debug)]
+pub struct DeliveryOutcome {
+    pub state: String,
+    pub status: Option<i16>,
+    pub error: Option<String>,
+    pub attempts: i16,
+}
+
+fn launch(worker: NotifyWorker) -> Running {
+    let (stop, stopped) = oneshot::channel::<()>();
+    let handle = worker.spawn(async move {
+        let _ = stopped.await;
+    });
+    Running { stop, handle }
 }
 
 pub struct Running {

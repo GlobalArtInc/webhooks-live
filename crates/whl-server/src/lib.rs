@@ -88,11 +88,12 @@ impl Bound {
     }
 
     pub async fn serve(
-        self,
+        mut self,
         store: Store,
         shutdown: impl Future<Output = ()> + Send + 'static,
     ) -> Result<(), ServerError> {
         let readiness = Arc::new(Readiness::default());
+        self.notify.prepare_push(&store).await?;
         let worker = self.forward.worker(&store)?;
         let notify_worker = self.notify.worker(&store)?;
         let auth = match self.auth.clone() {
@@ -123,6 +124,10 @@ impl Bound {
             .with_notifications(self.notify.api_settings());
         let state = match &self.secrets {
             Some(keyring) => state.with_secrets(Arc::clone(keyring)),
+            None => state,
+        };
+        let state = match self.notify.push() {
+            Some(push) => state.with_push(push),
             None => state,
         };
         tracing::info!(public = %self.public_addr, admin = %self.admin_addr, "listening");

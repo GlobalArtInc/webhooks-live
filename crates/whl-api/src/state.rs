@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use whl_auth::AccessControl;
+use whl_notify::PushService;
 use whl_secrets::Keyring;
 use whl_store::Store;
 
@@ -18,6 +19,7 @@ pub struct ApiState {
     pub(crate) access: AccessControl,
     pub(crate) secrets: Option<Arc<Keyring>>,
     pub(crate) notifications: NotifyApiSettings,
+    pub(crate) push: Option<PushService>,
 }
 
 impl ApiState {
@@ -30,7 +32,13 @@ impl ApiState {
             access: AccessControl::open(),
             secrets: None,
             notifications: NotifyApiSettings::default(),
+            push: None,
         }
+    }
+
+    pub fn with_push(mut self, push: PushService) -> Self {
+        self.push = Some(push);
+        self
     }
 
     pub fn with_secrets(mut self, keyring: Arc<Keyring>) -> Self {

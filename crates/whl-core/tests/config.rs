@@ -545,3 +545,30 @@ fn notification_limits_have_defaults_and_read_the_environment() {
     assert_eq!(proxy.unpack().host_str(), Some("proxy.test"));
     assert_eq!(format!("{proxy:?}"), "ProxyUrl(<redacted>)");
 }
+
+#[test]
+fn web_push_settings_default_to_nothing_and_read_the_environment() {
+    let defaults = load(&with_required(&[])).expect("the defaults load");
+    assert_eq!(defaults.notify.vapid_subject, None);
+    assert!(defaults.notify.push_extra_hosts.is_empty());
+
+    let set = load(&with_required(&[
+        (
+            "WEBHOOKS_LIVE_VAPID_SUBJECT",
+            "mailto:ops@hooks.example.test",
+        ),
+        (
+            "WEBHOOKS_LIVE_PUSH_EXTRA_HOSTS",
+            "push.example.test, *.relay.example.test",
+        ),
+    ]))
+    .expect("the keys load");
+    assert_eq!(
+        set.notify.vapid_subject.as_deref(),
+        Some("mailto:ops@hooks.example.test")
+    );
+    assert_eq!(
+        set.notify.push_extra_hosts,
+        ["push.example.test", "*.relay.example.test"]
+    );
+}

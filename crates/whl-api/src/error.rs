@@ -6,7 +6,9 @@ use whl_auth::AuthRejection;
 use whl_core::validation::{FieldPath, Violation, ViolationCode};
 use whl_secrets::{MAX_SECRETS_PER_ENDPOINT, SealError};
 use whl_store::forward::ForwardStoreError;
-use whl_store::notify::{MAX_CHANNELS_PER_ENDPOINT, NotifyStoreError};
+use whl_store::notify::{
+    MAX_CHANNELS_PER_ENDPOINT, MAX_PUSH_SUBSCRIPTIONS_PER_USER, NotifyStoreError,
+};
 use whl_store::secrets::SecretStoreError;
 use whl_store::{EndpointError, MembershipError};
 
@@ -21,6 +23,7 @@ pub enum FieldCode {
     NotAllowed,
     TargetRefused,
     TargetUnresolvable,
+    HostNotAllowed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -153,6 +156,14 @@ pub enum ApiError {
     ChannelLimit,
     #[error("notification storage failed: {0}")]
     NotifyStorage(NotifyStoreError),
+    #[error("the push subscription is not found")]
+    SubscriptionNotFound,
+    #[error("the user already has the maximum number of push subscriptions")]
+    SubscriptionLimit,
+    #[error("this push subscription is already registered")]
+    AlreadyRegistered,
+    #[error("web push is not configured on this instance")]
+    PushDisabled,
     #[error("{0}")]
     InternalFault(&'static str),
 }
@@ -249,6 +260,10 @@ impl IntoResponse for ApiError {
             Self::ChannelLimit => Some(LimitDetail {
                 name: "notification_channels",
                 max: MAX_CHANNELS_PER_ENDPOINT,
+            }),
+            Self::SubscriptionLimit => Some(LimitDetail {
+                name: "push_subscriptions",
+                max: MAX_PUSH_SUBSCRIPTIONS_PER_USER,
             }),
             _ => None,
         };
@@ -456,6 +471,30 @@ impl IntoResponse for ApiError {
             Self::ChannelLimit => (
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "limit_reached",
+                self.to_string(),
+                None,
+            ),
+            Self::SubscriptionNotFound => (
+                StatusCode::NOT_FOUND,
+                "subscription_not_found",
+                self.to_string(),
+                None,
+            ),
+            Self::SubscriptionLimit => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "limit_reached",
+                self.to_string(),
+                None,
+            ),
+            Self::AlreadyRegistered => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "already_registered",
+                self.to_string(),
+                None,
+            ),
+            Self::PushDisabled => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "feature_disabled",
                 self.to_string(),
                 None,
             ),
