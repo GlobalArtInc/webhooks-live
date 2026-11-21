@@ -68,6 +68,7 @@ pub fn inbox_query(params: &ListParams) -> Result<InboxQuery, ApiError> {
         methods: parse_methods(params.method.as_deref(), &mut violations),
         statuses: parse_statuses(params.status.as_deref(), &mut violations),
         kinds: parse_kinds(params.kind.as_deref(), &mut violations),
+        starred: None,
         search: parse_search(params.q.as_deref(), &mut violations),
         search_chars: Some(INBOX_SEARCH_CHARS),
         after_seq: None,
