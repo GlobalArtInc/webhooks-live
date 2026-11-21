@@ -80,6 +80,8 @@ async fn the_server_answers_and_captures_dns_queries_and_stops_with_the_rest() {
                 response: ResponseConfig::default(),
                 cors: false,
                 overflow: Overflow::Refuse,
+                tags: Vec::new(),
+                verifier: None,
             },
             RETENTION,
         )
