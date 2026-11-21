@@ -20,8 +20,9 @@ const READY_SECTIONS = [
   { id: 'rules', heading: 'Rules' },
   { id: 'access', heading: 'Access' },
   { id: 'schedules', heading: 'Schedules' },
+  { id: 'cli', heading: 'Local forwarding' },
 ] as const;
-const PLANNED_SECTIONS = ['notifications', 'cli'] as const;
+const PLANNED_SECTIONS = ['notifications'] as const;
 const TARGET_REFUSED = 'target_url resolves only to refused addresses';
 
 function endpointReplies(extra: ReplyMap = {}): ReplyMap {

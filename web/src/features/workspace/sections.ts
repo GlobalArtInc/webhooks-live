@@ -55,6 +55,7 @@ const AccessSection = lazy(() =>
 const ScheduleSection = lazy(() =>
   import('../schedules/ScheduleSection').then((module) => ({ default: module.ScheduleSection })),
 );
+const CliSection = lazy(() => import('../cli/CliSection').then((module) => ({ default: module.CliSection })));
 
 export const WORKSPACE_SECTIONS: readonly WorkspaceSection[] = [
   { id: 'general', labelKey: 'wl.workspace.section.general', Component: GeneralSection },
@@ -74,7 +75,7 @@ export const WORKSPACE_SECTIONS: readonly WorkspaceSection[] = [
     Component: ScheduleSection,
     available: (instance) => instance?.features.schedules === true,
   },
-  { id: 'cli', labelKey: 'wl.workspace.section.cli', Component: null },
+  { id: 'cli', labelKey: 'wl.workspace.section.cli', Component: CliSection },
 ];
 
 export function isWorkspaceSectionId(value: string): value is WorkspaceSectionId {
