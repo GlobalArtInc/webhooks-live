@@ -7,6 +7,9 @@ import type {
   EndpointInput,
   EndpointListQuery,
   EndpointPage,
+  CaptureExportFile,
+  CaptureExportInput,
+  CaptureExportQuery,
   FieldError,
   ForwardJob,
   ForwardRequest,
@@ -60,6 +63,7 @@ interface RequestOptions {
   method: HttpMethod;
   query?: QueryParams;
   body?: unknown;
+  signal?: AbortSignal;
 }
 
 interface ParsedError {
@@ -161,6 +165,7 @@ async function send(path: string, options: RequestOptions): Promise<Response> {
     headers,
     body,
     credentials: 'same-origin',
+    signal: options.signal,
   });
   observeRateLimit(response.headers);
   if (!response.ok) {
@@ -257,6 +262,20 @@ export function deleteCapture(endpointId: string, captureId: string): Promise<vo
 
 export function clearCaptures(endpointId: string): Promise<void> {
   return requestEmpty(`${endpointPath(endpointId)}/captures`, { method: 'DELETE' });
+}
+
+export function captureExportPath(endpointId: string, query: CaptureExportQuery): string {
+  const url = buildUrl(`${endpointPath(endpointId)}/export`, { ...query });
+  return `${url.pathname}${url.search}`;
+}
+
+export async function createCaptureExport(
+  endpointId: string,
+  input: CaptureExportInput,
+  signal?: AbortSignal,
+): Promise<CaptureExportFile> {
+  const response = await send(`${endpointPath(endpointId)}/export`, { method: 'POST', body: input, signal });
+  return { blob: await response.blob(), contentDisposition: response.headers.get('Content-Disposition') };
 }
 
 export function resendCapture(endpointId: string, captureId: string, input: ForwardRequest): Promise<ForwardJob> {

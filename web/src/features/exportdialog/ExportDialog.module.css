@@ -1,0 +1,141 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: rgb(0 0 0 / 0.4);
+}
+
+.content {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 31;
+  display: grid;
+  gap: var(--space-3);
+  width: min(560px, calc(100vw - var(--space-4) * 2));
+  max-height: calc(100vh - var(--space-6));
+  padding: var(--space-4);
+  overflow-y: auto;
+  transform: translate(-50%, -50%);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--elevation-3);
+}
+
+.title {
+  font: var(--text-section);
+  color: var(--color-text);
+}
+
+.description {
+  font: var(--text-data);
+  color: var(--color-text-muted);
+}
+
+.form {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.group {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.legend {
+  padding: 0;
+  margin-bottom: var(--space-1);
+  font: var(--text-meta);
+  color: var(--color-text-muted);
+}
+
+.option {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 32px;
+  font: var(--text-data);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.option:has(input:disabled) {
+  color: var(--color-text-muted);
+  cursor: default;
+}
+
+.option input {
+  accent-color: var(--color-accent);
+}
+
+.hint {
+  grid-column: 2 / -1;
+  font: var(--text-meta);
+  color: var(--color-text-muted);
+}
+
+.count {
+  font: var(--mono-data);
+  color: var(--color-text-muted);
+}
+
+.note {
+  font: var(--text-meta);
+  color: var(--color-text-muted);
+}
+
+.status {
+  font: var(--text-data);
+  color: var(--color-text);
+}
+
+.failed {
+  font: var(--text-data);
+  color: var(--color-danger);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.secondary,
+.primary {
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  font: var(--text-data);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.secondary {
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+}
+
+.primary {
+  color: var(--color-text-on-accent);
+  background: var(--color-accent);
+  border: 1px solid var(--color-accent);
+}
+
+.primary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.secondary:focus-visible,
+.primary:focus-visible,
+.option input:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}

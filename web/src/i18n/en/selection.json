@@ -1,0 +1,18 @@
+{
+  "wl.selection.toggle": "Select",
+  "wl.selection.done": "Done",
+  "wl.selection.count_one": "{{count}} selected",
+  "wl.selection.count_other": "{{count}} selected",
+  "wl.selection.selectAll": "Select all visible",
+  "wl.selection.export": "Export",
+  "wl.selection.delete": "Delete selected",
+  "wl.selection.bar.label": "Selection",
+  "wl.selection.delete.title_one": "Delete {{count}} capture?",
+  "wl.selection.delete.title_other": "Delete {{count}} captures?",
+  "wl.selection.delete.body": "The captures leave the list now. You can undo this for a few seconds before they are deleted.",
+  "wl.selection.delete.confirm": "Delete",
+  "wl.selection.delete.cancel": "Cancel",
+  "wl.selection.delete.failed": "Some captures could not be deleted and were restored.",
+  "wl.selection.undo.message_one": "{{count}} capture deleted",
+  "wl.selection.undo.message_other": "{{count}} captures deleted"
+}
