@@ -1,0 +1,115 @@
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.labelRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.label {
+  font: var(--text-data);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.badge {
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  font: var(--text-meta);
+  color: var(--color-text-muted);
+}
+
+.surface {
+  position: relative;
+  min-width: 0;
+}
+
+.host {
+  min-width: 0;
+}
+
+.field[data-status='loading'] .surface {
+  min-height: calc(var(--editor-rows, 6) * 20px + var(--space-4));
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-sunken);
+}
+
+.field[data-status='loading'] .surface[data-single-line='true'] {
+  min-height: var(--space-6);
+}
+
+.notice {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  font: var(--text-meta);
+  color: var(--color-text-muted);
+}
+
+.failure {
+  margin: 0;
+  font: var(--text-meta);
+  color: var(--color-danger);
+}
+
+.fallback {
+  box-sizing: border-box;
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+  font: var(--mono-data);
+  resize: vertical;
+}
+
+.fallback:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.fallback[aria-invalid='true'] {
+  border-color: var(--color-danger);
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-4);
+  font: var(--text-meta);
+  color: var(--color-text-muted);
+}
+
+.hint[data-active='true'] {
+  color: var(--color-accent-text);
+  font-weight: 600;
+}
+
+.size[data-over='true'] {
+  color: var(--color-danger);
+  font-weight: 600;
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.field[data-invalid='true'] .surface {
+  border-radius: var(--radius-md);
+  box-shadow: 0 0 0 1px var(--color-danger);
+}

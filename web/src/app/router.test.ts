@@ -2,6 +2,7 @@ import { QueryClient } from '@tanstack/react-query';
 import { createMemoryHistory } from '@tanstack/react-router';
 import { describe, expect, it } from 'vitest';
 import { CaptureScreen } from '../routes/capture/CaptureScreen';
+import { DevEditorsScreen } from '../routes/dev/DevEditorsScreen';
 import { DevTokensScreen } from '../routes/dev/DevTokensScreen';
 import { DiffScreen } from '../routes/diff/DiffScreen';
 import { EndpointScreen } from '../routes/endpoint/EndpointScreen';
@@ -47,6 +48,7 @@ const ROUTE_CASES: RouteCase[] = [
     params: { id: ENDPOINT_ID, a: CAPTURE_ID, b: OTHER_CAPTURE_ID },
   },
   { path: '/dev/tokens', screen: DevTokensScreen, params: {} },
+  { path: '/dev/editors', screen: DevEditorsScreen, params: {} },
   { path: '/no/such/page', screen: NotFoundScreen, params: { '*': 'no/such/page', _splat: 'no/such/page' } },
 ];
 
