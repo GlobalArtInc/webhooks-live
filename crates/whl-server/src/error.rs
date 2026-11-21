@@ -7,6 +7,7 @@ use whl_capture::StateError;
 use whl_core::limiter::LimiterError;
 use whl_dns::DnsError;
 use whl_forward::{ForwardError, WorkerError};
+use whl_notify::{SendError, SettingsError};
 use whl_schedule::RunnerError;
 use whl_store::StoreError;
 
@@ -30,6 +31,10 @@ pub enum ServerError {
     Dns(#[from] DnsError),
     #[error("the schedule runner settings are invalid: {0}")]
     Schedules(#[from] RunnerError),
+    #[error("the notification settings are invalid: {0}")]
+    Notify(#[from] SettingsError),
+    #[error("cannot set up notification delivery: {0}")]
+    NotifyTransport(#[from] SendError),
     #[error("cannot set up secrets: {0}")]
     Secrets(#[from] SecretsSetupError),
     #[error("cannot bind the {listener} listener on {addr}: {source}")]

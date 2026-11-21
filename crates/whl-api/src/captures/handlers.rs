@@ -119,7 +119,8 @@ async fn with_forwards(state: &ApiState, detail: CaptureDetail) -> Result<Captur
         })
     })?;
     let forwards = state.store.forward_jobs_for_capture(capture).await?;
-    Ok(CaptureDto::new(detail, &forwards))
+    let notifications = state.store.deliveries_for_capture(capture).await?;
+    Ok(CaptureDto::new(detail, &forwards, &notifications))
 }
 
 async fn live_endpoint(state: &ApiState, endpoint: &EndpointId) -> Result<(), ApiError> {

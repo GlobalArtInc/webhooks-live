@@ -8,6 +8,7 @@ use crate::composer::ComposerSettings;
 use crate::export::ExportSlots;
 use crate::forward::ForwardSettings;
 use crate::limit::ApiLimits;
+use crate::notify::NotifyApiSettings;
 use crate::schedules::ScheduleSettings;
 use crate::settings::ApiSettings;
 
@@ -22,6 +23,7 @@ pub struct ApiState {
     pub(crate) exports: ExportSlots,
     pub(crate) composer: ComposerSettings,
     pub(crate) schedules: ScheduleSettings,
+    pub(crate) notifications: NotifyApiSettings,
 }
 
 impl ApiState {
@@ -37,6 +39,7 @@ impl ApiState {
             exports,
             composer: ComposerSettings::default(),
             schedules: ScheduleSettings::default(),
+            notifications: NotifyApiSettings::default(),
         }
     }
 
@@ -47,6 +50,11 @@ impl ApiState {
 
     pub fn with_schedules(mut self, schedules: ScheduleSettings) -> Self {
         self.schedules = schedules;
+        self
+    }
+
+    pub fn with_notifications(mut self, notifications: NotifyApiSettings) -> Self {
+        self.notifications = notifications;
         self
     }
 

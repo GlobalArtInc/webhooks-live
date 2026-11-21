@@ -1,0 +1,33 @@
+[package]
+name = "whl-notify"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+bytes.workspace = true
+http.workspace = true
+metrics.workspace = true
+reqwest.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+time.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+url.workspace = true
+whl-core.workspace = true
+whl-forward.workspace = true
+whl-secrets.workspace = true
+whl-store.workspace = true
+whl-telemetry.workspace = true
+whl-template.workspace = true
+
+[features]
+test-support = ["whl-forward/test-support"]
+
+[dev-dependencies]
+bytes.workspace = true
+sqlx.workspace = true
+whl-notify = { workspace = true, features = ["test-support"] }
+whl-testkit.workspace = true

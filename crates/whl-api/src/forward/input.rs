@@ -104,12 +104,16 @@ fn object_of(bytes: &[u8], allow_empty: bool) -> Result<Option<Map<String, Value
 }
 
 pub fn target_violation(error: &TargetCheckError) -> FieldViolation {
+    target_violation_for("target_url", error)
+}
+
+pub fn target_violation_for(field: &str, error: &TargetCheckError) -> FieldViolation {
     match error {
         TargetCheckError::Refused(reason) => {
-            FieldViolation::new("target_url", refusal_code(*reason), reason.to_string())
+            FieldViolation::new(field, refusal_code(*reason), reason.to_string())
         }
         TargetCheckError::Unresolvable(detail) => {
-            FieldViolation::new("target_url", FieldCode::TargetUnresolvable, detail.clone())
+            FieldViolation::new(field, FieldCode::TargetUnresolvable, detail.clone())
         }
     }
 }
