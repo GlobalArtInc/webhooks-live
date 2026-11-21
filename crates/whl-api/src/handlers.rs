@@ -4,13 +4,15 @@ use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use whl_auth::{Access, AuthRejection, Caller, Creation};
 use whl_core::endpoint_id::EndpointId;
-use whl_store::{EndpointRole, UserRecord};
+use whl_store::{EndpointRole, Lifecycle, LifecycleLimits, NewEndpoint, UserRecord};
 
 use crate::body::RawBody;
 use crate::dto::{EndpointDto, InstanceDto};
 use crate::error::ApiError;
 use crate::input::parse_endpoint_input;
+use crate::lifecycle::{self, Standing, combine};
 use crate::resolve::{defaults, resolve};
+use crate::settings::ApiSettings;
 use crate::state::ApiState;
 
 pub async fn instance(State(state): State<ApiState>, caller: Caller) -> Json<InstanceDto> {
@@ -35,27 +37,43 @@ pub async fn create(
     }
     let creation = state.access.creation(&caller)?;
     let parsed = parse_endpoint_input(&body, true)?;
-    let settings = resolve(
-        &state.settings,
-        &defaults(),
-        &parsed.patch,
-        parsed.violations,
-    )
-    .map_err(ApiError::Validation)?;
-    let record = match &creation {
-        Creation::Owned(user) => {
-            state
-                .store
-                .create_endpoint_owned(Some(*user), &settings, state.settings.retention)
-                .await?
-        }
-        Creation::Anonymous { network } => {
-            state
-                .store
-                .create_endpoint_from_network(network.as_ref(), &settings, state.settings.retention)
-                .await?
-        }
+    let standing = Standing {
+        owned: matches!(creation, Creation::Owned(_)),
+        signed_in: caller.user().is_some(),
+        sign_in_possible: state.access.has_users(),
+        role: None,
     };
+    let change = combine(
+        resolve(
+            &state.settings,
+            &defaults(),
+            &parsed.patch,
+            parsed.violations,
+        ),
+        lifecycle::resolve(
+            &state.settings,
+            standing,
+            &Lifecycle::default(),
+            &parsed.patch.lifecycle,
+        ),
+    )?;
+    let (owner_id, creator_net) = match &creation {
+        Creation::Owned(user) => (Some(*user), None),
+        Creation::Anonymous { network } => (None, network.as_ref()),
+    };
+    let record = state
+        .store
+        .create_endpoint_with_lifecycle(
+            NewEndpoint {
+                owner: owner_id,
+                creator_net,
+                settings: &change.settings,
+                lifecycle: change.lifecycle,
+                limits: never_expire_limits(&state.settings),
+            },
+            state.settings.retention,
+        )
+        .await?;
     let owner = caller.user();
     let location = format!("/api/v1/endpoints/{}", record.id.unpack());
     let role = match creation {
@@ -98,17 +116,38 @@ pub async fn update(
 ) -> Result<Json<EndpointDto>, ApiError> {
     let id = endpoint_id(&raw_id)?;
     let parsed = parse_endpoint_input(&body, false)?;
+    let signed_in = access.caller().user().is_some();
+    let sign_in_possible = state.access.has_users();
+    let role = access.role();
     let record = state
         .store
-        .update_endpoint(&id, state.settings.retention, |current| {
-            resolve(
-                &state.settings,
-                &current.settings,
-                &parsed.patch,
-                parsed.violations,
-            )
-            .map_err(ApiError::Validation)
-        })
+        .update_endpoint(
+            &id,
+            state.settings.retention,
+            never_expire_limits(&state.settings),
+            |current, owner_id| {
+                let standing = Standing {
+                    owned: owner_id.is_some(),
+                    signed_in,
+                    sign_in_possible,
+                    role,
+                };
+                combine(
+                    resolve(
+                        &state.settings,
+                        &current.settings,
+                        &parsed.patch,
+                        parsed.violations,
+                    ),
+                    lifecycle::resolve(
+                        &state.settings,
+                        standing,
+                        &current.lifecycle,
+                        &parsed.patch.lifecycle,
+                    ),
+                )
+            },
+        )
         .await?
         .ok_or(ApiError::EndpointGone)?;
     let rules = state.store.list_forward_rules(&id).await?;
@@ -132,6 +171,12 @@ pub async fn delete(
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err(ApiError::EndpointGone)
+    }
+}
+
+fn never_expire_limits(settings: &ApiSettings) -> LifecycleLimits {
+    LifecycleLimits {
+        never_expire_max: settings.lifecycle_limits(true).never_expire_endpoints,
     }
 }
 

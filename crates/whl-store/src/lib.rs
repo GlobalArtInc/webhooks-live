@@ -9,6 +9,7 @@ mod error;
 pub mod folders;
 pub mod forward;
 mod kind;
+pub mod lifecycle;
 pub mod maintenance;
 mod members;
 pub mod secrets;
@@ -30,12 +31,15 @@ pub use capture_queries::{
     StatusFilter,
 };
 pub use claim::{ClaimOutcome, ClaimRefusal};
-pub use endpoints::{EndpointError, EndpointRecord, EndpointSettings, Overflow};
+pub use endpoints::{
+    EndpointChange, EndpointError, EndpointRecord, EndpointSettings, NewEndpoint, Overflow,
+};
 pub use error::StoreError;
 pub use folders::{
     CreateFolderOutcome, FolderError, FolderRecord, MAX_FOLDERS_PER_USER, UpdateFolderOutcome,
 };
 pub use kind::CaptureKind;
+pub use lifecycle::{Lifecycle, LifecycleError, LifecycleLimits};
 pub use members::{
     EndpointFilter, GrantedRole, ListPosition, MemberRecord, MembershipError, RemoveMemberOutcome,
     RoleFilter, SetMemberOutcome, UserEndpoint, UserEndpointPage,

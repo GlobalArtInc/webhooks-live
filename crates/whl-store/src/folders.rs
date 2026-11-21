@@ -15,7 +15,7 @@ const FOLDER_ROWS: &str = "SELECT f.id, f.name, f.position, f.created_at, ARRAY(
      SELECT fe.endpoint_id FROM folder_endpoints fe \
      JOIN endpoints e ON e.id = fe.endpoint_id \
      WHERE fe.folder_id = f.id AND e.deleted_at IS NULL \
-       AND e.last_active_at > now() - make_interval(secs => $2) \
+       AND (e.never_expires OR e.last_active_at > now() - make_interval(secs => COALESCE(e.retention_seconds::float8, $2))) \
        AND (e.owner_id = $1 OR EXISTS ( \
          SELECT 1 FROM endpoint_members m WHERE m.endpoint_id = e.id AND m.user_id = $1)) \
      ORDER BY fe.added_at, fe.endpoint_id) AS endpoint_ids \

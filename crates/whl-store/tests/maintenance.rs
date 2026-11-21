@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use sqlx::PgPool;
 use sqlx::postgres::PgListener;
+use sqlx::types::Uuid;
 use tokio::sync::watch;
 use whl_core::endpoint_id::EndpointId;
 use whl_store::Store;
@@ -32,6 +33,10 @@ struct Seed {
     bytes: i64,
     active_ago_secs: i64,
     deleted_ago_secs: Option<i64>,
+    owner: Option<Uuid>,
+    never_expires: bool,
+    retention_seconds: Option<i32>,
+    capture_ttl_seconds: Option<i32>,
 }
 
 impl Seed {
@@ -40,7 +45,31 @@ impl Seed {
             bytes: 0,
             active_ago_secs,
             deleted_ago_secs: None,
+            owner: None,
+            never_expires: false,
+            retention_seconds: None,
+            capture_ttl_seconds: None,
         }
+    }
+
+    fn owned_by(mut self, owner: Uuid) -> Self {
+        self.owner = Some(owner);
+        self
+    }
+
+    fn never_expiring(mut self) -> Self {
+        self.never_expires = true;
+        self
+    }
+
+    fn retained_for(mut self, seconds: i32) -> Self {
+        self.retention_seconds = Some(seconds);
+        self
+    }
+
+    fn with_ttl(mut self, seconds: i32) -> Self {
+        self.capture_ttl_seconds = Some(seconds);
+        self
     }
 
     fn with_bytes(mut self, bytes: i64) -> Self {
@@ -60,14 +89,20 @@ async fn seed(pool: &PgPool, seed: Seed) -> String {
         .unpack()
         .to_owned();
     sqlx::query(
-        "INSERT INTO endpoints (id, bytes_used, capture_count, last_active_at, deleted_at) \
+        "INSERT INTO endpoints (id, bytes_used, capture_count, last_active_at, deleted_at, \
+         owner_id, never_expires, retention_seconds, capture_ttl_seconds) \
          VALUES ($1, $2, 1, now() - make_interval(secs => $3), \
-                 CASE WHEN $4::float8 IS NULL THEN NULL ELSE now() - make_interval(secs => $4) END)",
+                 CASE WHEN $4::float8 IS NULL THEN NULL ELSE now() - make_interval(secs => $4) END, \
+                 $5, $6, $7, $8)",
     )
     .bind(&id)
     .bind(seed.bytes)
     .bind(seed.active_ago_secs as f64)
     .bind(seed.deleted_ago_secs.map(|secs| secs as f64))
+    .bind(seed.owner)
+    .bind(seed.never_expires)
+    .bind(seed.retention_seconds)
+    .bind(seed.capture_ttl_seconds)
     .execute(pool)
     .await
     .expect("the endpoint inserts");
@@ -90,6 +125,64 @@ async fn seed(pool: &PgPool, seed: Seed) -> String {
     .await
     .expect("the body inserts");
     id
+}
+
+async fn insert_user(pool: &PgPool) -> Uuid {
+    sqlx::query_scalar(
+        "INSERT INTO users (id, issuer, subject, email) \
+         VALUES (gen_random_uuid(), 'issuer', gen_random_uuid()::text, 'user@example.test') \
+         RETURNING id",
+    )
+    .fetch_one(pool)
+    .await
+    .expect("the user inserts")
+}
+
+async fn seed_aged_captures(pool: &PgPool, endpoint: &str, ages_secs: &[i64]) {
+    sqlx::query("DELETE FROM captures WHERE endpoint_id = $1")
+        .bind(endpoint)
+        .execute(pool)
+        .await
+        .expect("the seeded capture clears");
+    for (index, age) in ages_secs.iter().enumerate() {
+        sqlx::query(
+            "INSERT INTO captures (endpoint_id, seq, id, received_at, method, url, path, host, \
+             client_ip, headers, query, body_size, stored_bytes, response_status) \
+             VALUES ($1, $2, gen_random_uuid(), now() - make_interval(secs => $3), 'GET', \
+             'http://x/', '', 'x', '127.0.0.1', '[]', '[]', 0, 10, 200)",
+        )
+        .bind(endpoint)
+        .bind(i64::try_from(index + 1).expect("the sequence fits"))
+        .bind(*age as f64)
+        .execute(pool)
+        .await
+        .expect("the capture inserts");
+    }
+    sqlx::query(
+        "INSERT INTO capture_bodies (capture_id, data, search_text) \
+         SELECT id, ''::bytea, '' FROM captures WHERE endpoint_id = $1",
+    )
+    .bind(endpoint)
+    .execute(pool)
+    .await
+    .expect("the bodies insert");
+    sqlx::query(
+        "UPDATE endpoints SET capture_count = $2, bytes_used = $3, last_seq = $2 WHERE id = $1",
+    )
+    .bind(endpoint)
+    .bind(i32::try_from(ages_secs.len()).expect("the count fits"))
+    .bind(i64::try_from(ages_secs.len()).expect("the count fits") * 10)
+    .execute(pool)
+    .await
+    .expect("the counters set");
+}
+
+async fn counters(pool: &PgPool, endpoint: &str) -> (i32, i64) {
+    sqlx::query_as("SELECT capture_count, bytes_used FROM endpoints WHERE id = $1")
+        .bind(endpoint)
+        .fetch_one(pool)
+        .await
+        .expect("the counters read")
 }
 
 async fn endpoint_ids(pool: &PgPool) -> BTreeSet<String> {
@@ -457,4 +550,249 @@ async fn shutdown_releases_the_lock_so_another_replica_can_lead() {
         .expect("the successor task runs");
     let _ = successor_stop.send(true);
     successor.join().await;
+}
+
+#[tokio::test]
+async fn purge_applies_each_endpoint_its_own_retention_instead_of_the_default() {
+    let db = TestDb::new().await;
+    let store = Store::from_pool(db.pool().clone());
+    let longer = seed(db.pool(), Seed::active(5400).retained_for(7200)).await;
+    let shorter = seed(db.pool(), Seed::active(4000).retained_for(3600)).await;
+    let plain_fresh = seed(db.pool(), Seed::active(4000)).await;
+    let plain_stale = seed(db.pool(), Seed::active(100_000)).await;
+
+    let settings = MaintenanceSettings {
+        retention: Duration::from_secs(86_400),
+        ..settings(u64::MAX)
+    };
+    let batch = store.purge_batch(&settings).await.expect("the batch runs");
+    assert_eq!((batch.expired, batch.deleted), (2, 0));
+    let remaining = endpoint_ids(db.pool()).await;
+    assert_eq!(remaining, BTreeSet::from([longer, plain_fresh]));
+    assert!(!remaining.contains(&shorter));
+    assert!(!remaining.contains(&plain_stale));
+}
+
+#[tokio::test]
+async fn purge_never_expires_a_never_expire_endpoint_but_still_removes_it_once_deleted() {
+    let db = TestDb::new().await;
+    let store = Store::from_pool(db.pool().clone());
+    let owner = insert_user(db.pool()).await;
+    let kept = seed(
+        db.pool(),
+        Seed::active(10_000_000).owned_by(owner).never_expiring(),
+    )
+    .await;
+    let deleted = seed(
+        db.pool(),
+        Seed::active(10)
+            .owned_by(owner)
+            .never_expiring()
+            .deleted(120),
+    )
+    .await;
+    let stale = seed(db.pool(), Seed::active(10_000_000).owned_by(owner)).await;
+
+    let batch = store
+        .purge_batch(&settings(u64::MAX))
+        .await
+        .expect("the batch runs");
+    assert_eq!((batch.expired, batch.deleted), (1, 1));
+    let remaining = endpoint_ids(db.pool()).await;
+    assert_eq!(remaining, BTreeSet::from([kept]));
+    assert!(!remaining.contains(&stale));
+    assert!(!remaining.contains(&deleted));
+}
+
+#[tokio::test]
+async fn eviction_takes_anonymous_endpoints_before_owned_ones_and_never_a_never_expire_one() {
+    let db = TestDb::new().await;
+    let store = Store::from_pool(db.pool().clone());
+    let owner = insert_user(db.pool()).await;
+    let pinned = seed(
+        db.pool(),
+        Seed::active(900_000)
+            .with_bytes(400)
+            .owned_by(owner)
+            .never_expiring(),
+    )
+    .await;
+    let owned_old = seed(
+        db.pool(),
+        Seed::active(5000).with_bytes(100).owned_by(owner),
+    )
+    .await;
+    let anonymous_new = seed(db.pool(), Seed::active(10).with_bytes(200)).await;
+    let anonymous_old = seed(db.pool(), Seed::active(2000).with_bytes(300)).await;
+
+    let settings = settings(u64::MAX);
+    let mut order = Vec::new();
+    loop {
+        let before = endpoint_ids(db.pool()).await;
+        let batch = store
+            .evict_batch(&settings, u64::MAX)
+            .await
+            .expect("the batch runs");
+        if batch.endpoints == 0 {
+            break;
+        }
+        let after = endpoint_ids(db.pool()).await;
+        order.extend(before.difference(&after).cloned());
+    }
+    assert_eq!(order, [anonymous_old, anonymous_new, owned_old]);
+    assert_eq!(endpoint_ids(db.pool()).await, BTreeSet::from([pinned]));
+}
+
+#[tokio::test]
+async fn the_ttl_purge_deletes_expired_captures_in_batches_and_corrects_the_counters() {
+    let db = TestDb::new().await;
+    let store = Store::from_pool(db.pool().clone());
+    let target = seed(db.pool(), Seed::active(10).with_ttl(60)).await;
+    seed_aged_captures(db.pool(), &target, &[500, 400, 300, 10, 5]).await;
+    let without_ttl = seed(db.pool(), Seed::active(10)).await;
+    seed_aged_captures(db.pool(), &without_ttl, &[500, 400]).await;
+    let fresh = seed(db.pool(), Seed::active(10).with_ttl(600)).await;
+    seed_aged_captures(db.pool(), &fresh, &[500, 400]).await;
+    let mut listener = PgListener::connect(db.url())
+        .await
+        .expect("the listener connects");
+    listener
+        .listen(EVENT_CHANNEL)
+        .await
+        .expect("the listener subscribes");
+
+    let settings = MaintenanceSettings {
+        ttl_batch: 2,
+        ..settings(u64::MAX)
+    };
+    let mut sizes = Vec::new();
+    loop {
+        let due = store
+            .endpoints_due_for_capture_ttl(&settings)
+            .await
+            .expect("the scan runs");
+        if due.is_empty() {
+            break;
+        }
+        assert_eq!(due, std::slice::from_ref(&target));
+        let batch = store
+            .purge_expired_captures(&settings, &target)
+            .await
+            .expect("the batch runs");
+        sizes.push((batch.captures, batch.bytes));
+    }
+    assert_eq!(sizes, [(2, 20), (1, 10)]);
+    assert_eq!(counters(db.pool(), &target).await, (2, 20));
+    assert_eq!(counters(db.pool(), &without_ttl).await, (2, 20));
+    assert_eq!(counters(db.pool(), &fresh).await, (2, 20));
+    assert_eq!(count(db.pool(), "captures").await, 6);
+    assert_eq!(count(db.pool(), "capture_bodies").await, 6);
+
+    let mut seqs = BTreeSet::new();
+    while seqs.len() < 3 {
+        let notification = tokio::time::timeout(Duration::from_secs(5), listener.recv())
+            .await
+            .expect("a notification arrives")
+            .expect("the listener stays connected");
+        let payload: serde_json::Value =
+            serde_json::from_str(notification.payload()).expect("the payload is JSON");
+        assert_eq!(payload["t"], "capture_deleted");
+        assert_eq!(payload["e"], target.as_str());
+        seqs.insert(payload["d"]["seq"].as_i64().expect("the sequence"));
+    }
+    assert_eq!(seqs, BTreeSet::from([1, 2, 3]));
+}
+
+#[tokio::test]
+async fn the_ttl_purge_skips_an_endpoint_that_is_locked_by_a_writer() {
+    let db = TestDb::new().await;
+    let store = Store::from_pool(db.pool().clone());
+    let target = seed(db.pool(), Seed::active(10).with_ttl(60)).await;
+    seed_aged_captures(db.pool(), &target, &[500, 400]).await;
+
+    let mut writer = db.pool().begin().await.expect("the writer begins");
+    sqlx::query("UPDATE endpoints SET last_seq = last_seq + 1 WHERE id = $1")
+        .bind(&target)
+        .execute(&mut *writer)
+        .await
+        .expect("the writer locks the row");
+    let batch = store
+        .purge_expired_captures(&settings(u64::MAX), &target)
+        .await
+        .expect("the batch runs");
+    assert_eq!(batch.captures, 0);
+    writer.commit().await.expect("the writer commits");
+
+    let batch = store
+        .purge_expired_captures(&settings(u64::MAX), &target)
+        .await
+        .expect("the batch runs");
+    assert_eq!(batch.captures, 2);
+    assert_eq!(counters(db.pool(), &target).await, (0, 0));
+}
+
+#[tokio::test]
+async fn two_replicas_delete_expired_captures_once_and_keep_the_counters_exact() {
+    let db = TestDb::new().await;
+    let target = seed(db.pool(), Seed::active(10).with_ttl(60)).await;
+    seed_aged_captures(db.pool(), &target, &[900, 800, 700, 600, 500, 5, 4]).await;
+    let (first, first_stop) = runner(&db, u64::MAX);
+    let (second, second_stop) = runner(&db, u64::MAX);
+
+    eventually("the expired captures to be deleted", || async {
+        count(db.pool(), "captures").await == 2
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert_eq!(count(db.pool(), "captures").await, 2);
+    assert_eq!(count(db.pool(), "capture_bodies").await, 2);
+    assert_eq!(counters(db.pool(), &target).await, (2, 20));
+    assert!(first.is_leader() != second.is_leader());
+
+    let _ = first_stop.send(true);
+    let _ = second_stop.send(true);
+    first.join().await;
+    second.join().await;
+}
+
+#[tokio::test]
+async fn the_ttl_purge_keeps_starred_captures_and_stops_scanning_once_only_they_remain() {
+    let db = TestDb::new().await;
+    let store = Store::from_pool(db.pool().clone());
+    let target = seed(db.pool(), Seed::active(10).with_ttl(60)).await;
+    seed_aged_captures(db.pool(), &target, &[900, 800, 700, 5]).await;
+    sqlx::query("UPDATE captures SET starred = true WHERE endpoint_id = $1 AND seq IN (1, 3)")
+        .bind(&target)
+        .execute(db.pool())
+        .await
+        .expect("the captures are starred");
+
+    let settings = settings(u64::MAX);
+    assert_eq!(
+        store
+            .endpoints_due_for_capture_ttl(&settings)
+            .await
+            .expect("the scan runs"),
+        std::slice::from_ref(&target)
+    );
+    let batch = store
+        .purge_expired_captures(&settings, &target)
+        .await
+        .expect("the batch runs");
+    assert_eq!((batch.captures, batch.bytes), (1, 10));
+    let kept: Vec<i64> =
+        sqlx::query_scalar("SELECT seq FROM captures WHERE endpoint_id = $1 ORDER BY seq")
+            .bind(&target)
+            .fetch_all(db.pool())
+            .await
+            .expect("the sequences read");
+    assert_eq!(kept, [1, 3, 4]);
+    assert_eq!(counters(db.pool(), &target).await, (3, 30));
+    assert!(
+        store
+            .endpoints_due_for_capture_ttl(&settings)
+            .await
+            .expect("the scan runs")
+            .is_empty()
+    );
 }

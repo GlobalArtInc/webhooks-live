@@ -85,7 +85,7 @@ pub(crate) async fn lock_live_endpoint(
     let row = sqlx::query(
         "UPDATE endpoints SET last_active_at = now() \
          WHERE id = $1 AND deleted_at IS NULL \
-         AND last_active_at > now() - make_interval(secs => $2) \
+         AND (never_expires OR last_active_at > now() - make_interval(secs => COALESCE(retention_seconds::float8, $2))) \
          RETURNING id",
     )
     .bind(endpoint.unpack())

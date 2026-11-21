@@ -67,7 +67,15 @@ struct EndpointData<'a> {
     last_seq: i64,
     created_at: &'a str,
     last_active_at: &'a str,
-    expires_at: &'a str,
+    expires_at: Option<&'a str>,
+    retention: RetentionData,
+    capture_ttl_seconds: Option<i32>,
+}
+
+#[derive(Serialize)]
+struct RetentionData {
+    mode: &'static str,
+    seconds: Option<i32>,
 }
 
 #[derive(Serialize)]
@@ -149,13 +157,25 @@ pub fn endpoint_json(
         cors: view.cors,
         overflow: &view.overflow,
         forward_rules: view.forward_rules.iter().map(rule_data).collect(),
-        max_captures,
+        max_captures: view
+            .max_captures
+            .and_then(|own| u32::try_from(own).ok())
+            .unwrap_or(max_captures),
         capture_count: view.capture_count,
         bytes_used: view.bytes_used,
         last_seq: view.last_seq,
         created_at: &view.created_at,
         last_active_at: &view.last_active_at,
-        expires_at: &view.expires_at,
+        expires_at: view.expires_at.as_deref(),
+        retention: RetentionData {
+            mode: if view.never_expires {
+                "never"
+            } else {
+                "sliding"
+            },
+            seconds: view.retention_seconds,
+        },
+        capture_ttl_seconds: view.capture_ttl_seconds,
     };
     serde_json::to_string(&data).map(JsonText::from_serialized)
 }

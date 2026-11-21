@@ -19,11 +19,14 @@ pub const API_TOKEN_GRACE: Duration = Duration::from_secs(30 * 24 * 3600);
 pub const DEFAULT_SESSION_IDLE: Duration = Duration::from_secs(12 * 3600);
 pub const DEFAULT_PURGE_BATCH: u32 = 50;
 pub const DEFAULT_EVICT_BATCH: u32 = 5;
+pub const DEFAULT_TTL_BATCH: u32 = 500;
+pub const DEFAULT_TTL_SCAN: u32 = 50;
 pub const DEFAULT_STATEMENT_TIMEOUT: Duration = Duration::from_secs(30);
 pub const DEFAULT_CYCLE_INTERVAL: Duration = Duration::from_secs(30);
 pub const DEFAULT_RETRY_INTERVAL: Duration = Duration::from_secs(10);
 pub const DEFAULT_LOCK_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 pub const MAX_PURGE_BATCHES_PER_CYCLE: u32 = 200;
+pub const MAX_TTL_BATCHES_PER_CYCLE: u32 = 200;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const LOCK_QUERY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -39,7 +42,8 @@ const HOLDS_LOCK_SQL: &str = "SELECT EXISTS ( \
 const PURGE_SQL: &str = "WITH victims AS ( \
         SELECT id, (deleted_at IS NOT NULL) AS was_deleted FROM endpoints \
         WHERE (deleted_at IS NOT NULL AND deleted_at <= now() - make_interval(secs => $2)) \
-           OR last_active_at <= now() - make_interval(secs => $1) \
+           OR (NOT never_expires \
+               AND last_active_at <= now() - make_interval(secs => COALESCE(retention_seconds::float8, $1))) \
         LIMIT $3 \
         FOR UPDATE SKIP LOCKED \
     ), purged AS ( \
@@ -50,19 +54,43 @@ const PURGE_SQL: &str = "WITH victims AS ( \
 
 const EVICT_SQL: &str = "WITH ranked AS ( \
         SELECT id, \
-               sum(bytes_used) OVER (ORDER BY last_active_at ASC, id ASC) - bytes_used AS freed_before \
-        FROM endpoints WHERE bytes_used > 0 \
+               sum(bytes_used) OVER ( \
+                   ORDER BY (owner_id IS NOT NULL) ASC, last_active_at ASC, id ASC) - bytes_used AS freed_before \
+        FROM endpoints WHERE bytes_used > 0 AND NOT never_expires \
     ), picked AS ( \
         SELECT id FROM ranked WHERE freed_before < $2 ORDER BY freed_before ASC LIMIT $1 \
     ), victims AS ( \
         SELECT id, bytes_used FROM endpoints \
-        WHERE id IN (SELECT id FROM picked) \
+        WHERE id IN (SELECT id FROM picked) AND NOT never_expires \
         FOR UPDATE SKIP LOCKED \
     ), evicted AS ( \
         DELETE FROM endpoints e USING victims v WHERE e.id = v.id \
         RETURNING e.id, v.bytes_used \
     ) \
     SELECT id, bytes_used FROM evicted";
+
+const TTL_DUE_SQL: &str = "SELECT e.id FROM endpoints e \
+    WHERE e.capture_ttl_seconds IS NOT NULL AND e.deleted_at IS NULL AND e.capture_count > 0 \
+      AND (SELECT c.received_at FROM captures c WHERE c.endpoint_id = e.id AND NOT c.starred ORDER BY c.seq LIMIT 1) \
+          < now() - make_interval(secs => e.capture_ttl_seconds::float8) \
+    ORDER BY e.id \
+    LIMIT $1";
+
+const TTL_LOCK_SQL: &str = "SELECT capture_ttl_seconds FROM endpoints \
+    WHERE id = $1 AND deleted_at IS NULL AND capture_ttl_seconds IS NOT NULL \
+    FOR UPDATE SKIP LOCKED";
+
+const TTL_DELETE_SQL: &str = "DELETE FROM captures \
+    WHERE endpoint_id = $1 AND seq IN ( \
+        SELECT seq FROM captures \
+        WHERE endpoint_id = $1 AND NOT starred AND received_at < now() - make_interval(secs => $2) \
+        ORDER BY seq LIMIT $3) \
+    RETURNING seq, id::text AS id, stored_bytes";
+
+const TTL_COUNTERS_SQL: &str = "UPDATE endpoints SET \
+        capture_count = capture_count - $2, \
+        bytes_used = bytes_used - $3 \
+    WHERE id = $1";
 
 const NOTIFY_MANY_SQL: &str = "SELECT pg_notify($1, payload) FROM unnest($2::text[]) AS payload";
 
@@ -88,6 +116,8 @@ pub struct MaintenanceSettings {
     pub session_idle: Duration,
     pub purge_batch: u32,
     pub evict_batch: u32,
+    pub ttl_batch: u32,
+    pub ttl_scan: u32,
     pub statement_timeout: Duration,
     pub cycle_interval: Duration,
     pub retry_interval: Duration,
@@ -103,6 +133,8 @@ impl MaintenanceSettings {
             session_idle: DEFAULT_SESSION_IDLE,
             purge_batch: DEFAULT_PURGE_BATCH,
             evict_batch: DEFAULT_EVICT_BATCH,
+            ttl_batch: DEFAULT_TTL_BATCH,
+            ttl_scan: DEFAULT_TTL_SCAN,
             statement_timeout: DEFAULT_STATEMENT_TIMEOUT,
             cycle_interval: DEFAULT_CYCLE_INTERVAL,
             retry_interval: DEFAULT_RETRY_INTERVAL,
@@ -126,6 +158,12 @@ impl PurgeBatch {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct EvictBatch {
     pub endpoints: u64,
+    pub bytes: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct TtlBatch {
+    pub captures: u64,
     pub bytes: u64,
 }
 
@@ -185,6 +223,75 @@ impl Store {
         notify_deleted(&mut transaction, &ids).await?;
         transaction.commit().await?;
         Ok(batch)
+    }
+
+    pub async fn endpoints_due_for_capture_ttl(
+        &self,
+        settings: &MaintenanceSettings,
+    ) -> Result<Vec<String>, MaintenanceError> {
+        let mut transaction = self.pool().begin().await?;
+        apply_statement_timeout(&mut transaction, settings.statement_timeout).await?;
+        let ids = sqlx::query_scalar(TTL_DUE_SQL)
+            .bind(i64::from(settings.ttl_scan))
+            .fetch_all(&mut *transaction)
+            .await?;
+        transaction.commit().await?;
+        Ok(ids)
+    }
+
+    pub async fn purge_expired_captures(
+        &self,
+        settings: &MaintenanceSettings,
+        endpoint: &str,
+    ) -> Result<TtlBatch, MaintenanceError> {
+        let mut transaction = self.pool().begin().await?;
+        apply_statement_timeout(&mut transaction, settings.statement_timeout).await?;
+        let ttl: Option<i32> = sqlx::query_scalar(TTL_LOCK_SQL)
+            .bind(endpoint)
+            .fetch_optional(&mut *transaction)
+            .await?;
+        let Some(ttl) = ttl else {
+            transaction.commit().await?;
+            return Ok(TtlBatch::default());
+        };
+        let rows = sqlx::query(TTL_DELETE_SQL)
+            .bind(endpoint)
+            .bind(f64::from(ttl))
+            .bind(i64::from(settings.ttl_batch))
+            .fetch_all(&mut *transaction)
+            .await?;
+        let mut bytes: i64 = 0;
+        let mut payloads = Vec::with_capacity(rows.len());
+        for row in &rows {
+            let seq: i64 = row.try_get("seq")?;
+            let id: String = row.try_get("id")?;
+            let stored: i32 = row.try_get("stored_bytes")?;
+            bytes += i64::from(stored);
+            payloads.push(serde_json::to_string(&serde_json::json!({
+                "t": "capture_deleted",
+                "e": endpoint,
+                "d": { "capture_id": id, "seq": seq },
+            }))?);
+        }
+        let deleted = i64::try_from(rows.len()).map_err(|_| MaintenanceError::OutOfRange)?;
+        if deleted > 0 {
+            sqlx::query(TTL_COUNTERS_SQL)
+                .bind(endpoint)
+                .bind(deleted)
+                .bind(bytes)
+                .execute(&mut *transaction)
+                .await?;
+            sqlx::query(NOTIFY_MANY_SQL)
+                .bind(EVENT_CHANNEL)
+                .bind(payloads)
+                .execute(&mut *transaction)
+                .await?;
+        }
+        transaction.commit().await?;
+        Ok(TtlBatch {
+            captures: u64::try_from(deleted).map_err(|_| MaintenanceError::OutOfRange)?,
+            bytes: u64::try_from(bytes).map_err(|_| MaintenanceError::OutOfRange)?,
+        })
     }
 
     pub async fn evict_batch(
@@ -444,6 +551,7 @@ async fn cycle(
     lock: &mut LeaderLock,
 ) -> Result<(), LeadershipLost> {
     purge(store, settings, lock).await?;
+    expire_captures(store, settings, lock).await?;
     evict(store, settings, lock).await?;
     expire_logins(store, settings).await;
     match store.live_endpoint_count().await {
@@ -501,6 +609,55 @@ async fn purge(
         }
     }
     Ok(())
+}
+
+async fn expire_captures(
+    store: &Store,
+    settings: &MaintenanceSettings,
+    lock: &mut LeaderLock,
+) -> Result<(), LeadershipLost> {
+    let mut remaining = MAX_TTL_BATCHES_PER_CYCLE;
+    loop {
+        lock.verify().await?;
+        let due = match store.endpoints_due_for_capture_ttl(settings).await {
+            Ok(due) => due,
+            Err(error) => {
+                tracing::warn!(%error, "listing endpoints with expired captures failed");
+                return Ok(());
+            }
+        };
+        if due.is_empty() {
+            return Ok(());
+        }
+        let mut deleted_any = false;
+        for endpoint in &due {
+            if remaining == 0 {
+                return Ok(());
+            }
+            remaining -= 1;
+            lock.verify().await?;
+            let batch = match store.purge_expired_captures(settings, endpoint).await {
+                Ok(batch) => batch,
+                Err(error) => {
+                    tracing::warn!(%error, endpoint = %endpoint, "a capture expiry batch failed");
+                    return Ok(());
+                }
+            };
+            if batch.captures > 0 {
+                deleted_any = true;
+                tracing::info!(
+                    endpoint = %endpoint,
+                    captures = batch.captures,
+                    freed_bytes = batch.bytes,
+                    "deleted captures past their time to live"
+                );
+                metrics::counter!(series::CAPTURE_TTL_DELETED_TOTAL).increment(batch.captures);
+            }
+        }
+        if !deleted_any {
+            return Ok(());
+        }
+    }
 }
 
 async fn evict(

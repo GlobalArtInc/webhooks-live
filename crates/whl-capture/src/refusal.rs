@@ -115,10 +115,7 @@ fn describe(refusal: Refusal, state: &CaptureState) -> Parts {
             endpoint: Some(id),
             ..plain(
                 StatusCode::GONE,
-                &format!(
-                    "This endpoint holds the maximum of {} captures. Delete captures to receive more.",
-                    state.limits().max_captures
-                ),
+                "This endpoint holds the maximum number of captures. Delete captures to receive more.",
             )
         },
         Refusal::TooLarge => Parts {
