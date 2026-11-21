@@ -6,6 +6,7 @@ import { MethodBadge } from '../../components/MethodBadge/MethodBadge';
 import { StatusChip } from '../../components/StatusChip/StatusChip';
 import styles from './CaptureDetail.module.css';
 import { formatAbsoluteTime, formatByteSize } from '../../components/format/format';
+import { useTimeDisplay } from '../../prefs/display';
 import { RelativeTime } from './RelativeTime';
 
 interface SummarySectionProps {
@@ -29,6 +30,7 @@ function Fact({ term, children }: FactProps) {
 export function SummarySection({ capture }: SummarySectionProps) {
   const { t, i18n } = useTranslation();
   const locale = i18n.language;
+  const timeDisplay = useTimeDisplay();
   return (
     <div className={styles.summary}>
       <div className={styles.urlRow}>
@@ -41,10 +43,17 @@ export function SummarySection({ capture }: SummarySectionProps) {
           <code>{capture.client_ip}</code>
         </Fact>
         <Fact term={t('wl.detail.summary.received')}>
-          <time dateTime={capture.received_at}>{formatAbsoluteTime(capture.received_at, locale)}</time>{' '}
-          <span className={styles.muted}>
-            <RelativeTime iso={capture.received_at} locale={locale} />
-          </span>
+          <time dateTime={capture.received_at}>
+            {formatAbsoluteTime(capture.received_at, locale, timeDisplay === 'utc')}
+          </time>
+          {timeDisplay === 'relative' && (
+            <>
+              {' '}
+              <span className={styles.muted}>
+                <RelativeTime iso={capture.received_at} locale={locale} />
+              </span>
+            </>
+          )}
         </Fact>
         <Fact term={t('wl.detail.summary.size')}>{formatByteSize(capture.body_size, locale)}</Fact>
         <Fact term={t('wl.detail.summary.contentType')}>{capture.content_type ?? t('wl.detail.none')}</Fact>

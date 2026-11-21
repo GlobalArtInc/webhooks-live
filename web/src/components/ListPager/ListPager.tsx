@@ -25,7 +25,7 @@ export function ListPager({ position, total, onFirst, onPrev, onNext, onLast }: 
         {t('wl.endpoint.pager.previous')}
       </button>
       <span className={styles.position}>
-        {known ? t('wl.endpoint.pager.position', { position, total: total ?? position }) : null}
+        {known ? (total === null ? String(position) : t('wl.endpoint.pager.position', { position, total })) : null}
       </span>
       <button type="button" className={styles.button} onClick={onNext} disabled={atEnd}>
         {t('wl.endpoint.pager.next')}

@@ -4,7 +4,8 @@ import type { CaptureSummary } from '../../api/types';
 import { badgeKindOf, captureKindOf } from '../../features/kinds/kinds';
 import { KindBadge } from '../../features/kinds/KindBadge';
 import type { CompareLabel } from '../../features/list/compare';
-import { formatByteSize, formatRelativeTime } from '../format/format';
+import { useTimeDisplay } from '../../prefs/display';
+import { formatByteSize, formatTimestamp } from '../format/format';
 import { MethodBadge } from '../MethodBadge/MethodBadge';
 import { StatusChip } from '../StatusChip/StatusChip';
 import styles from './CaptureRow.module.css';
@@ -66,6 +67,7 @@ export function CaptureRow({
 }: CaptureRowProps) {
   const { t, i18n } = useTranslation();
   const locale = i18n.language;
+  const timeDisplay = useTimeDisplay();
   const pressTimer = useRef<number | undefined>(undefined);
   const longPressed = useRef(false);
 
@@ -88,7 +90,7 @@ export function CaptureRow({
   }
   const path = displayPath(summary);
   const size = formatByteSize(summary.body_size, locale);
-  const time = formatRelativeTime(summary.received_at, now, locale);
+  const time = formatTimestamp(summary.received_at, now, locale, timeDisplay);
   const contentType = summary.content_type ?? t('wl.endpoint.row.noType');
   const kind = captureKindOf(summary);
   const badge = badgeKindOf(kind);

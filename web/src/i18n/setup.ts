@@ -1,6 +1,8 @@
 import { createInstance, type i18n as I18nInstance } from 'i18next';
 import type { BundleLoader, BundleLoaders, Dictionary } from './bundles';
 import access from './en/access.json';
+import account from './en/account.json';
+import cli from './en/cli.json';
 import common from './en/common.json';
 import composer from './en/composer.json';
 import conditions from './en/conditions.json';
@@ -8,14 +10,18 @@ import detail from './en/detail.json';
 import diff from './en/diff.json';
 import editor from './en/editor.json';
 import email from './en/email.json';
+import emailpages from './en/emailpages.json';
 import endpoint from './en/endpoint.json';
 import exportMessages from './en/export.json';
 import exportDialog from './en/exportdialog.json';
+import filterbuilder from './en/filterbuilder.json';
+import importDialog from './en/importdialog.json';
 import forwarding from './en/forwarding.json';
 import home from './en/home.json';
 import kinds from './en/kinds.json';
 import inbox from './en/inbox.json';
 import live from './en/live.json';
+import notifications from './en/notifications.json';
 import rules from './en/rules.json';
 import rail from './en/rail.json';
 import sample from './en/sample.json';
@@ -25,6 +31,7 @@ import schedules from './en/schedules.json';
 import state from './en/state.json';
 import steps from './en/steps.json';
 import tokens from './en/tokens.json';
+import usage from './en/usage.json';
 import templating from './en/templating.json';
 import workspace from './en/workspace.json';
 
@@ -41,6 +48,8 @@ export function createI18nInstance(): I18nInstance {
       [SOURCE_LANGUAGE]: {
         translation: {
           ...access,
+          ...account,
+          ...cli,
           ...common,
           ...composer,
           ...conditions,
@@ -48,14 +57,18 @@ export function createI18nInstance(): I18nInstance {
           ...diff,
           ...editor,
           ...email,
+          ...emailpages,
           ...endpoint,
           ...exportMessages,
           ...exportDialog,
+          ...filterbuilder,
+          ...importDialog,
           ...forwarding,
           ...home,
           ...kinds,
           ...inbox,
           ...live,
+          ...notifications,
           ...rules,
           ...rail,
           ...sample,
@@ -65,6 +78,7 @@ export function createI18nInstance(): I18nInstance {
           ...state,
           ...steps,
           ...tokens,
+          ...usage,
           ...templating,
           ...workspace,
         },

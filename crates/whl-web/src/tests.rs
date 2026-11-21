@@ -113,6 +113,10 @@ async fn every_ui_route_serves_index() {
         "/inbox",
         "/inbox/abc123/def456",
         "/account",
+        "/usage",
+        "/email/verify",
+        "/notifications/disable",
+        "/e/abc123/unlock",
     ];
     for uri in routes {
         let response = get(built(), uri).await;

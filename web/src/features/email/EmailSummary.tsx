@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { formatAbsoluteTime, formatByteSize } from '../../components/format/format';
+import { useTimeDisplay } from '../../prefs/display';
 import { RelativeTime } from '../detail/RelativeTime';
 import { MAX_FIELD_CHARS } from './constants';
 import styles from './EmailDetail.module.css';
@@ -50,6 +51,7 @@ function headerText(value: string | null): string | null {
 export function EmailSummary({ view }: EmailSummaryProps) {
   const { t, i18n } = useTranslation();
   const locale = i18n.language;
+  const timeDisplay = useTimeDisplay();
   const { capture, meta } = view;
   const subject = meta.subject ?? '';
   const replyTo = headerText(findHeader(capture.headers, 'reply-to'));
@@ -85,10 +87,17 @@ export function EmailSummary({ view }: EmailSummaryProps) {
           {meta.date === null ? t('wl.email.none') : <InertText value={formatAbsoluteTime(meta.date, locale)} />}
         </Fact>
         <Fact term={t('wl.email.summary.received')}>
-          <time dateTime={capture.received_at}>{formatAbsoluteTime(capture.received_at, locale)}</time>{' '}
-          <span className={styles.muted}>
-            <RelativeTime iso={capture.received_at} locale={locale} />
-          </span>
+          <time dateTime={capture.received_at}>
+            {formatAbsoluteTime(capture.received_at, locale, timeDisplay === 'utc')}
+          </time>
+          {timeDisplay === 'relative' && (
+            <>
+              {' '}
+              <span className={styles.muted}>
+                <RelativeTime iso={capture.received_at} locale={locale} />
+              </span>
+            </>
+          )}
         </Fact>
         <Fact term={t('wl.email.summary.size')}>{formatByteSize(capture.body_size, locale)}</Fact>
         <Fact term={t('wl.email.summary.via')}>

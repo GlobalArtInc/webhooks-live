@@ -1,6 +1,5 @@
-import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { applyThemePreference, loadThemePreference, type ThemePreference } from '../../prefs/theme';
+import { applyThemePreference, useThemePreference, type ThemePreference } from '../../prefs/theme';
 import styles from './ThemeControl.module.css';
 
 interface ThemeOption {
@@ -8,19 +7,18 @@ interface ThemeOption {
   label: string;
 }
 
-export function ThemeControl() {
+export interface ThemeControlProps {
+  name?: string;
+}
+
+export function ThemeControl({ name = 'theme' }: ThemeControlProps) {
   const { t } = useTranslation();
-  const [preference, setPreference] = useState<ThemePreference>(loadThemePreference);
+  const preference = useThemePreference();
   const options: readonly ThemeOption[] = [
     { value: 'system', label: t('wl.theme.system') },
     { value: 'light', label: t('wl.theme.light') },
     { value: 'dark', label: t('wl.theme.dark') },
   ];
-
-  function choose(next: ThemePreference) {
-    applyThemePreference(next);
-    setPreference(next);
-  }
 
   return (
     <div role="radiogroup" aria-label={t('wl.theme.label')} className={styles.control}>
@@ -28,10 +26,10 @@ export function ThemeControl() {
         <label key={option.value} className={styles.option}>
           <input
             type="radio"
-            name="theme"
+            name={name}
             value={option.value}
             checked={preference === option.value}
-            onChange={() => choose(option.value)}
+            onChange={() => applyThemePreference(option.value)}
           />
           {option.label}
         </label>

@@ -196,6 +196,13 @@ export interface ScheduleRunQueued {
   queued_at: Timestamp;
 }
 
+export type RetentionMode = 'sliding' | 'never';
+
+export interface Retention {
+  mode: RetentionMode;
+  seconds: number | null;
+}
+
 export interface Endpoint {
   id: EndpointId;
   url: string;
@@ -212,6 +219,9 @@ export interface Endpoint {
   created_at: Timestamp;
   last_active_at: Timestamp;
   expires_at: Timestamp;
+  retention?: Retention;
+  capture_ttl_seconds?: number | null;
+  aliases?: string[];
   owner: User | null;
   my_role: EndpointRole | null;
   email?: EndpointEmail;
@@ -221,6 +231,9 @@ export interface Endpoint {
 export interface EndpointInput {
   title?: string | null;
   tags?: string[];
+  retention?: Retention;
+  max_captures?: number;
+  capture_ttl_seconds?: number | null;
   response?: ResponseInput;
   cors?: boolean;
   overflow?: Overflow;
@@ -255,6 +268,7 @@ export interface CaptureSummary {
   forward_state: ForwardState | null;
   kind?: CaptureKind;
   subject?: string | null;
+  starred?: boolean;
   imported?: boolean;
 }
 
@@ -320,6 +334,7 @@ export interface CaptureListFilters {
   status?: string;
   q?: string;
   since?: Timestamp;
+  starred?: boolean;
   until?: Timestamp;
 }
 
@@ -379,6 +394,9 @@ export interface InstanceLimits {
   max_response_headers: number;
   schedules: number;
   schedule_min_interval_seconds: number;
+  max_captures_settable?: number;
+  max_retention_seconds?: number;
+  never_expire_endpoints?: number;
 }
 
 export interface InstanceFeatures {
@@ -386,6 +404,7 @@ export interface InstanceFeatures {
   forwarding: boolean;
   private_forward_targets_allowed: boolean;
   schedules: boolean;
+  notifications?: string[];
 }
 
 export interface Instance {

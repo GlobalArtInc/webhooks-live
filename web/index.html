@@ -13,6 +13,9 @@
           if (theme === 'light' || theme === 'dark') {
             document.documentElement.setAttribute('data-theme', theme);
           }
+          if (prefs && prefs.density === 'compact') {
+            document.documentElement.classList.add('density-compact');
+          }
         } catch (error) {}
       })();
     </script>

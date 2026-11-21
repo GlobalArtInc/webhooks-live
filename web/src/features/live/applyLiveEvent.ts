@@ -20,6 +20,7 @@ import type {
 import { captureKindOf } from '../kinds/kinds';
 import { withCaptureCount } from '../list/cache';
 import { filtersOfKey, hasActiveFilters, NO_FILTERS, sameActiveFilters, type ActiveFilters } from '../list/listFilters';
+import { matchesClientFilter } from '../filterbuilder/refine';
 import { flattenCaptures, restoreCaptureInPages } from '../list/listModel';
 import type { LiveEvent, LiveReadyPayload } from './types';
 
@@ -53,6 +54,12 @@ function matchesStatusClass(override: number | null, statusClass: string): boole
 }
 
 export function matchesActiveFilter(filters: ActiveFilters, summary: CaptureSummary): boolean {
+  if (filters.starred !== undefined && (summary.starred ?? false) !== filters.starred) {
+    return false;
+  }
+  if (!matchesClientFilter(summary, filters)) {
+    return false;
+  }
   if (
     filters.method !== undefined &&
     !filters.method.split(',').some((method) => method.toUpperCase() === summary.method.toUpperCase())

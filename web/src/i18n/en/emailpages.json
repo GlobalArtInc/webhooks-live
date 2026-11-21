@@ -1,0 +1,15 @@
+{
+  "wl.emailpages.working": "Working…",
+  "wl.emailpages.verify.title": "Confirm your e-mail address",
+  "wl.emailpages.verify.intro": "Confirm that this address should receive notifications from webhooks.live.",
+  "wl.emailpages.verify.action": "Confirm this address",
+  "wl.emailpages.verify.done": "{{address}} is confirmed. You can close this page.",
+  "wl.emailpages.verify.invalid": "This link is invalid or has expired. Request a new confirmation from the notification settings.",
+  "wl.emailpages.verify.failed": "The address could not be confirmed. Try again.",
+  "wl.emailpages.disable.title": "Stop notifications",
+  "wl.emailpages.disable.intro": "Stop these notifications. The channel that sent this link is turned off.",
+  "wl.emailpages.disable.action": "Stop these notifications",
+  "wl.emailpages.disable.done": "These notifications are stopped. You can close this page.",
+  "wl.emailpages.disable.invalid": "This link is invalid or has expired.",
+  "wl.emailpages.disable.failed": "The notifications could not be stopped. Try again."
+}

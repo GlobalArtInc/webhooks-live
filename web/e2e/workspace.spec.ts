@@ -19,9 +19,10 @@ const READY_SECTIONS = [
   { id: 'forwarding', heading: 'Forwarding' },
   { id: 'rules', heading: 'Rules' },
   { id: 'access', heading: 'Access' },
+  { id: 'notifications', heading: 'Notifications' },
   { id: 'schedules', heading: 'Schedules' },
+  { id: 'cli', heading: 'Local forwarding' },
 ] as const;
-const PLANNED_SECTIONS = ['notifications', 'cli'] as const;
 const TARGET_REFUSED = 'target_url resolves only to refused addresses';
 
 function endpointReplies(extra: ReplyMap = {}): ReplyMap {
@@ -61,10 +62,6 @@ for (const { width, height } of WIDTHS) {
       await page.goto(`${BASE_PATH}/settings/${section.id}`);
       await expect(page.getByRole('heading', { level: 2, name: section.heading })).toBeVisible();
       expect(await horizontalOverflow(page)).toBe(0);
-    }
-    for (const section of PLANNED_SECTIONS) {
-      await page.goto(`${BASE_PATH}/settings/${section}`);
-      await expect(page.getByText('This section arrives in a later release.')).toBeVisible();
     }
   });
 }
