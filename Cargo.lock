@@ -4794,6 +4794,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "futures-util",
+ "ipnet",
  "metrics",
  "serde",
  "serde_json",

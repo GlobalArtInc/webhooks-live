@@ -9,6 +9,12 @@ pub const DEFAULT_MAX_REDIRECTS: u32 = 5;
 pub const DEFAULT_MAX_RESPONSE_BYTES: usize = 64 * 1024;
 pub const DEFAULT_USER_AGENT: &str = concat!("webhooks.live/", env!("CARGO_PKG_VERSION"));
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Hardening {
+    pub refuse_dotless_hosts: bool,
+    pub denied_ports: Vec<u16>,
+}
+
 #[derive(Debug, Clone)]
 pub struct GuardConfig {
     pub allow: Vec<IpNet>,
@@ -18,6 +24,7 @@ pub struct GuardConfig {
     pub max_redirects: u32,
     pub max_response_bytes: usize,
     pub user_agent: String,
+    pub hardening: Hardening,
 }
 
 impl Default for GuardConfig {
@@ -30,6 +37,7 @@ impl Default for GuardConfig {
             max_redirects: DEFAULT_MAX_REDIRECTS,
             max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
             user_agent: DEFAULT_USER_AGENT.to_owned(),
+            hardening: Hardening::default(),
         }
     }
 }

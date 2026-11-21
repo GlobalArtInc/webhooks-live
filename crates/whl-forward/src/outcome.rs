@@ -139,7 +139,9 @@ fn classify_error(error: &ForwardError) -> (String, Verdict, Outcome) {
         ),
         ForwardError::RedirectRefused(reason) => {
             let code = match reason {
-                RefusalReason::RefusedAddress | RefusalReason::ForbiddenHost => "blocked_address",
+                RefusalReason::RefusedAddress
+                | RefusalReason::ForbiddenHost
+                | RefusalReason::ForbiddenPort => "blocked_address",
                 _ => "invalid_redirect",
             };
             (

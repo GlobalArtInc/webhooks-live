@@ -445,6 +445,7 @@ async fn cycle(
     purge(store, settings, lock).await?;
     evict(store, settings, lock).await?;
     expire_logins(store, settings).await;
+    expire_usage(store).await;
     match store.live_endpoint_count().await {
         Ok(count) => metrics::gauge!(series::ENDPOINTS).set(count as f64),
         Err(error) => tracing::warn!(%error, "counting endpoints failed"),
@@ -462,6 +463,14 @@ async fn expire_logins(store: &Store, settings: &MaintenanceSettings) {
         Ok(0) => {}
         Ok(deleted) => tracing::info!(deleted, "deleted expired login states"),
         Err(error) => tracing::warn!(%error, "deleting expired login states failed"),
+    }
+}
+
+async fn expire_usage(store: &Store) {
+    match store.delete_old_usage_windows().await {
+        Ok(0) => {}
+        Ok(deleted) => tracing::info!(deleted, "deleted old usage windows"),
+        Err(error) => tracing::warn!(%error, "deleting old usage windows failed"),
     }
 }
 

@@ -110,8 +110,14 @@ impl GuardedClient {
                             limit: self.config.max_redirects,
                         });
                     }
-                    current = plan_redirect(current, status, &location, &self.config.allow)
-                        .map_err(ForwardError::RedirectRefused)?;
+                    current = plan_redirect(
+                        current,
+                        status,
+                        &location,
+                        &self.config.allow,
+                        &self.config.hardening,
+                    )
+                    .map_err(ForwardError::RedirectRefused)?;
                     followed += 1;
                 }
             }
@@ -119,8 +125,12 @@ impl GuardedClient {
     }
 
     fn prepare(&self, mut request: OutboundRequest) -> Result<OutboundRequest, ForwardError> {
-        let checked = check_url(request.url.unpack().clone(), &self.config.allow)
-            .map_err(ForwardError::TargetRefused)?;
+        let checked = check_url(
+            request.url.unpack().clone(),
+            &self.config.allow,
+            &self.config.hardening,
+        )
+        .map_err(ForwardError::TargetRefused)?;
         request.url = TargetUrl::from_checked(checked);
         strip_managed_headers(&mut request.headers);
         Ok(request)

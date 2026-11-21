@@ -2,9 +2,10 @@ use axum::Json;
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
-use whl_auth::AuthRejection;
+use whl_auth::{AccessDenied, AuthRejection};
 use whl_core::validation::{FieldPath, Violation, ViolationCode};
 use whl_secrets::{MAX_SECRETS_PER_ENDPOINT, SealError};
+use whl_store::composer::ComposerStoreError;
 use whl_store::forward::ForwardStoreError;
 use whl_store::secrets::SecretStoreError;
 use whl_store::{EndpointError, MembershipError};
@@ -144,8 +145,38 @@ pub enum ApiError {
     SecretsDisabled,
     #[error("secret storage failed: {0}")]
     SecretStorage(SecretStoreError),
+    #[error("composer storage failed: {0}")]
+    ComposerStorage(ComposerStoreError),
+    #[error("the composer is disabled on this instance")]
+    ComposerDisabled,
+    #[error("the composer could not be set up")]
+    ComposerInternal,
+    #[error("the composer request body is too large")]
+    SendPayloadTooLarge,
+    #[error("the composer request body was not received in time")]
+    SendBodyTimeout,
+    #[error("this request has been relayed too many times")]
+    HopLimit,
+    #[error("the composer quota {name} of {max} is used up")]
+    ComposerQuota {
+        name: &'static str,
+        max: usize,
+        retry_after_secs: u64,
+    },
+    #[error(transparent)]
+    Access(AccessDenied),
     #[error("a secret could not be sealed: {0}")]
     SecretSeal(SealError),
+}
+
+impl From<ComposerStoreError> for ApiError {
+    fn from(error: ComposerStoreError) -> Self {
+        if error.is_unavailable() {
+            Self::StoreUnavailable
+        } else {
+            Self::ComposerStorage(error)
+        }
+    }
 }
 
 impl From<SecretStoreError> for ApiError {
@@ -218,8 +249,14 @@ impl IntoResponse for ApiError {
         if let Self::Auth(rejection) = self {
             return rejection.into_response();
         }
+        if let Self::Access(denied) = self {
+            return denied.into_response();
+        }
         let retry_after = match &self {
-            Self::RateLimited { retry_after_secs } => Some(*retry_after_secs),
+            Self::RateLimited { retry_after_secs }
+            | Self::ComposerQuota {
+                retry_after_secs, ..
+            } => Some(*retry_after_secs),
             _ => None,
         };
         let limit = match &self {
@@ -227,6 +264,7 @@ impl IntoResponse for ApiError {
                 name: "secrets",
                 max: MAX_SECRETS_PER_ENDPOINT,
             }),
+            Self::ComposerQuota { name, max, .. } => Some(LimitDetail { name, max: *max }),
             _ => None,
         };
         let (status, code, message, fields) = match self {
@@ -355,7 +393,7 @@ impl IntoResponse for ApiError {
                 self.to_string(),
                 None,
             ),
-            Self::Auth(_) => (
+            Self::Access(_) | Self::Auth(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "internal_error",
                 "the request could not be completed".to_owned(),
@@ -381,6 +419,49 @@ impl IntoResponse for ApiError {
             }
             Self::ForwardStorage(error) => {
                 tracing::error!(%error, "forward storage failed");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal_error",
+                    "the request could not be completed".to_owned(),
+                    None,
+                )
+            }
+            Self::ComposerDisabled => (StatusCode::NOT_FOUND, "not_found", self.to_string(), None),
+            Self::ComposerInternal => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal_error",
+                "the request could not be completed".to_owned(),
+                None,
+            ),
+            Self::SendPayloadTooLarge => (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "payload_too_large",
+                format!(
+                    "the request body is larger than {} bytes",
+                    crate::composer::MAX_SEND_BODY_BYTES
+                ),
+                None,
+            ),
+            Self::SendBodyTimeout => (
+                StatusCode::REQUEST_TIMEOUT,
+                "request_timeout",
+                self.to_string(),
+                None,
+            ),
+            Self::HopLimit => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "hop_limit",
+                self.to_string(),
+                None,
+            ),
+            Self::ComposerQuota { .. } => (
+                StatusCode::TOO_MANY_REQUESTS,
+                "quota_exceeded",
+                self.to_string(),
+                None,
+            ),
+            Self::ComposerStorage(error) => {
+                tracing::error!(%error, "composer storage failed");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "internal_error",

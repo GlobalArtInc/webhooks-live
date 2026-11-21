@@ -2,7 +2,7 @@ use sqlx::PgPool;
 use whl_store::{Store, StoreError};
 use whl_testkit::TestDb;
 
-const TABLES: [&str; 11] = [
+const TABLES: [&str; 13] = [
     "capture_bodies",
     "captures",
     "endpoint_members",
@@ -12,7 +12,9 @@ const TABLES: [&str; 11] = [
     "forward_jobs",
     "forward_rules",
     "login_states",
+    "sent_requests",
     "sessions",
+    "usage_counters",
     "users",
 ];
 

@@ -60,6 +60,13 @@ concurrency = 32
 max_attempts = 3
 allow_cidrs = []
 
+[composer]
+enabled = true
+endpoint_per_hour = 200
+network_per_day = 1000
+user_per_hour = 2000
+max_in_flight = 32
+
 [shutdown]
 drain = "5s"
 grace = "25s"
@@ -96,6 +103,11 @@ const ENV_KEYS: &[(&str, &str)] = &[
     ("FORWARD_CONCURRENCY", "forward.concurrency"),
     ("FORWARD_MAX_ATTEMPTS", "forward.max_attempts"),
     ("FORWARD_ALLOW_CIDRS", "forward.allow_cidrs"),
+    ("COMPOSER_ENABLED", "composer.enabled"),
+    ("COMPOSER_ENDPOINT_PER_HOUR", "composer.endpoint_per_hour"),
+    ("COMPOSER_NETWORK_PER_DAY", "composer.network_per_day"),
+    ("COMPOSER_USER_PER_HOUR", "composer.user_per_hour"),
+    ("COMPOSER_MAX_IN_FLIGHT", "composer.max_in_flight"),
     ("SHUTDOWN_DRAIN", "shutdown.drain"),
     ("SHUTDOWN_GRACE", "shutdown.grace"),
     ("SECRETS_KEYS", "secrets.keys"),
@@ -115,6 +127,7 @@ pub struct Config {
     pub capture: CaptureConfig,
     pub rate: RateConfig,
     pub forward: ForwardConfig,
+    pub composer: ComposerConfig,
     #[serde(default)]
     pub secrets: SecretsConfig,
     pub shutdown: ShutdownConfig,
@@ -203,6 +216,15 @@ pub struct ForwardConfig {
     pub max_attempts: u32,
     #[serde(deserialize_with = "de::list")]
     pub allow_cidrs: Vec<IpNet>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ComposerConfig {
+    pub enabled: bool,
+    pub endpoint_per_hour: u32,
+    pub network_per_day: u32,
+    pub user_per_hour: u32,
+    pub max_in_flight: u32,
 }
 
 #[derive(Debug, Default, Deserialize)]

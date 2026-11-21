@@ -16,6 +16,10 @@ pub fn requirement(mode: AccessMode, method: &Method, pattern: &str) -> Requirem
     let rest = pattern.strip_prefix(API_PREFIX).unwrap_or(pattern);
     match rest {
         "/instance" => Requirement::Anyone,
+        "/send" | "/send/history" | "/send/history/{sent_id}" if mode == AccessMode::Sso => {
+            Requirement::SignedIn
+        }
+        "/send" | "/send/history" | "/send/history/{sent_id}" => Requirement::Anyone,
         "/endpoints" if mode == AccessMode::Mixed && *method == Method::POST => Requirement::Anyone,
         "/endpoints" => Requirement::SignedIn,
         _ => match rest.strip_prefix(ENDPOINT_PREFIX) {
@@ -212,6 +216,30 @@ mod tests {
                     Requirement::Role(EndpointRole::Owner),
                     "{mode:?} {pattern:?}"
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn the_composer_routes_need_sign_in_only_in_sso_mode() {
+        for pattern in [
+            "/api/v1/send",
+            "/api/v1/send/history",
+            "/api/v1/send/history/{sent_id}",
+        ] {
+            for method in [&GET, &POST, &DELETE] {
+                assert_eq!(
+                    requirement(AccessMode::Sso, method, pattern),
+                    Requirement::SignedIn,
+                    "{pattern}"
+                );
+                for mode in [AccessMode::Open, AccessMode::Mixed] {
+                    assert_eq!(
+                        requirement(mode, method, pattern),
+                        Requirement::Anyone,
+                        "{mode:?} {pattern}"
+                    );
+                }
             }
         }
     }

@@ -10,6 +10,8 @@ pub enum RefusalReason {
     MissingHost,
     #[error("host name is not allowed")]
     ForbiddenHost,
+    #[error("port is not allowed")]
+    ForbiddenPort,
     #[error("url is not valid")]
     InvalidUrl,
     #[error("url is too long")]
@@ -27,6 +29,7 @@ impl RefusalReason {
             Self::Userinfo => "userinfo",
             Self::MissingHost => "missing_host",
             Self::ForbiddenHost => "forbidden_host",
+            Self::ForbiddenPort => "forbidden_port",
             Self::InvalidUrl => "invalid_url",
             Self::UrlTooLong => "url_too_long",
             Self::RefusedAddress => "refused_address",
