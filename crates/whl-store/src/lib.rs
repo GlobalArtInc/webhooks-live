@@ -4,6 +4,7 @@ pub mod capture_queries;
 pub mod captures;
 pub mod endpoints;
 mod error;
+pub mod maintenance;
 mod store;
 pub mod stream;
 

@@ -90,6 +90,10 @@ pub enum ApiError {
     InvalidCursor,
     #[error("the database is unavailable")]
     StoreUnavailable,
+    #[error("too many requests")]
+    RateLimited { retry_after_secs: u64 },
+    #[error("the client address cannot be determined")]
+    ClientUnknown,
     #[error("endpoint storage failed: {0}")]
     Internal(EndpointError),
 }
@@ -118,6 +122,10 @@ struct ErrorDetail {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
+        let retry_after = match &self {
+            Self::RateLimited { retry_after_secs } => Some(*retry_after_secs),
+            _ => None,
+        };
         let (status, code, message, fields) = match self {
             Self::InvalidJson(detail) => (
                 StatusCode::BAD_REQUEST,
@@ -178,6 +186,21 @@ impl IntoResponse for ApiError {
                 self.to_string(),
                 None,
             ),
+            Self::RateLimited { .. } => (
+                StatusCode::TOO_MANY_REQUESTS,
+                "rate_limited",
+                self.to_string(),
+                None,
+            ),
+            Self::ClientUnknown => {
+                tracing::error!("a request reached the rate limiter without a client address");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal_error",
+                    "the request could not be completed".to_owned(),
+                    None,
+                )
+            }
             Self::Internal(error) => {
                 tracing::error!(%error, "endpoint storage failed");
                 (
@@ -203,6 +226,11 @@ impl IntoResponse for ApiError {
             response
                 .headers_mut()
                 .insert(header::RETRY_AFTER, HeaderValue::from_static("5"));
+        }
+        if let Some(seconds) = retry_after {
+            response
+                .headers_mut()
+                .insert(header::RETRY_AFTER, HeaderValue::from(seconds));
         }
         response
     }

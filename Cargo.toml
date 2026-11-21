@@ -59,6 +59,8 @@ p256 = { version = "0.14", default-features = false, features = ["ecdsa", "std"]
 rust-embed = "8"
 sha2 = "0.11"
 tower = { version = "0.5", features = ["util"] }
+dashmap = "6"
+governor = { version = "0.10", default-features = false, features = ["std"] }
 metrics = "0.24"
 
 [profile.dev]

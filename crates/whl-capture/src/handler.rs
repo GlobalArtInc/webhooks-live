@@ -50,7 +50,11 @@ async fn run(state: &CaptureState, request: Request) -> Result<Response, Failure
     }
 
     match state.store().endpoint_state(&id, state.policy()).await {
-        Ok(EndpointState::Live) => {}
+        Ok(EndpointState::Live) => {
+            if let Admission::Limited { retry_after } = state.admit_endpoint(&id) {
+                return Err(early(Refusal::RateLimited { retry_after }));
+            }
+        }
         Ok(EndpointState::Full) => return Err(early(Refusal::Full(id))),
         Ok(EndpointState::Gone) => return Err(early(Refusal::Gone(id))),
         Err(error) => return Err(early(store_refusal(&error))),

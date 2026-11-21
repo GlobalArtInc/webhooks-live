@@ -8,6 +8,7 @@ publish.workspace = true
 [dependencies]
 axum.workspace = true
 base64.workspace = true
+metrics.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -15,6 +16,7 @@ time = { workspace = true, features = ["formatting", "macros", "parsing"] }
 tracing.workspace = true
 whl-core.workspace = true
 whl-store.workspace = true
+whl-telemetry.workspace = true
 
 [dev-dependencies]
 sqlx.workspace = true

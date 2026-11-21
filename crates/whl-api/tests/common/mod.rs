@@ -7,7 +7,7 @@ use axum::body::Body;
 use axum::http::{HeaderMap, Method, Request, StatusCode, header};
 use serde_json::Value;
 use tower::ServiceExt;
-use whl_api::{ApiSettings, ApiState};
+use whl_api::{ApiLimits, ApiSettings, ApiState};
 use whl_store::Store;
 use whl_testkit::TestDb;
 
@@ -19,6 +19,14 @@ pub struct Harness {
 }
 
 pub async fn harness() -> Harness {
+    build(None).await
+}
+
+pub async fn harness_with_limits(limits: ApiLimits) -> Harness {
+    build(Some(limits)).await
+}
+
+async fn build(limits: Option<ApiLimits>) -> Harness {
     let db = TestDb::new().await;
     let store = Store::from_pool(db.pool().clone());
     let settings = ApiSettings {
@@ -30,7 +38,12 @@ pub async fn harness() -> Harness {
         private_forward_targets_allowed: false,
         ring_mode_allowed: true,
     };
-    let app = whl_api::router(ApiState::new(store, settings));
+    let state = ApiState::new(store, settings);
+    let state = match limits {
+        Some(limits) => state.with_limits(limits),
+        None => state,
+    };
+    let app = whl_api::router(state);
     Harness { db, app }
 }
 

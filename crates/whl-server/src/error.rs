@@ -4,6 +4,7 @@ use std::net::SocketAddr;
 use tokio::task::JoinError;
 use whl_auth::AuthError;
 use whl_capture::StateError;
+use whl_core::limiter::LimiterError;
 use whl_store::StoreError;
 
 #[derive(Debug, thiserror::Error)]
@@ -14,6 +15,8 @@ pub enum ServerError {
     Capture(#[from] StateError),
     #[error("cannot start sso authentication: {0}")]
     Auth(#[from] AuthError),
+    #[error("cannot set up the rate limiters: {0}")]
+    Limiter(#[from] LimiterError),
     #[error("cannot bind the {listener} listener on {addr}: {source}")]
     Bind {
         listener: &'static str,

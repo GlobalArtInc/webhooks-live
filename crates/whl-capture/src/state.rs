@@ -7,13 +7,15 @@ use time::OffsetDateTime;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use whl_core::capture_id::CaptureId;
 use whl_core::config::Config;
+use whl_core::endpoint_id::EndpointId;
 use whl_core::entropy::IdGenerationError;
+use whl_core::limiter::Limiters;
 use whl_store::Store;
 use whl_store::captures::CapturePolicy;
 
 use crate::client_ip::TrustedProxies;
 use crate::delay::DelaySlots;
-use crate::seams::{Admission, StorageFull, admit_client};
+use crate::seams::{Admission, StorageFull, admit_client, admit_endpoint};
 
 pub const DEFAULT_BODY_READ_TIMEOUT: Duration = Duration::from_secs(30);
 pub const DEFAULT_BUDGET_WAIT: Duration = Duration::from_secs(2);
@@ -168,6 +170,7 @@ struct Inner {
     budget: BodyBudget,
     source: Arc<dyn CaptureSource>,
     storage_full: StorageFull,
+    limiters: Option<Limiters>,
     public_url: String,
     delays: DelaySlots,
 }
@@ -191,10 +194,27 @@ impl CaptureState {
                 proxies: TrustedProxies::new(settings.trusted_proxies),
                 source: Arc::new(SystemSource),
                 storage_full: StorageFull::default(),
+                limiters: None,
                 public_url: settings.public_url,
                 delays: DelaySlots::new(settings.max_delayed),
             }),
         })
+    }
+
+    pub fn with_limiters(self, limiters: Limiters) -> Self {
+        Self {
+            inner: Arc::new(Inner {
+                store: self.inner.store.clone(),
+                limits: self.inner.limits,
+                proxies: self.inner.proxies.clone(),
+                budget: self.inner.budget.clone(),
+                source: Arc::clone(&self.inner.source),
+                storage_full: self.inner.storage_full.clone(),
+                limiters: Some(limiters),
+                public_url: self.inner.public_url.clone(),
+                delays: self.inner.delays.clone(),
+            }),
+        }
     }
 
     pub fn with_source(self, source: Arc<dyn CaptureSource>) -> Self {
@@ -206,6 +226,7 @@ impl CaptureState {
                 budget: self.inner.budget.clone(),
                 source,
                 storage_full: self.inner.storage_full.clone(),
+                limiters: self.inner.limiters.clone(),
                 public_url: self.inner.public_url.clone(),
                 delays: self.inner.delays.clone(),
             }),
@@ -252,6 +273,10 @@ impl CaptureState {
     }
 
     pub(crate) fn admit(&self, client_ip: IpAddr) -> Admission {
-        admit_client(client_ip)
+        admit_client(self.inner.limiters.as_ref(), client_ip)
+    }
+
+    pub(crate) fn admit_endpoint(&self, endpoint: &EndpointId) -> Admission {
+        admit_endpoint(self.inner.limiters.as_ref(), endpoint)
     }
 }

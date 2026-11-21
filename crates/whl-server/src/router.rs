@@ -5,11 +5,12 @@ use axum::Router;
 use axum::body::Body;
 use axum::extract::{MatchedPath, State};
 use axum::http::{Request, StatusCode, header};
+use axum::middleware::from_fn_with_state;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use tower_http::trace::TraceLayer;
 use tracing::Span;
-use whl_api::ApiState;
+use whl_api::{ApiLimits, ApiState, enforce_rate_limit};
 use whl_auth::AuthState;
 use whl_capture::CaptureState;
 use whl_live::LiveState;
@@ -21,9 +22,11 @@ pub fn public(
     api: ApiState,
     capture: CaptureState,
     auth: Option<AuthState>,
+    limits: ApiLimits,
 ) -> Router {
     let ingest = whl_capture::router_with_fallback(capture, whl_web::router());
-    let routes = Router::new().merge(whl_live::router(live));
+    let stream = whl_live::router(live).layer(from_fn_with_state(limits, enforce_rate_limit));
+    let routes = Router::new().merge(stream);
     let routes = match auth {
         Some(auth) => routes
             .merge(whl_api::router(api).layer(auth.origin_check()))

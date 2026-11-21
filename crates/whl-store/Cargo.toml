@@ -7,6 +7,7 @@ publish.workspace = true
 
 [dependencies]
 bytes.workspace = true
+metrics.workspace = true
 migrator.workspace = true
 sea-orm.workspace = true
 serde.workspace = true
@@ -17,6 +18,7 @@ time.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 whl-core.workspace = true
+whl-telemetry.workspace = true
 
 [dev-dependencies]
 whl-testkit.workspace = true

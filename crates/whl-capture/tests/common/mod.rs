@@ -16,6 +16,7 @@ use whl_capture::{CaptureLimits, CaptureSettings, CaptureSource, CaptureState, r
 use whl_core::capture_id::CaptureId;
 use whl_core::endpoint_id::EndpointId;
 use whl_core::entropy::IdGenerationError;
+use whl_core::limiter::Limiters;
 use whl_store::Store;
 use whl_testkit::TestDb;
 
@@ -74,6 +75,12 @@ impl Harness {
 
     pub fn with_source(mut self, source: Arc<dyn CaptureSource>) -> Self {
         self.state = self.state.with_source(source);
+        self.router = router(self.state.clone());
+        self
+    }
+
+    pub fn with_limiters(mut self, limiters: Limiters) -> Self {
+        self.state = self.state.with_limiters(limiters);
         self.router = router(self.state.clone());
         self
     }

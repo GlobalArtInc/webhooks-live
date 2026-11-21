@@ -1,3 +1,4 @@
+mod background;
 mod error;
 mod public;
 mod readiness;
@@ -12,17 +13,21 @@ use std::time::Duration;
 
 use tokio::net::TcpListener;
 use tokio::sync::{oneshot, watch};
-use whl_api::{ApiSettings, ApiState};
+use whl_api::{ApiLimits, ApiSettings, ApiState};
 use whl_auth::{AuthSettings, AuthState};
 use whl_capture::{CaptureSettings, CaptureState};
+use whl_core::client_ip::TrustedProxies;
 use whl_core::config::Config;
+use whl_core::limiter::{LimiterSettings, Limiters};
 use whl_live::{HUB_CAPACITY, Hub, LiveState, StreamSettings};
 use whl_store::Store;
 
+pub use background::{BackgroundSettings, LIMITER_CLEANUP_INTERVAL, STORAGE_REFRESH_INTERVAL};
 pub use error::ServerError;
 pub use public::{HEADER_READ_TIMEOUT, HttpLimits, MAX_HEADER_COUNT, MAX_HEADER_LIST_BYTES};
 pub use signal::shutdown_signal;
 
+use background::Background;
 use readiness::Readiness;
 
 pub struct Bound {
@@ -37,6 +42,9 @@ pub struct Bound {
     capture: CaptureSettings,
     http: HttpLimits,
     auth: Option<AuthSettings>,
+    limiters: Limiters,
+    api_limits: ApiLimits,
+    background: BackgroundSettings,
 }
 
 impl Bound {
@@ -53,17 +61,26 @@ impl Bound {
         self
     }
 
+    pub fn with_background(mut self, settings: BackgroundSettings) -> Self {
+        self.background = settings;
+        self
+    }
+
     pub async fn serve(
         self,
         store: Store,
         shutdown: impl Future<Output = ()> + Send + 'static,
     ) -> Result<(), ServerError> {
         let readiness = Arc::new(Readiness::default());
-        let state = ApiState::new(store.clone(), self.api.clone());
+        let state =
+            ApiState::new(store.clone(), self.api.clone()).with_limits(self.api_limits.clone());
         tracing::info!(public = %self.public_addr, admin = %self.admin_addr, "listening");
 
-        let capture = CaptureState::new(store.clone(), self.capture)?;
+        let capture =
+            CaptureState::new(store.clone(), self.capture)?.with_limiters(self.limiters.clone());
+        let storage_full = capture.storage_full().clone();
         let (stop_tx, stop_rx) = watch::channel(false);
+        let background_stop = stop_rx.clone();
         let hub = Hub::new(HUB_CAPACITY);
         let live = LiveState::new(
             store.clone(),
@@ -83,6 +100,7 @@ impl Bound {
             capture,
             store: store.clone(),
             auth: self.auth.clone(),
+            limits: self.api_limits,
             http: self.http,
             stop: stop_rx.clone(),
             ready: public_ready,
@@ -121,10 +139,22 @@ impl Bound {
             return Err(error.into());
         }
         readiness.mark_ready();
+        let background = Background::spawn(
+            store.clone(),
+            &self.background,
+            storage_full,
+            self.limiters,
+            &background_stop,
+        );
 
         tokio::select! {
             () = &mut shutdown => {}
-            outcome = &mut serving => return joined(outcome),
+            outcome = &mut serving => {
+                let _ = stop_tx.send(true);
+                background.join().await;
+                listener.join().await;
+                return joined(outcome);
+            }
         }
 
         readiness.mark_draining();
@@ -141,6 +171,7 @@ impl Bound {
                 Ok(())
             }
         };
+        background.join().await;
         listener.join().await;
         outcome
     }
@@ -149,6 +180,11 @@ impl Bound {
 pub async fn bind(config: &Config) -> Result<Bound, ServerError> {
     let (public, public_addr) = bind_listener("public", config.listen_addr).await?;
     let (admin, admin_addr) = bind_listener("admin", config.admin_addr).await?;
+    let limiters = Limiters::new(&LimiterSettings::from_config(&config.rate))?;
+    let api_limits = ApiLimits::new(
+        limiters.clone(),
+        TrustedProxies::new(config.trusted_proxies.clone()),
+    );
 
     Ok(Bound {
         public,
@@ -162,6 +198,9 @@ pub async fn bind(config: &Config) -> Result<Bound, ServerError> {
         capture: CaptureSettings::from_config(config)?,
         http: HttpLimits::default(),
         auth: AuthSettings::from_config(config)?,
+        limiters,
+        api_limits,
+        background: BackgroundSettings::from_config(config),
     })
 }
 
@@ -194,6 +233,7 @@ struct PublicParts {
     capture: CaptureState,
     store: Store,
     auth: Option<AuthSettings>,
+    limits: ApiLimits,
     http: HttpLimits,
     stop: watch::Receiver<bool>,
     ready: oneshot::Sender<()>,
@@ -210,7 +250,7 @@ async fn serve_public(parts: PublicParts) -> Result<(), ServerError> {
         }
         None => None,
     };
-    let router = router::public(parts.live, parts.api, parts.capture, auth);
+    let router = router::public(parts.live, parts.api, parts.capture, auth, parts.limits);
     let _ = parts.ready.send(());
     let server = public::serve(
         parts.listener,
@@ -231,7 +271,7 @@ async fn serve_listener(
         .map_err(|source| ServerError::Serve { listener, source })
 }
 
-async fn until_stopped(mut stop: watch::Receiver<bool>) {
+pub(crate) async fn until_stopped(mut stop: watch::Receiver<bool>) {
     let _ = stop.wait_for(|stopped| *stopped).await;
 }
 

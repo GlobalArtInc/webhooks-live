@@ -1,4 +1,5 @@
 pub mod capture_id;
+pub mod client_ip;
 pub mod config;
 pub mod content_type;
 pub mod duration;
@@ -6,6 +7,7 @@ pub mod endpoint_id;
 pub mod entropy;
 pub mod filename;
 pub mod header;
+pub mod limiter;
 pub mod rate;
 pub mod response;
 pub mod status;

@@ -4,6 +4,7 @@ mod dto;
 mod error;
 mod handlers;
 mod input;
+mod limit;
 mod resolve;
 mod settings;
 mod state;
@@ -11,16 +12,18 @@ mod state;
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
 use axum::http::{HeaderValue, header};
-use axum::middleware::map_response;
+use axum::middleware::{from_fn_with_state, map_response};
 use axum::response::Response;
 use axum::routing::{get, post};
 
+pub use limit::{ApiLimits, enforce_rate_limit};
 pub use settings::ApiSettings;
 pub use state::ApiState;
 
 use error::ApiError;
 
 pub fn router(state: ApiState) -> Router {
+    let limits = state.limits.clone();
     let api = Router::new()
         .route("/instance", get(handlers::instance))
         .route("/endpoints", post(handlers::create))
@@ -34,10 +37,14 @@ pub fn router(state: ApiState) -> Router {
         .fallback(not_found)
         .method_not_allowed_fallback(method_not_allowed)
         .with_state(state);
-    Router::new()
+    let router = Router::new()
         .nest("/api/v1", api)
-        .layer(DefaultBodyLimit::max(body::MAX_BODY_BYTES))
-        .layer(map_response(secure))
+        .layer(DefaultBodyLimit::max(body::MAX_BODY_BYTES));
+    let router = match limits {
+        Some(limits) => router.layer(from_fn_with_state(limits, enforce_rate_limit)),
+        None => router,
+    };
+    router.layer(map_response(secure))
 }
 
 async fn not_found() -> ApiError {
