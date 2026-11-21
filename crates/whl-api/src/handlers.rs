@@ -9,7 +9,7 @@ use whl_store::{EndpointRole, Lifecycle, LifecycleLimits, NewEndpoint, UserRecor
 use crate::body::RawBody;
 use crate::dto::{EndpointDto, InstanceDto};
 use crate::error::ApiError;
-use crate::input::parse_endpoint_input;
+use crate::input::{EndpointPatch, parse_endpoint_input};
 use crate::lifecycle::{self, Standing, combine};
 use crate::resolve::{defaults, resolve};
 use crate::settings::ApiSettings;
@@ -37,6 +37,7 @@ pub async fn create(
     }
     let creation = state.access.creation(&caller)?;
     let parsed = parse_endpoint_input(&body, true)?;
+    require_secrets_for_verifier(&state, &parsed.patch)?;
     let standing = Standing {
         owned: matches!(creation, Creation::Owned(_)),
         signed_in: caller.user().is_some(),
@@ -119,6 +120,7 @@ pub async fn update(
     let signed_in = access.caller().user().is_some();
     let sign_in_possible = state.access.has_users();
     let role = access.role();
+    require_secrets_for_verifier(&state, &parsed.patch)?;
     let record = state
         .store
         .update_endpoint(
@@ -178,6 +180,13 @@ fn never_expire_limits(settings: &ApiSettings) -> LifecycleLimits {
     LifecycleLimits {
         never_expire_max: settings.lifecycle_limits(true).never_expire_endpoints,
     }
+}
+
+fn require_secrets_for_verifier(state: &ApiState, patch: &EndpointPatch) -> Result<(), ApiError> {
+    if matches!(patch.verifier, Some(Some(_))) && !state.secrets_enabled() {
+        return Err(ApiError::SecretsDisabled);
+    }
+    Ok(())
 }
 
 async fn owner_of(state: &ApiState, id: &EndpointId) -> Result<Option<UserRecord>, ApiError> {

@@ -35,6 +35,7 @@ async fn fixture() -> Fixture {
                 cors: false,
                 overflow: Overflow::Refuse,
                 tags: Vec::new(),
+                verifier: None,
             },
             RETENTION,
         )
@@ -210,6 +211,7 @@ async fn rules_of_several_endpoints_load_in_one_query_grouped_by_endpoint() {
                 cors: false,
                 overflow: Overflow::Refuse,
                 tags: Vec::new(),
+                verifier: None,
             },
             RETENTION,
         )

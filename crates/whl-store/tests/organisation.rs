@@ -30,6 +30,7 @@ async fn fixture() -> Fixture {
                 cors: false,
                 overflow: Overflow::Ring,
                 tags: Vec::new(),
+                verifier: None,
             },
             RETENTION,
         )

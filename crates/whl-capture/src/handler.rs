@@ -20,6 +20,7 @@ use crate::refusal::{Failure, Refusal};
 use crate::response::{ReplyRequest, build_response};
 use crate::seams::Admission;
 use crate::state::CaptureState;
+use crate::verification::{Presented, verify_capture};
 
 pub(crate) async fn capture(State(state): State<CaptureState>, request: Request) -> Response {
     match run(&state, request).await {
@@ -49,7 +50,8 @@ async fn run(state: &CaptureState, request: Request) -> Result<Response, Failure
         return Err(early(Refusal::StorageFull));
     }
 
-    match state.store().endpoint_state(&id, state.policy()).await {
+    let admission = state.store().endpoint_admission(&id, state.policy()).await;
+    match admission.as_ref().map(|admission| admission.state) {
         Ok(EndpointState::Live) => {
             if let Admission::Limited { retry_after } = state.admit_endpoint(&id) {
                 return Err(early(Refusal::RateLimited { retry_after }));
@@ -57,7 +59,7 @@ async fn run(state: &CaptureState, request: Request) -> Result<Response, Failure
         }
         Ok(EndpointState::Full) => return Err(early(Refusal::Full(id))),
         Ok(EndpointState::Gone) => return Err(early(Refusal::Gone(id))),
-        Err(error) => return Err(early(store_refusal(&error))),
+        Err(error) => return Err(early(store_refusal(error))),
     }
 
     let declared = declared_length(&parts.headers, &body);
@@ -76,6 +78,19 @@ async fn run(state: &CaptureState, request: Request) -> Result<Response, Failure
     let form = parse_form(content_type.as_deref(), &body, &limits).await;
     let status_override = status_override_from_path(sub_path);
 
+    let received_at = state.source().now();
+    let verification = match admission.ok().and_then(|admission| admission.verifier) {
+        Some(source) => {
+            let presented = Presented {
+                headers: &parts.headers,
+                body: &body,
+                received_at,
+            };
+            Some(verify_capture(state, &id, &source, presented).await)
+        }
+        None => None,
+    };
+
     let Ok(capture_id) = state.source().capture_id() else {
         tracing::error!("the capture id source failed");
         return Err(late(Refusal::Internal));
@@ -83,7 +98,7 @@ async fn run(state: &CaptureState, request: Request) -> Result<Response, Failure
     let new_capture = NewCapture {
         id: capture_id,
         endpoint_id: id.clone(),
-        received_at: state.source().now(),
+        received_at,
         method: parts.method.as_str().to_owned(),
         url: stored_url(&parts.uri, &parts.headers, &forwarded),
         path: sub_path.to_owned(),
@@ -102,7 +117,9 @@ async fn run(state: &CaptureState, request: Request) -> Result<Response, Failure
     let policy = state.policy();
     let reservation = buffered.reservation;
     let job = tokio::spawn(async move {
-        let outcome = store.store_capture(new_capture, policy).await;
+        let outcome = store
+            .store_verified_capture(new_capture, verification, policy)
+            .await;
         drop(reservation);
         outcome
     });

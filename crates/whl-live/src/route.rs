@@ -148,6 +148,7 @@ struct SummaryBody<'a> {
     response_status: i16,
     forward_state: Option<&'static str>,
     kind: &'static str,
+    verification: Option<&'static str>,
 }
 
 fn error_response(status: StatusCode, code: &'static str, message: &'static str) -> Response {
@@ -390,6 +391,9 @@ impl Viewer {
             response_status: capture.response_status,
             forward_state: capture.forward_state.map(|state| state.as_str()),
             kind: capture.kind.as_str(),
+            verification: capture
+                .verification
+                .map(|verification| verification.as_str()),
         };
         self.push_json("capture", Some(capture.seq), &body);
     }

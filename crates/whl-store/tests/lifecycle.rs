@@ -25,6 +25,7 @@ fn settings(overflow: Overflow) -> EndpointSettings {
         cors: false,
         overflow,
         tags: Vec::new(),
+        verifier: None,
     }
 }
 

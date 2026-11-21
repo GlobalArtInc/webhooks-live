@@ -138,6 +138,7 @@ async fn endpoint(store: &Store) -> EndpointId {
                 cors: false,
                 overflow: Overflow::Refuse,
                 tags: Vec::new(),
+                verifier: None,
             },
             RETENTION,
         )

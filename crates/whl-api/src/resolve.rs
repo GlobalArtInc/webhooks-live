@@ -1,7 +1,8 @@
 use whl_core::header::HeaderInput;
 use whl_core::response::{ResponseConfig, ResponseConfigInput};
 use whl_core::validation::ValidationError;
-use whl_store::{EndpointSettings, Overflow};
+use whl_store::{EndpointSettings, Overflow, StoredVerifier};
+use whl_verify::{ConfigIssue, ConfigProblem, Verifier};
 
 use crate::error::{FieldCode, FieldViolation};
 use crate::input::{EndpointPatch, ResponsePatch};
@@ -14,6 +15,7 @@ pub fn defaults() -> EndpointSettings {
         cors: false,
         overflow: Overflow::Refuse,
         tags: Vec::new(),
+        verifier: None,
     }
 }
 
@@ -34,6 +36,17 @@ pub fn resolve(
     let cors = patch.cors.unwrap_or(base.cors);
     let overflow = patch.overflow.unwrap_or(base.overflow);
     let tags = patch.tags.clone().unwrap_or_else(|| base.tags.clone());
+    let verifier = match &patch.verifier {
+        None => base.verifier.clone(),
+        Some(None) => None,
+        Some(Some(input)) => match Verifier::new(input) {
+            Ok(verifier) => Some(StoredVerifier::Configured(verifier)),
+            Err(issues) => {
+                violations.extend(issues.iter().map(verifier_violation));
+                None
+            }
+        },
+    };
     match validate_response(&base.response, &patch.response) {
         Ok(response) if violations.is_empty() => Ok(EndpointSettings {
             title,
@@ -41,6 +54,7 @@ pub fn resolve(
             cors,
             overflow,
             tags,
+            verifier,
         }),
         Ok(_) => Err(violations),
         Err(error) => {
@@ -48,6 +62,20 @@ pub fn resolve(
             Err(violations)
         }
     }
+}
+
+fn verifier_violation(issue: &ConfigIssue) -> FieldViolation {
+    let code = match issue.problem {
+        ConfigProblem::Required => FieldCode::Required,
+        ConfigProblem::InvalidFormat => FieldCode::InvalidFormat,
+        ConfigProblem::TooLong => FieldCode::TooLong,
+        ConfigProblem::NotAllowed => FieldCode::NotAllowed,
+    };
+    FieldViolation::new(
+        format!("verifier.{}", issue.field),
+        code,
+        issue.problem.to_string(),
+    )
 }
 
 fn validate_response(

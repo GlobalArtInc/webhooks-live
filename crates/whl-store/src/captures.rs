@@ -10,6 +10,8 @@ use time::macros::format_description;
 use whl_core::capture_id::CaptureId;
 use whl_core::endpoint_id::EndpointId;
 use whl_core::status::HttpStatus;
+use whl_secrets::{KeyId, SealedSecret};
+use whl_verify::{Verification, Verifier, VerifierDocument};
 
 use crate::kind::CaptureKind;
 use crate::store::Store;
@@ -32,10 +34,13 @@ const ENDPOINT_LIVE: &str = "SELECT 1 FROM endpoints \
      WHERE id = $1 AND deleted_at IS NULL \
      AND (never_expires OR last_active_at > now() - make_interval(secs => COALESCE(retention_seconds::float8, $2)))";
 
-const ENDPOINT_ADMISSION: &str = "SELECT (capture_count >= COALESCE(max_captures::bigint, $3) AND overflow <> 'ring') AS full \
-     FROM endpoints \
-     WHERE id = $1 AND deleted_at IS NULL \
-     AND (never_expires OR last_active_at > now() - make_interval(secs => COALESCE(retention_seconds::float8, $2)))";
+const ENDPOINT_ADMISSION: &str = "SELECT (e.capture_count >= COALESCE(e.max_captures::bigint, $3) AND e.overflow <> 'ring') AS full, \
+       e.verifier::text AS verifier, s.key_id, s.nonce, s.ciphertext \
+     FROM endpoints e \
+     LEFT JOIN endpoint_secrets s ON e.verifier IS NOT NULL \
+       AND s.endpoint_id = e.id AND s.name = e.verifier ->> 'secret_name' \
+     WHERE e.id = $1 AND e.deleted_at IS NULL \
+     AND (e.never_expires OR e.last_active_at > now() - make_interval(secs => COALESCE(e.retention_seconds::float8, $2)))";
 
 const CLAIM_SLOT: &str = "UPDATE endpoints SET \
        capture_count = capture_count + 1, \
@@ -60,9 +65,10 @@ const EVICT_OLDEST: &str = "WITH evicted AS ( \
 
 const INSERT_CAPTURE: &str = "INSERT INTO captures \
      (endpoint_id, seq, id, received_at, method, url, path, host, client_ip, headers, query, \
-      form, content_type, body_size, stored_bytes, status_override, response_status, kind, meta) \
+      form, content_type, body_size, stored_bytes, status_override, response_status, kind, meta, \
+      verification) \
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::inet, $10::text::jsonb, $11::text::jsonb, \
-      $12::text::jsonb, $13, $14, $15, $16, $17, $18, '{}'::jsonb)";
+      $12::text::jsonb, $13, $14, $15, $16, $17, $18, '{}'::jsonb, $19)";
 
 const INSERT_BODY: &str =
     "INSERT INTO capture_bodies (capture_id, data, search_text) VALUES ($1, $2, $3)";
@@ -178,6 +184,21 @@ pub enum EndpointState {
     Live,
     Full,
     Gone,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VerifierSource {
+    Ready {
+        verifier: Verifier,
+        sealed: Option<SealedSecret>,
+    },
+    Unusable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EndpointAdmission {
+    pub state: EndpointState,
+    pub verifier: Option<VerifierSource>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -391,6 +412,14 @@ impl Store {
         id: &EndpointId,
         policy: CapturePolicy,
     ) -> Result<EndpointState, CaptureStoreError> {
+        Ok(self.endpoint_admission(id, policy).await?.state)
+    }
+
+    pub async fn endpoint_admission(
+        &self,
+        id: &EndpointId,
+        policy: CapturePolicy,
+    ) -> Result<EndpointAdmission, CaptureStoreError> {
         let mut connection = self.acquire_capture_connection().await?;
         let query = sqlx::query(ENDPOINT_ADMISSION)
             .bind(id.unpack())
@@ -402,25 +431,40 @@ impl Store {
             .map_err(|_| CaptureStoreError::DeadlineExceeded)?
             .map_err(CaptureStoreError::classify)?;
         let Some(row) = row else {
-            return Ok(EndpointState::Gone);
+            return Ok(EndpointAdmission {
+                state: EndpointState::Gone,
+                verifier: None,
+            });
         };
         let full: bool = row.try_get("full").map_err(CaptureStoreError::classify)?;
-        Ok(if full {
-            EndpointState::Full
-        } else {
-            EndpointState::Live
+        Ok(EndpointAdmission {
+            state: if full {
+                EndpointState::Full
+            } else {
+                EndpointState::Live
+            },
+            verifier: verifier_from_row(&row)?,
         })
     }
 
     pub async fn store_capture(
         &self,
+        capture: NewCapture,
+        policy: CapturePolicy,
+    ) -> Result<CaptureOutcome, CaptureStoreError> {
+        self.store_verified_capture(capture, None, policy).await
+    }
+
+    pub async fn store_verified_capture(
+        &self,
         mut capture: NewCapture,
+        verification: Option<Verification>,
         policy: CapturePolicy,
     ) -> Result<CaptureOutcome, CaptureStoreError> {
         capture.scrub();
         let prepared = Prepared::new(&capture)?;
         let tx = self.begin_capture_transaction().await?;
-        let work = execute_capture(tx, capture, prepared, policy);
+        let work = execute_capture(tx, capture, prepared, verification, policy);
         tokio::time::timeout(TRANSACTION_DEADLINE, work)
             .await
             .map_err(|_| CaptureStoreError::DeadlineExceeded)?
@@ -503,6 +547,7 @@ async fn execute_capture(
     mut tx: Transaction<'static, Postgres>,
     capture: NewCapture,
     prepared: Prepared,
+    verification: Option<Verification>,
     policy: CapturePolicy,
 ) -> Result<CaptureOutcome, CaptureStoreError> {
     let max_captures = i64::from(policy.max_captures);
@@ -609,6 +654,7 @@ async fn execute_capture(
             .bind(override_status)
             .bind(final_status)
             .bind(CaptureKind::Http.as_str())
+            .bind(verification.map(Verification::as_str))
             .execute(&mut *tx)
             .await
             .map_err(CaptureStoreError::classify)
@@ -654,6 +700,41 @@ async fn execute_capture(
             body_size: capture.body.len(),
         },
     })
+}
+
+fn verifier_from_row(
+    row: &sqlx::postgres::PgRow,
+) -> Result<Option<VerifierSource>, CaptureStoreError> {
+    let text: Option<String> = row
+        .try_get("verifier")
+        .map_err(CaptureStoreError::classify)?;
+    let Some(text) = text else {
+        return Ok(None);
+    };
+    let key_id: Option<i16> = row.try_get("key_id").map_err(CaptureStoreError::classify)?;
+    let nonce: Option<Vec<u8>> = row.try_get("nonce").map_err(CaptureStoreError::classify)?;
+    let ciphertext: Option<Vec<u8>> = row
+        .try_get("ciphertext")
+        .map_err(CaptureStoreError::classify)?;
+    let Ok(verifier) = serde_json::from_str::<VerifierDocument>(&text)
+        .map_err(|_| ())
+        .and_then(|document| Verifier::from_document(&document).map_err(|_| ()))
+    else {
+        return Ok(Some(VerifierSource::Unusable));
+    };
+    let sealed = match (key_id, nonce, ciphertext) {
+        (Some(key_id), Some(nonce), Some(ciphertext)) => {
+            let opened = KeyId::from_column(key_id)
+                .ok()
+                .and_then(|key_id| SealedSecret::from_parts(key_id, &nonce, ciphertext).ok());
+            match opened {
+                Some(sealed) => Some(sealed),
+                None => return Ok(Some(VerifierSource::Unusable)),
+            }
+        }
+        _ => None,
+    };
+    Ok(Some(VerifierSource::Ready { verifier, sealed }))
 }
 
 fn endpoint_from_row(

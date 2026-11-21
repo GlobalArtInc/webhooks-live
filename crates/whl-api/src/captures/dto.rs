@@ -24,6 +24,7 @@ pub struct SummaryDto {
     kind: &'static str,
     starred: bool,
     has_note: bool,
+    verification: Option<&'static str>,
 }
 
 impl From<&CaptureSummary> for SummaryDto {
@@ -45,6 +46,9 @@ impl From<&CaptureSummary> for SummaryDto {
             kind: summary.kind.as_str(),
             starred: summary.starred,
             has_note: summary.has_note,
+            verification: summary
+                .verification
+                .map(|verification| verification.as_str()),
         }
     }
 }

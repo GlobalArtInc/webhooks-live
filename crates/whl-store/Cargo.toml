@@ -21,6 +21,7 @@ uuid.workspace = true
 whl-core.workspace = true
 whl-secrets.workspace = true
 whl-telemetry.workspace = true
+whl-verify.workspace = true
 
 [dev-dependencies]
 whl-testkit.workspace = true

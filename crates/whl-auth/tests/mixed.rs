@@ -106,6 +106,7 @@ fn defaults() -> EndpointSettings {
         cors: false,
         overflow: Overflow::Refuse,
         tags: Vec::new(),
+        verifier: None,
     }
 }
 

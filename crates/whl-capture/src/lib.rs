@@ -8,6 +8,7 @@ mod refusal;
 mod response;
 mod seams;
 mod state;
+mod verification;
 
 use axum::Router;
 use axum::middleware::from_fn_with_state;
@@ -23,6 +24,7 @@ pub use state::{
     BodyBudget, BudgetExhausted, CaptureLimits, CaptureSettings, CaptureSource, CaptureState,
     StateError, SystemSource,
 };
+pub use verification::INLINE_VERIFY_BYTES;
 
 pub fn router(state: CaptureState) -> Router {
     let plain = Router::new()
