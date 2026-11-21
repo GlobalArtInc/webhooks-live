@@ -1,0 +1,101 @@
+.page {
+  display: grid;
+  gap: var(--space-5);
+  max-width: 64rem;
+  padding: var(--space-5);
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.title {
+  margin: 0;
+  font: var(--text-hero);
+}
+
+.panel {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+}
+
+.heading {
+  margin: 0;
+  font: var(--text-section);
+}
+
+.field {
+  display: grid;
+  gap: var(--space-1);
+  font: var(--text-data);
+}
+
+.input {
+  min-height: var(--space-6);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: var(--mono-data);
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font: var(--text-data);
+}
+
+.button {
+  justify-self: start;
+  min-height: var(--space-6);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: var(--text-data);
+  cursor: pointer;
+}
+
+.input:focus-visible,
+.button:focus-visible,
+.toggle input:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.cards {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  font: var(--text-data);
+}
+
+.card[data-highlighted='true'] {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-text);
+}
+
+.note {
+  margin: 0;
+  font: var(--text-data);
+  color: var(--color-text-muted);
+}

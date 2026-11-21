@@ -31,6 +31,7 @@ import selection from './en/selection.json';
 import schedules from './en/schedules.json';
 import state from './en/state.json';
 import steps from './en/steps.json';
+import tester from './en/tester.json';
 import tokens from './en/tokens.json';
 import usage from './en/usage.json';
 import templating from './en/templating.json';
@@ -79,6 +80,7 @@ export function createI18nInstance(): I18nInstance {
           ...schedules,
           ...state,
           ...steps,
+          ...tester,
           ...tokens,
           ...usage,
           ...templating,
