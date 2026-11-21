@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { CaptureScreen } from '../routes/capture/CaptureScreen';
 import { DevEditorsScreen } from '../routes/dev/DevEditorsScreen';
 import { DevStepsScreen } from '../routes/dev/DevStepsScreen';
+import { DevTesterScreen } from '../routes/dev/DevTesterScreen';
 import { DevTokensScreen } from '../routes/dev/DevTokensScreen';
 import { DiffScreen } from '../routes/diff/DiffScreen';
 import { EndpointScreen } from '../routes/endpoint/EndpointScreen';
@@ -50,6 +51,7 @@ const ROUTE_CASES: RouteCase[] = [
   { path: '/dev/tokens', screen: DevTokensScreen, params: {} },
   { path: '/dev/editors', screen: DevEditorsScreen, params: {} },
   { path: '/dev/steps', screen: DevStepsScreen, params: {} },
+  { path: '/dev/tester', screen: DevTesterScreen, params: {} },
   { path: '/no/such/page', screen: NotFoundScreen, params: { '*': 'no/such/page', _splat: 'no/such/page' } },
 ];
 

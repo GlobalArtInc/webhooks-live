@@ -12,6 +12,7 @@ import { DevConditionsScreen } from '../routes/dev/DevConditionsScreen';
 import { DevEditorsScreen } from '../routes/dev/DevEditorsScreen';
 import { DevScriptScreen } from '../routes/dev/DevScriptScreen';
 import { DevStepsScreen } from '../routes/dev/DevStepsScreen';
+import { DevTesterScreen } from '../routes/dev/DevTesterScreen';
 import { DevTokensScreen } from '../routes/dev/DevTokensScreen';
 import { DiffScreen } from '../routes/diff/DiffScreen';
 import { CaptureScreen } from '../routes/capture/CaptureScreen';
@@ -271,6 +272,11 @@ const devRoutes = import.meta.env.DEV
         getParentRoute: () => rootRoute,
         path: '/dev/conditions',
         component: DevConditionsScreen,
+      }),
+      createRoute({
+        getParentRoute: () => rootRoute,
+        path: '/dev/tester',
+        component: DevTesterScreen,
       }),
     ]
   : [];
