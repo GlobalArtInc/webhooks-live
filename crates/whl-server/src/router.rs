@@ -9,11 +9,13 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use tower_http::trace::TraceLayer;
 use tracing::Span;
+use whl_live::LiveState;
 
 use crate::readiness::Readiness;
 
-pub fn public() -> Router {
-    with_tracing(Router::new().fallback(not_found))
+pub fn public(live: LiveState) -> Router {
+    let routes = Router::new().merge(whl_live::router(live));
+    with_tracing(routes.fallback(not_found))
 }
 
 pub fn admin(readiness: Arc<Readiness>) -> Router {

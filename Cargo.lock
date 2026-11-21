@@ -2941,6 +2941,20 @@ version = "0.1.0-dev"
 [[package]]
 name = "whl-live"
 version = "0.1.0-dev"
+dependencies = [
+ "axum",
+ "bytes",
+ "futures-util",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "whl-core",
+ "whl-store",
+ "whl-testkit",
+]
 
 [[package]]
 name = "whl-server"
@@ -2950,11 +2964,13 @@ dependencies = [
  "clap",
  "figment",
  "mimalloc",
+ "sqlx",
  "thiserror",
  "tokio",
  "tower-http",
  "tracing",
  "whl-core",
+ "whl-live",
  "whl-store",
  "whl-telemetry",
  "whl-testkit",

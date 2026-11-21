@@ -38,6 +38,10 @@ impl Store {
         Self { pool }
     }
 
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+
     pub async fn migrate_up(&self) -> Result<Vec<String>, StoreError> {
         Ok(MIGRATIONS.apply(&self.database()).await?)
     }

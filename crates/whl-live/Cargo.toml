@@ -6,3 +6,17 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+axum.workspace = true
+bytes.workspace = true
+futures-util.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+whl-core.workspace = true
+whl-store.workspace = true
+
+[dev-dependencies]
+whl-testkit.workspace = true

@@ -12,6 +12,7 @@ use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 use whl_core::config::Config;
+use whl_live::{HUB_CAPACITY, Hub, LiveState, StreamSettings};
 use whl_store::Store;
 
 pub use error::ServerError;
@@ -26,6 +27,7 @@ pub struct Bound {
     admin_addr: SocketAddr,
     drain: Duration,
     grace: Duration,
+    retention: Duration,
 }
 
 impl Bound {
@@ -46,7 +48,18 @@ impl Bound {
         tracing::info!(public = %self.public_addr, admin = %self.admin_addr, "listening");
 
         let (stop_tx, stop_rx) = watch::channel(false);
-        let public = axum::serve(self.public, router::public())
+        let hub = Hub::new(HUB_CAPACITY);
+        let live = LiveState::new(
+            store.clone(),
+            Arc::clone(&hub),
+            StreamSettings::new(self.retention),
+        );
+        let listener = whl_live::spawn_listener(
+            store.clone(),
+            Arc::clone(&hub),
+            until_stopped(stop_rx.clone()),
+        );
+        let public = axum::serve(self.public, router::public(live.clone()))
             .with_graceful_shutdown(until_stopped(stop_rx.clone()));
         let admin = axum::serve(self.admin, router::admin(Arc::clone(&readiness)))
             .with_graceful_shutdown(until_stopped(stop_rx));
@@ -65,12 +78,17 @@ impl Bound {
             outcome = &mut serving => return joined(outcome),
             () = &mut shutdown => {
                 let _ = stop_tx.send(true);
-                return joined(serving.await);
+                live.close_streams();
+                let outcome = joined(serving.await);
+                listener.join().await;
+                return outcome;
             }
         };
         if let Err(error) = checked {
             let _ = stop_tx.send(true);
+            live.close_streams();
             let _ = serving.await;
+            listener.join().await;
             return Err(error.into());
         }
         readiness.mark_ready();
@@ -85,14 +103,17 @@ impl Bound {
         tokio::time::sleep(self.drain).await;
 
         let _ = stop_tx.send(true);
-        match tokio::time::timeout(self.grace, &mut serving).await {
+        live.close_streams();
+        let outcome = match tokio::time::timeout(self.grace, &mut serving).await {
             Ok(outcome) => joined(outcome),
             Err(_) => {
                 tracing::warn!(grace = ?self.grace, "grace period elapsed, stopping with requests in flight");
                 serving.abort();
                 Ok(())
             }
-        }
+        };
+        listener.join().await;
+        outcome
     }
 }
 
@@ -107,6 +128,7 @@ pub async fn bind(config: &Config) -> Result<Bound, ServerError> {
         admin_addr,
         drain: config.shutdown.drain,
         grace: config.shutdown.grace,
+        retention: config.capture.retention,
     })
 }
 

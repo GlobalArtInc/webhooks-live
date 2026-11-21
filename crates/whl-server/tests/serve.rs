@@ -205,3 +205,68 @@ async fn never_reports_ready_while_a_migration_is_missing() {
         "{outcome:?}"
     );
 }
+
+#[tokio::test]
+async fn sends_bye_to_open_streams_after_the_drain_and_closes_them() {
+    let db = TestDb::new().await;
+    let endpoint = "0123456789abcdefghjkmnpq";
+    sqlx::query("INSERT INTO endpoints (id) VALUES ($1)")
+        .bind(endpoint)
+        .execute(db.pool())
+        .await
+        .expect("the endpoint inserts");
+    let config = load_config(db.url());
+    let store = Store::connect(&config.database)
+        .await
+        .expect("the test database accepts connections");
+    let bound = whl_server::bind(&config)
+        .await
+        .expect("ephemeral ports bind");
+    let public = bound.public_addr();
+    let admin = bound.admin_addr();
+    let (trigger, stop) = oneshot::channel::<()>();
+    let server = tokio::spawn(bound.serve(store, async {
+        let _ = stop.await;
+    }));
+    wait_ready(admin).await;
+
+    let mut stream = TcpStream::connect(public).await.expect("public accepts");
+    let request = format!(
+        "GET /api/v1/endpoints/{endpoint}/stream HTTP/1.1\r\nHost: localhost\r\nAccept: text/event-stream\r\n\r\n"
+    );
+    stream
+        .write_all(request.as_bytes())
+        .await
+        .expect("the request is written");
+    let mut received = Vec::new();
+    let mut chunk = [0_u8; 1024];
+    while !String::from_utf8_lossy(&received).contains("event: ready") {
+        let read = tokio::time::timeout(Duration::from_secs(5), stream.read(&mut chunk))
+            .await
+            .expect("the stream starts")
+            .expect("the socket reads");
+        assert!(read > 0, "the stream closed before ready");
+        received.extend_from_slice(&chunk[..read]);
+    }
+
+    let shutdown_at = std::time::Instant::now();
+    trigger
+        .send(())
+        .expect("server waits for the shutdown future");
+    tokio::time::timeout(Duration::from_secs(10), stream.read_to_end(&mut received))
+        .await
+        .expect("the stream closes")
+        .expect("the socket reads to the end");
+
+    let text = String::from_utf8_lossy(&received);
+    assert!(text.contains("event: bye"), "{text}");
+    assert!(
+        shutdown_at.elapsed() >= Duration::from_millis(900),
+        "bye must follow the drain wait"
+    );
+    tokio::time::timeout(Duration::from_secs(5), server)
+        .await
+        .expect("run returns within the grace period")
+        .expect("server task joins")
+        .expect("serve returns Ok after shutdown");
+}
