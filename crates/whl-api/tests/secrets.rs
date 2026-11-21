@@ -1,7 +1,7 @@
 mod common;
 
 use std::io;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use axum::Router;
 use axum::http::{Method, StatusCode};
@@ -460,17 +460,26 @@ impl Captured {
     }
 }
 
+static CAPTURED: OnceLock<Captured> = OnceLock::new();
+
+fn captured_logs() -> &'static Captured {
+    CAPTURED.get_or_init(|| {
+        let captured = Captured::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::TRACE)
+            .with_ansi(false)
+            .with_writer(captured.clone())
+            .finish();
+        let _ = tracing::subscriber::set_global_default(subscriber);
+        captured
+    })
+}
+
 #[tokio::test]
 async fn neither_tracing_output_nor_error_bodies_contain_the_value() {
     let rig = rig().await;
     let endpoint = endpoint(&rig.app).await;
-    let captured = Captured::default();
-    let subscriber = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::TRACE)
-        .with_ansi(false)
-        .with_writer(captured.clone())
-        .finish();
-    let _guard = tracing::subscriber::set_default(subscriber);
+    let captured = captured_logs();
 
     let stored = put(&rig.app, &endpoint, "API_KEY", VALUE).await;
     let invalid = put(
