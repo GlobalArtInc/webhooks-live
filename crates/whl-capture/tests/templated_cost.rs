@@ -1,15 +1,22 @@
 mod common;
 mod served;
-mod spy;
 
+use std::io;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use common::Harness;
+use common::{Harness, PUBLIC_URL};
 use serde_json::json;
 use served::{Configured, endpoint_configured, make_templated, set_var};
-use spy::Spy;
+use sqlx::postgres::PgPoolOptions;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
+use url::Url;
+use whl_capture::{CaptureSettings, CaptureState};
 use whl_core::endpoint_id::EndpointId;
 use whl_store::Store;
+use whl_testkit::TestDb;
 
 const RETENTION: Duration = Duration::from_secs(7 * 24 * 3600);
 
@@ -26,15 +33,114 @@ async fn templated_with(harness: &Harness, body: &str) -> EndpointId {
     id
 }
 
-async fn statements_for(harness: &Harness, spy: &Spy, id: &EndpointId) -> usize {
-    spy.clear();
+const SSL_REQUEST_CODE: u32 = 80_877_103;
+const BIND: u8 = b'B';
+const SIMPLE_QUERY: u8 = b'Q';
+
+async fn relay(
+    mut client: TcpStream,
+    mut server: TcpStream,
+    statements: Arc<AtomicUsize>,
+) -> io::Result<()> {
+    loop {
+        let mut head = [0_u8; 8];
+        client.read_exact(&mut head).await?;
+        let length = u32::from_be_bytes([head[0], head[1], head[2], head[3]]) as usize;
+        let code = u32::from_be_bytes([head[4], head[5], head[6], head[7]]);
+        if code == SSL_REQUEST_CODE {
+            client.write_all(b"N").await?;
+            continue;
+        }
+        let mut rest = vec![0_u8; length.saturating_sub(head.len())];
+        client.read_exact(&mut rest).await?;
+        server.write_all(&head).await?;
+        server.write_all(&rest).await?;
+        break;
+    }
+    let (mut client_read, mut client_write) = client.into_split();
+    let (mut server_read, mut server_write) = server.into_split();
+    let back = tokio::spawn(async move {
+        let _ = tokio::io::copy(&mut server_read, &mut client_write).await;
+    });
+    let mut pending: Vec<u8> = Vec::new();
+    let mut chunk = [0_u8; 16 * 1024];
+    let outcome = loop {
+        let read = match client_read.read(&mut chunk).await {
+            Ok(0) | Err(_) => break Ok(()),
+            Ok(read) => read,
+        };
+        pending.extend_from_slice(&chunk[..read]);
+        while pending.len() >= 5 {
+            let length =
+                u32::from_be_bytes([pending[1], pending[2], pending[3], pending[4]]) as usize;
+            let total = length + 1;
+            if pending.len() < total {
+                break;
+            }
+            if pending[0] == BIND || pending[0] == SIMPLE_QUERY {
+                statements.fetch_add(1, Ordering::SeqCst);
+            }
+            if let Err(error) = server_write.write_all(&pending[..total]).await {
+                back.abort();
+                return Err(error);
+            }
+            pending.drain(..total);
+        }
+    };
+    back.abort();
+    outcome
+}
+
+async fn counted_harness() -> (Harness, Arc<AtomicUsize>) {
+    let db = TestDb::new().await;
+    let target = Url::parse(db.url()).expect("the database URL parses");
+    let host = target.host_str().expect("a host").to_owned();
+    let port = target.port().expect("a port");
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("binds");
+    let local_port = listener.local_addr().expect("local address").port();
+    let statements = Arc::new(AtomicUsize::new(0));
+    let counted = Arc::clone(&statements);
+    tokio::spawn(async move {
+        while let Ok((client, _)) = listener.accept().await {
+            let Ok(server) = TcpStream::connect((host.as_str(), port)).await else {
+                return;
+            };
+            tokio::spawn(relay(client, server, Arc::clone(&counted)));
+        }
+    });
+    let mut proxied = target;
+    proxied
+        .set_host(Some("127.0.0.1"))
+        .expect("the host is set");
+    proxied.set_port(Some(local_port)).expect("the port is set");
+    let pool = PgPoolOptions::new()
+        .max_connections(4)
+        .connect(proxied.as_str())
+        .await
+        .expect("the proxied pool connects");
+    let state = CaptureState::new(
+        Store::from_pool(pool),
+        CaptureSettings {
+            limits: common::default_limits(),
+            trusted_proxies: Vec::new(),
+            public_url: PUBLIC_URL.to_owned(),
+            max_delayed: 2000,
+        },
+    )
+    .expect("settings are valid");
+    let router = whl_capture::router(state.clone());
+    (Harness { db, state, router }, statements)
+}
+
+async fn statements_for(harness: &Harness, statements: &AtomicUsize, id: &EndpointId) -> usize {
+    let before = statements.load(Ordering::SeqCst);
     harness.get(&format!("/{id}")).await;
-    spy.statement_count()
+    statements.load(Ordering::SeqCst) - before
 }
 
 #[tokio::test]
 async fn templates_that_reference_no_variables_cost_no_extra_queries() {
-    let harness = Harness::new().await;
+    let (harness, statements) = counted_harness().await;
     let plain = endpoint_configured(
         &harness,
         Configured {
@@ -53,12 +159,11 @@ async fn templates_that_reference_no_variables_cost_no_extra_queries() {
     for id in [&plain, &no_refs, &one_counter, &several] {
         harness.get(&format!("/{id}")).await;
     }
-    let (spy, _guard) = Spy::install();
 
-    let baseline = statements_for(&harness, &spy, &plain).await;
-    let templated = statements_for(&harness, &spy, &no_refs).await;
-    let with_counter = statements_for(&harness, &spy, &one_counter).await;
-    let with_everything = statements_for(&harness, &spy, &several).await;
+    let baseline = statements_for(&harness, &statements, &plain).await;
+    let templated = statements_for(&harness, &statements, &no_refs).await;
+    let with_counter = statements_for(&harness, &statements, &one_counter).await;
+    let with_everything = statements_for(&harness, &statements, &several).await;
 
     assert!(baseline > 0);
     assert_eq!(templated, baseline);
