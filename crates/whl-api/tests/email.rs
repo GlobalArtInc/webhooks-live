@@ -304,11 +304,8 @@ async fn an_endpoint_without_an_owner_cannot_have_an_email_channel() {
 
     let reply = channel(&harness, &ann, &ownerless, &own).await;
 
-    assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(
-        common::field_codes(&reply.json()),
-        vec![("kind".to_owned(), "not_allowed".to_owned())]
-    );
+    assert_eq!(reply.status, StatusCode::FORBIDDEN);
+    assert_eq!(common::matrix::error_code(&reply), "tier_not_allowed");
 }
 
 #[tokio::test]

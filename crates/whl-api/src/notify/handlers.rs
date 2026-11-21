@@ -75,15 +75,19 @@ pub(crate) async fn build_channel(
 ) -> Result<NewChannel, ApiError> {
     let keyring = keyring(state)?;
     let mut parsed = parse_channel(body, true, None)?;
+    match parsed.kind {
+        Some(ChannelKind::Push) => ensure_push_ready(state, caller)?,
+        Some(ChannelKind::Email) => {
+            signed_in_user(state, caller)?;
+        }
+        _ => {}
+    }
     if let Some(kind) = parsed.kind
         && !tier.limits().allows_notification_kind(kind.as_str())
     {
         return Err(ApiError::TierNotAllowed {
             name: kind.as_str(),
         });
-    }
-    if parsed.kind == Some(ChannelKind::Push) {
-        ensure_push_ready(state, caller)?;
     }
     let stored = resolve_config(state, keyring, endpoint, id, caller, &mut parsed).await?;
     let (Some(kind), Some(name), Some(change)) = (
