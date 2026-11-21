@@ -1,10 +1,11 @@
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll } from 'vitest';
+import { generalHandlers } from './general';
 import { handlers } from './handlers';
 import { organizeHandlers } from './organize';
 import { resetMockStore } from './store';
 
-export const mockServer = setupServer(...organizeHandlers, ...handlers);
+export const mockServer = setupServer(...organizeHandlers, ...handlers, ...generalHandlers);
 
 export function registerMockServer(): void {
   beforeAll(() => {
