@@ -1,3 +1,4 @@
+mod body;
 mod cursor;
 mod dto;
 mod handlers;
@@ -15,6 +16,10 @@ pub fn routes() -> Router<ApiState> {
             get(handlers::list).delete(handlers::clear),
         )
         .route("/endpoints/{id}/captures/latest", get(handlers::latest))
+        .route(
+            "/endpoints/{id}/captures/{capture_id}/body",
+            get(body::download),
+        )
         .route(
             "/endpoints/{id}/captures/{capture_id}",
             get(handlers::show).delete(handlers::delete),

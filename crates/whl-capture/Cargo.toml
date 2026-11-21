@@ -11,6 +11,7 @@ bytes.workspace = true
 futures-util.workspace = true
 http-body-util.workspace = true
 ipnet.workspace = true
+metrics.workspace = true
 multer.workspace = true
 thiserror.workspace = true
 time.workspace = true
@@ -20,6 +21,7 @@ tracing.workspace = true
 url.workspace = true
 whl-core.workspace = true
 whl-store.workspace = true
+whl-telemetry.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true

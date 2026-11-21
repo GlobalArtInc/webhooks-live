@@ -4,6 +4,7 @@ pub mod content_type;
 pub mod duration;
 pub mod endpoint_id;
 pub mod entropy;
+pub mod filename;
 pub mod header;
 pub mod rate;
 pub mod response;

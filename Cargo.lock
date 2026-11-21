@@ -4335,6 +4335,7 @@ dependencies = [
  "futures-util",
  "http-body-util",
  "ipnet",
+ "metrics",
  "multer",
  "serde_json",
  "sqlx",
@@ -4346,6 +4347,7 @@ dependencies = [
  "url",
  "whl-core",
  "whl-store",
+ "whl-telemetry",
  "whl-testkit",
 ]
 

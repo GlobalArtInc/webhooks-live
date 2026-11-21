@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use axum::body::{Body, HttpBody};
 use axum::extract::{ConnectInfo, Request, State};
@@ -16,7 +17,7 @@ use crate::body::{ReadFailure, read_body};
 use crate::client_ip::{ForwardedRequest, sanitize_host};
 use crate::form::{FormLimits, parse_form, parse_query};
 use crate::refusal::{Failure, Refusal};
-use crate::response::build_response;
+use crate::response::{ReplyRequest, build_response};
 use crate::seams::Admission;
 use crate::state::CaptureState;
 
@@ -112,7 +113,16 @@ async fn run(state: &CaptureState, request: Request) -> Result<Response, Failure
 
     match outcome {
         CaptureOutcome::Stored { endpoint, capture } => {
-            Ok(build_response(&endpoint, &capture, status_override))
+            let reply = ReplyRequest {
+                method: &parts.method,
+                headers: &parts.headers,
+            };
+            let response = build_response(&endpoint, &capture, status_override, &reply);
+            state
+                .delays()
+                .wait(Duration::from_millis(u64::from(endpoint.delay_ms)))
+                .await;
+            Ok(response)
         }
         CaptureOutcome::Gone => Err(late(Refusal::Gone(id))),
         CaptureOutcome::Full => Err(late(Refusal::Full(id))),

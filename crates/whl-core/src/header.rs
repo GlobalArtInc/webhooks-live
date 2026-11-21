@@ -120,6 +120,10 @@ pub struct HeaderInput {
     pub value: String,
 }
 
+pub fn is_token(text: &str) -> bool {
+    !text.is_empty() && text.bytes().all(is_token_byte)
+}
+
 pub(crate) fn is_token_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric()
         || matches!(

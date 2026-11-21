@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod capture_body;
 pub mod capture_queries;
 pub mod captures;
 pub mod endpoints;

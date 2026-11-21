@@ -64,6 +64,7 @@ impl Harness {
                 limits,
                 trusted_proxies,
                 public_url: PUBLIC_URL.to_owned(),
+                max_delayed: 2000,
             },
         )
         .expect("settings are valid");

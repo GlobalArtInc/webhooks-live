@@ -1,5 +1,6 @@
 mod body;
 mod client_ip;
+mod delay;
 mod divert;
 mod form;
 mod handler;
@@ -14,8 +15,9 @@ use axum::routing::any;
 
 pub use body::{BufferedBody, ReadFailure, read_body};
 pub use client_ip::{ForwardedRequest, Scheme, TrustedProxies};
+pub use delay::{DELAY_SKIPPED_TOTAL, DelaySlots};
 pub use form::{FormLimits, parse_form, parse_query};
-pub use response::build_response;
+pub use response::{ReplyRequest, build_response};
 pub use seams::{Admission, StorageFull};
 pub use state::{
     BodyBudget, BudgetExhausted, CaptureLimits, CaptureSettings, CaptureSource, CaptureState,

@@ -12,6 +12,7 @@ use whl_store::Store;
 use whl_store::captures::CapturePolicy;
 
 use crate::client_ip::TrustedProxies;
+use crate::delay::DelaySlots;
 use crate::seams::{Admission, StorageFull, admit_client};
 
 pub const DEFAULT_BODY_READ_TIMEOUT: Duration = Duration::from_secs(30);
@@ -30,6 +31,8 @@ pub enum StateError {
     CaptureLimit(u32),
     #[error("the public URL cannot be used in replies")]
     PublicUrl,
+    #[error("the delayed response cap of {0} is not supported")]
+    MaxDelayed(u32),
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -98,6 +101,7 @@ pub struct CaptureSettings {
     pub limits: CaptureLimits,
     pub trusted_proxies: Vec<IpNet>,
     pub public_url: String,
+    pub max_delayed: usize,
 }
 
 impl CaptureSettings {
@@ -106,6 +110,8 @@ impl CaptureSettings {
             limits: CaptureLimits::from_config(config)?,
             trusted_proxies: config.trusted_proxies.clone(),
             public_url: config.public_url.as_str().trim_end_matches('/').to_owned(),
+            max_delayed: usize::try_from(config.capture.max_delayed)
+                .map_err(|_| StateError::MaxDelayed(config.capture.max_delayed))?,
         })
     }
 }
@@ -163,6 +169,7 @@ struct Inner {
     source: Arc<dyn CaptureSource>,
     storage_full: StorageFull,
     public_url: String,
+    delays: DelaySlots,
 }
 
 impl CaptureState {
@@ -170,6 +177,11 @@ impl CaptureState {
         settings.limits.validate()?;
         if settings.public_url.is_empty() {
             return Err(StateError::PublicUrl);
+        }
+        if settings.max_delayed > Semaphore::MAX_PERMITS {
+            return Err(StateError::MaxDelayed(
+                u32::try_from(settings.max_delayed).unwrap_or(u32::MAX),
+            ));
         }
         Ok(Self {
             inner: Arc::new(Inner {
@@ -180,6 +192,7 @@ impl CaptureState {
                 source: Arc::new(SystemSource),
                 storage_full: StorageFull::default(),
                 public_url: settings.public_url,
+                delays: DelaySlots::new(settings.max_delayed),
             }),
         })
     }
@@ -194,6 +207,7 @@ impl CaptureState {
                 source,
                 storage_full: self.inner.storage_full.clone(),
                 public_url: self.inner.public_url.clone(),
+                delays: self.inner.delays.clone(),
             }),
         }
     }
@@ -204,6 +218,10 @@ impl CaptureState {
 
     pub fn budget(&self) -> &BodyBudget {
         &self.inner.budget
+    }
+
+    pub fn delays(&self) -> &DelaySlots {
+        &self.inner.delays
     }
 
     pub fn limits(&self) -> &CaptureLimits {
