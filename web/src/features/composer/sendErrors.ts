@@ -1,5 +1,5 @@
 import { ApiError } from '../../api/client';
-import type { ErrorLimit, SendResult } from '../../api/types';
+import type { ApiLimit, SendResult } from '../../api/types';
 
 const URL_FIELD = 'url';
 
@@ -12,7 +12,7 @@ export interface UrlIssue {
 
 export type SendFailure =
   | { kind: 'url'; issue: UrlIssue }
-  | { kind: 'quota'; limit: ErrorLimit | null; retryAfter: number | null }
+  | { kind: 'quota'; limit: ApiLimit | null; retryAfter: number | null }
   | { kind: 'rateLimited'; retryAfter: number | null }
   | { kind: 'timeout' }
   | { kind: 'bodyTooLarge' }

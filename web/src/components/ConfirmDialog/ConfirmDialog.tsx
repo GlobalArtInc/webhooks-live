@@ -10,6 +10,7 @@ export interface ConfirmDialogProps {
   busy: boolean;
   onConfirm: () => void;
   onOpenChange: (open: boolean) => void;
+  onCloseAutoFocus?: (event: Event) => void;
 }
 
 export function ConfirmDialog({
@@ -21,12 +22,13 @@ export function ConfirmDialog({
   busy,
   onConfirm,
   onOpenChange,
+  onCloseAutoFocus,
 }: ConfirmDialogProps) {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className={styles.overlay} />
-        <Dialog.Content className={styles.content}>
+        <Dialog.Content className={styles.content} onCloseAutoFocus={onCloseAutoFocus}>
           <Dialog.Title className={styles.title}>{title}</Dialog.Title>
           <Dialog.Description className={styles.body}>{body}</Dialog.Description>
           <div className={styles.actions}>

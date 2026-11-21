@@ -32,13 +32,13 @@ describe('composer send failures', () => {
         status: 429,
         code: 'quota_exceeded',
         retryAfter: 120,
-        limit: { name: 'composer_user_hour', max: 30 },
+        limit: { name: 'composer_user_hour', max: 30, window: null, resets_at: null },
       }),
     );
 
     expect(failure).toEqual({
       kind: 'quota',
-      limit: { name: 'composer_user_hour', max: 30 },
+      limit: { name: 'composer_user_hour', max: 30, window: null, resets_at: null },
       retryAfter: 120,
     });
   });

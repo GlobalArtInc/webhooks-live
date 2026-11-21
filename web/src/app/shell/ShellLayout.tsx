@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { useInstance } from '../../api/queries';
 import { EndpointRail } from '../../features/endpoints';
 import { useShortcutHandlers } from '../../features/shortcuts';
+import { TokensLink } from '../../features/tokens/TokensLink';
 import { StatePage } from '../../components/StatePage/StatePage';
 import { requiresSignIn, signInHref } from '../signIn';
 import { AppShell } from './AppShell';
@@ -21,6 +22,7 @@ export function ShellLayout() {
 
   let content: ReactNode;
   let rail: ReactNode;
+  let header: ReactNode;
   if (instance.isError) {
     content = <StatePage kind="error" onRetry={() => void instance.refetch()} />;
   } else if (instance.data === undefined) {
@@ -34,11 +36,12 @@ export function ShellLayout() {
     );
   } else {
     content = <Outlet />;
+    header = <TokensLink instance={instance.data} />;
     rail = showsEndpointRail(location.pathname) ? <EndpointRail /> : undefined;
   }
 
   return (
-    <AppShell resetKey={location.href} rail={rail} collapseRail={collapsesRail(location.pathname)}>
+    <AppShell resetKey={location.href} header={header} rail={rail} collapseRail={collapsesRail(location.pathname)}>
       {content}
     </AppShell>
   );

@@ -1,4 +1,5 @@
 import type {
+  ApiLimit,
   Capture,
   CaptureBodyOptions,
   CaptureListQuery,
@@ -10,7 +11,6 @@ import type {
   CaptureExportFile,
   CaptureExportInput,
   CaptureExportQuery,
-  ErrorLimit,
   FieldError,
   ForwardJob,
   ForwardRequest,
@@ -31,7 +31,7 @@ import type {
 
 export const API_PREFIX = '/api/v1';
 
-type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 type QueryValue = string | number | boolean | null | undefined;
 type QueryParams = Record<string, QueryValue>;
 type UnknownRecord = Record<string, unknown>;
@@ -49,7 +49,7 @@ interface ApiErrorInit {
   message: string;
   details: FieldError[];
   retryAfter: number | null;
-  limit?: ErrorLimit | null;
+  limit?: ApiLimit | null;
 }
 
 export class ApiError extends Error {
@@ -57,7 +57,7 @@ export class ApiError extends Error {
   readonly code: string | null;
   readonly details: FieldError[];
   readonly retryAfter: number | null;
-  readonly limit: ErrorLimit | null;
+  readonly limit: ApiLimit | null;
 
   constructor(init: ApiErrorInit) {
     super(init.message);
@@ -70,7 +70,7 @@ export class ApiError extends Error {
   }
 }
 
-interface RequestOptions {
+export interface RequestOptions {
   method: HttpMethod;
   query?: QueryParams;
   body?: unknown;
@@ -81,7 +81,7 @@ interface ParsedError {
   code: string | null;
   message: string | null;
   fields: FieldError[];
-  limit: ErrorLimit | null;
+  limit: ApiLimit | null;
 }
 
 let rateLimitObserver: RateLimitObserver | null = null;
@@ -123,11 +123,16 @@ function readFieldErrors(value: unknown): FieldError[] {
   return fields;
 }
 
-function readErrorLimit(value: unknown): ErrorLimit | null {
+function readLimit(value: unknown): ApiLimit | null {
   if (!isRecord(value) || typeof value.name !== 'string' || typeof value.max !== 'number') {
     return null;
   }
-  return { name: value.name, max: value.max };
+  return {
+    name: value.name,
+    max: value.max,
+    window: typeof value.window === 'string' ? value.window : null,
+    resets_at: typeof value.resets_at === 'string' ? value.resets_at : null,
+  };
 }
 
 function parseErrorBody(text: string): ParsedError | null {
@@ -145,7 +150,7 @@ function parseErrorBody(text: string): ParsedError | null {
     code: typeof error.code === 'string' ? error.code : null,
     message: typeof error.message === 'string' ? error.message : null,
     fields: readFieldErrors(error.fields),
-    limit: readErrorLimit(error.limit),
+    limit: readLimit(error.limit),
   };
 }
 

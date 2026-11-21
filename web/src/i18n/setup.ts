@@ -19,6 +19,7 @@ import script from './en/script.json';
 import selection from './en/selection.json';
 import state from './en/state.json';
 import steps from './en/steps.json';
+import tokens from './en/tokens.json';
 import workspace from './en/workspace.json';
 
 export const SOURCE_LANGUAGE = 'en';
@@ -52,6 +53,7 @@ export function createI18nInstance(): I18nInstance {
           ...selection,
           ...state,
           ...steps,
+          ...tokens,
           ...workspace,
         },
       },
