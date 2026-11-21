@@ -1,0 +1,121 @@
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  min-width: var(--space-6);
+  min-height: var(--space-6);
+  padding: 0 var(--space-3);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: var(--text-data);
+  white-space: pre;
+  cursor: pointer;
+}
+
+.trigger:hover {
+  background: var(--color-surface-sunken);
+}
+
+.trigger:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.trigger:disabled {
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+.content {
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  box-sizing: border-box;
+  width: min(28rem, calc(100vw - var(--space-4) * 2));
+  padding: var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  box-shadow: var(--elevation-2);
+}
+
+.filter {
+  min-width: 0;
+  min-height: var(--space-6);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+  font: var(--text-data);
+}
+
+.filter:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.list {
+  max-height: 20rem;
+  overflow-y: auto;
+}
+
+.groupTitle {
+  padding: var(--space-2) var(--space-2) var(--space-0);
+  font: var(--text-meta);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.option {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  font: var(--text-data);
+  cursor: pointer;
+}
+
+.option[aria-selected='true'] {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-text);
+}
+
+.option:hover {
+  background: var(--color-surface-sunken);
+}
+
+.option[aria-selected='true']:hover {
+  background: var(--color-accent-soft);
+}
+
+.name {
+  font-weight: 600;
+}
+
+.description {
+  font: var(--text-meta);
+  color: var(--color-text-muted);
+}
+
+.option[aria-selected='true'] .description {
+  color: var(--color-accent-text);
+}
+
+.status {
+  margin: 0;
+  font: var(--text-meta);
+  color: var(--color-text-muted);
+}
+
+@media (max-width: 480px) {
+  .trigger,
+  .option {
+    min-height: 44px;
+  }
+}
