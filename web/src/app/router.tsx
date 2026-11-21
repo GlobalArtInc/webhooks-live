@@ -204,6 +204,9 @@ const devRoutes = import.meta.env.DEV
         getParentRoute: () => rootRoute,
         path: '/dev/script',
         component: DevScriptScreen,
+      }),
+      createRoute({
+        getParentRoute: () => rootRoute,
         path: '/dev/steps',
         component: DevStepsScreen,
       }),
