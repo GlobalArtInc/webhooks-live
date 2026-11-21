@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::{PgArguments, PgRow};
 use sqlx::query::Query;
 use sqlx::types::Uuid;
-use sqlx::{Postgres, Row};
+use sqlx::{Postgres, Row, Transaction};
 use time::OffsetDateTime;
 use whl_core::creator_net::CreatorNet;
 use whl_core::endpoint_id::EndpointId;
@@ -215,34 +215,9 @@ impl Store {
         new: &NewEndpoint<'_>,
         retention: Duration,
     ) -> Result<EndpointRecord, LifecycleError> {
-        if new.settings.verifier.is_some() {
-            return Err(EndpointError::VerifierSecretUnknown.into());
-        }
         let id = EndpointId::generate().map_err(EndpointError::from)?;
-        let sql = format!(
-            "INSERT INTO endpoints (id, title, response_status, response_content_type, \
-             response_headers, response_body, response_delay_ms, cors, overflow, tags, \
-             response_templated, response_status_template, owner_id, \
-             creator_net, retention_seconds, never_expires, max_captures, capture_ttl_seconds) \
-             VALUES ($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9, $10, $11, $12, $13, \
-             $14::text::cidr, $15, $16, $17, $18) \
-             RETURNING {COLUMNS}"
-        );
         let mut transaction = self.pool().begin().await.map_err(classify)?;
-        if new.lifecycle.never_expires {
-            admit_never_expires(&mut transaction, new.owner, new.limits).await?;
-        }
-        let row = bind_settings(sqlx::query(&sql).bind(id.unpack()), new.settings)?
-            .bind(new.owner)
-            .bind(new.creator_net.map(ToString::to_string))
-            .bind(new.lifecycle.retention_seconds)
-            .bind(new.lifecycle.never_expires)
-            .bind(new.lifecycle.max_captures)
-            .bind(new.lifecycle.capture_ttl_seconds)
-            .fetch_one(&mut *transaction)
-            .await
-            .map_err(classify)?;
-        let record = record_from_row(&row, retention)?;
+        let record = insert_in_transaction(&mut transaction, id, new, retention).await?;
         transaction.commit().await.map_err(classify)?;
         Ok(record)
     }
@@ -367,6 +342,40 @@ impl Store {
             .map_err(classify)?;
         Ok(result.rows_affected() == 1)
     }
+}
+
+pub(crate) async fn insert_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    id: EndpointId,
+    new: &NewEndpoint<'_>,
+    retention: Duration,
+) -> Result<EndpointRecord, LifecycleError> {
+    if new.settings.verifier.is_some() {
+        return Err(EndpointError::VerifierSecretUnknown.into());
+    }
+    let sql = format!(
+        "INSERT INTO endpoints (id, title, response_status, response_content_type, \
+         response_headers, response_body, response_delay_ms, cors, overflow, tags, \
+         response_templated, response_status_template, owner_id, \
+         creator_net, retention_seconds, never_expires, max_captures, capture_ttl_seconds) \
+         VALUES ($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9, $10, $11, $12, $13, \
+         $14::text::cidr, $15, $16, $17, $18) \
+         RETURNING {COLUMNS}"
+    );
+    if new.lifecycle.never_expires {
+        admit_never_expires(transaction, new.owner, new.limits).await?;
+    }
+    let row = bind_settings(sqlx::query(&sql).bind(id.unpack()), new.settings)?
+        .bind(new.owner)
+        .bind(new.creator_net.map(ToString::to_string))
+        .bind(new.lifecycle.retention_seconds)
+        .bind(new.lifecycle.never_expires)
+        .bind(new.lifecycle.max_captures)
+        .bind(new.lifecycle.capture_ttl_seconds)
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(classify)?;
+    Ok(record_from_row(&row, retention)?)
 }
 
 fn encode_verifier(settings: &EndpointSettings) -> Result<Option<String>, EndpointError> {

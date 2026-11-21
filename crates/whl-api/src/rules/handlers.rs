@@ -279,9 +279,17 @@ async fn references(state: &ApiState, endpoint: &EndpointId) -> Result<Reference
         .into_iter()
         .map(|rule| rule.id)
         .collect();
+    let channels = state
+        .store
+        .list_channels(endpoint)
+        .await?
+        .into_iter()
+        .map(|channel| channel.id)
+        .collect();
     Ok(References {
         secrets,
         forward_rules,
+        channels,
     })
 }
 
@@ -293,10 +301,17 @@ async fn vet_candidate(
     let Some(index) = candidate else {
         return Ok(());
     };
-    let prefix = format!("rules.{index}.");
+    vet_prefixed(state, rules, &format!("rules.{index}.")).await
+}
+
+pub(crate) async fn vet_all(state: &ApiState, rules: &[Rule]) -> Result<(), ApiError> {
+    vet_prefixed(state, rules, "").await
+}
+
+async fn vet_prefixed(state: &ApiState, rules: &[Rule], prefix: &str) -> Result<(), ApiError> {
     let mut found = Vec::new();
     for target in outbound_targets(rules) {
-        let Some(field) = target.field.strip_prefix(&prefix) else {
+        let Some(field) = target.field.strip_prefix(prefix) else {
             continue;
         };
         if let Err(error) = vet_target(

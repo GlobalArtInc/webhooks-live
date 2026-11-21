@@ -253,6 +253,34 @@ fn merge(mut rule: ForwardRule, patch: &ForwardRulePatch) -> ForwardRule {
     rule
 }
 
+pub(crate) async fn insert_rule_with_id(
+    tx: &mut Transaction<'_, sqlx::Postgres>,
+    endpoint: &EndpointId,
+    id: Uuid,
+    position: i16,
+    rule: &NewForwardRule,
+) -> Result<(), ForwardStoreError> {
+    sqlx::query(
+        "INSERT INTO forward_rules \
+         (id, endpoint_id, position, enabled, target_url, method, content_type, \
+          header_allowlist, append_path) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+    )
+    .bind(id)
+    .bind(endpoint.unpack())
+    .bind(position)
+    .bind(rule.enabled)
+    .bind(rule.target_url.as_str())
+    .bind(rule.method.as_deref())
+    .bind(rule.content_type.as_deref())
+    .bind(&rule.header_allowlist)
+    .bind(rule.append_path)
+    .execute(&mut **tx)
+    .await
+    .map_err(classify)?;
+    Ok(())
+}
+
 async fn free_position(
     tx: &mut Transaction<'_, sqlx::Postgres>,
     endpoint: &EndpointId,

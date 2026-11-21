@@ -1,11 +1,12 @@
 use std::time::Duration;
 
-use sqlx::Row;
 use sqlx::postgres::PgRow;
+use sqlx::{Postgres, Row, Transaction};
 use uuid::Uuid;
 use whl_core::endpoint_id::EndpointId;
 use whl_secrets::SealedSecret;
 
+use super::deliveries::sealed_from_row;
 use super::model::{Channel, ChannelKind, Trigger, parse_json};
 use super::{NotifyStoreError, classify};
 use crate::Store;
@@ -107,6 +108,26 @@ impl Store {
         row.as_ref().map(channel_from_row).transpose()
     }
 
+    pub async fn get_channel_sealed(
+        &self,
+        endpoint: &EndpointId,
+        channel: Uuid,
+    ) -> Result<Option<SealedSecret>, NotifyStoreError> {
+        let row = sqlx::query(
+            "SELECT secret_key_id, secret_nonce, secret_ciphertext FROM notification_channels \
+             WHERE endpoint_id = $1 AND id = $2",
+        )
+        .bind(endpoint.unpack())
+        .bind(channel)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(classify)?;
+        row.as_ref()
+            .map(sealed_from_row)
+            .transpose()
+            .map(Option::flatten)
+    }
+
     pub async fn create_channel(
         &self,
         endpoint: &EndpointId,
@@ -126,47 +147,7 @@ impl Store {
         if usize::try_from(held).map_or(true, |held| held >= MAX_CHANNELS_PER_ENDPOINT) {
             return Ok(CreateChannelOutcome::LimitReached);
         }
-        let sql = format!(
-            "INSERT INTO notification_channels \
-             (id, endpoint_id, created_by, kind, name, enabled, trigger, config, \
-              secret_key_id, secret_nonce, secret_ciphertext, template, per_hour) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text::jsonb, $9, $10, $11, $12, $13) \
-             RETURNING {}",
-            columns()
-        );
-        let row = sqlx::query(&sql)
-            .bind(channel.id)
-            .bind(endpoint.unpack())
-            .bind(channel.created_by)
-            .bind(channel.kind.as_str())
-            .bind(channel.name.as_str())
-            .bind(channel.enabled)
-            .bind(channel.trigger.as_str())
-            .bind(channel.config.to_string())
-            .bind(
-                channel
-                    .sealed
-                    .as_ref()
-                    .map(|sealed| sealed.key_id().to_column()),
-            )
-            .bind(
-                channel
-                    .sealed
-                    .as_ref()
-                    .map(|sealed| sealed.nonce().to_vec()),
-            )
-            .bind(
-                channel
-                    .sealed
-                    .as_ref()
-                    .map(|sealed| sealed.ciphertext().to_vec()),
-            )
-            .bind(channel.template.as_deref())
-            .bind(channel.per_hour)
-            .fetch_one(&mut *tx)
-            .await
-            .map_err(classify)?;
-        let created = channel_from_row(&row)?;
+        let created = insert_channel(&mut tx, endpoint, channel).await?;
         tx.commit().await.map_err(classify)?;
         Ok(CreateChannelOutcome::Created(created))
     }
@@ -279,6 +260,54 @@ impl Store {
             DeleteChannelOutcome::Deleted
         })
     }
+}
+
+pub(crate) async fn insert_channel(
+    tx: &mut Transaction<'_, Postgres>,
+    endpoint: &EndpointId,
+    channel: &NewChannel,
+) -> Result<Channel, NotifyStoreError> {
+    let sql = format!(
+        "INSERT INTO notification_channels \
+         (id, endpoint_id, created_by, kind, name, enabled, trigger, config, \
+          secret_key_id, secret_nonce, secret_ciphertext, template, per_hour) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text::jsonb, $9, $10, $11, $12, $13) \
+         RETURNING {}",
+        columns()
+    );
+    let row = sqlx::query(&sql)
+        .bind(channel.id)
+        .bind(endpoint.unpack())
+        .bind(channel.created_by)
+        .bind(channel.kind.as_str())
+        .bind(channel.name.as_str())
+        .bind(channel.enabled)
+        .bind(channel.trigger.as_str())
+        .bind(channel.config.to_string())
+        .bind(
+            channel
+                .sealed
+                .as_ref()
+                .map(|sealed| sealed.key_id().to_column()),
+        )
+        .bind(
+            channel
+                .sealed
+                .as_ref()
+                .map(|sealed| sealed.nonce().to_vec()),
+        )
+        .bind(
+            channel
+                .sealed
+                .as_ref()
+                .map(|sealed| sealed.ciphertext().to_vec()),
+        )
+        .bind(channel.template.as_deref())
+        .bind(channel.per_hour)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(classify)?;
+    channel_from_row(&row)
 }
 
 fn channel_from_row(row: &PgRow) -> Result<Channel, NotifyStoreError> {

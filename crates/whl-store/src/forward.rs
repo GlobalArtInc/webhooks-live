@@ -20,6 +20,7 @@ pub use rules::{
 };
 
 pub(crate) use queue::insert_rule_jobs;
+pub(crate) use rules::insert_rule_with_id;
 
 pub(crate) const TIMESTAMP_SQL: &str = "'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'";
 

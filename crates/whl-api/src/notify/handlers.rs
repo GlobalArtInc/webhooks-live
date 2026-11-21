@@ -41,31 +41,11 @@ pub async fn create(
     RawBody(body): RawBody,
 ) -> Result<Response, ApiError> {
     ensure_enabled(&state)?;
-    let keyring = keyring(&state)?;
+    keyring(&state)?;
     let endpoint = endpoint_id(&raw_id)?;
     live_endpoint(&state, &endpoint).await?;
-    let mut parsed = parse_channel(&body, true, None)?;
-    let id = Uuid::now_v7();
-    let stored = resolve_config(&state, keyring, &endpoint, id, &mut parsed).await?;
-    let (Some(kind), Some(name), Some(change)) = (
-        parsed.kind.filter(|_| parsed.violations.is_empty()),
-        parsed.name.take(),
-        stored,
-    ) else {
-        return Err(ApiError::Validation(parsed.violations));
-    };
-    let channel = NewChannel {
-        id,
-        kind,
-        name,
-        enabled: parsed.enabled.unwrap_or(true),
-        trigger: parsed.trigger.unwrap_or(Trigger::Capture),
-        config: change.config,
-        sealed: change.sealed,
-        template: parsed.template.take().flatten(),
-        per_hour: parsed.per_hour.unwrap_or(DEFAULT_PER_HOUR),
-        created_by: None,
-    };
+    let channel = build_channel(&state, &endpoint, Uuid::now_v7(), &body).await?;
+    let kind = channel.kind;
     match state
         .store
         .create_channel(&endpoint, state.settings.retention, &channel)
@@ -78,6 +58,36 @@ pub async fn create(
         CreateChannelOutcome::EndpointGone => Err(ApiError::EndpointGone),
         CreateChannelOutcome::LimitReached => Err(ApiError::ChannelLimit),
     }
+}
+
+pub(crate) async fn build_channel(
+    state: &ApiState,
+    endpoint: &EndpointId,
+    id: Uuid,
+    body: &[u8],
+) -> Result<NewChannel, ApiError> {
+    let keyring = keyring(state)?;
+    let mut parsed = parse_channel(body, true, None)?;
+    let stored = resolve_config(state, keyring, endpoint, id, &mut parsed).await?;
+    let (Some(kind), Some(name), Some(change)) = (
+        parsed.kind.filter(|_| parsed.violations.is_empty()),
+        parsed.name.take(),
+        stored,
+    ) else {
+        return Err(ApiError::Validation(parsed.violations));
+    };
+    Ok(NewChannel {
+        id,
+        kind,
+        name,
+        enabled: parsed.enabled.unwrap_or(true),
+        trigger: parsed.trigger.unwrap_or(Trigger::Capture),
+        config: change.config,
+        sealed: change.sealed,
+        template: parsed.template.take().flatten(),
+        per_hour: parsed.per_hour.unwrap_or(DEFAULT_PER_HOUR),
+        created_by: None,
+    })
 }
 
 pub async fn update(
@@ -165,7 +175,7 @@ pub async fn test(
     }
 }
 
-async fn resolve_config(
+pub(crate) async fn resolve_config(
     state: &ApiState,
     keyring: &Keyring,
     endpoint: &EndpointId,

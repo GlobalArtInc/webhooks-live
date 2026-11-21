@@ -6,11 +6,13 @@ use whl_rules::{References, Rule, RuleDiagnostic, RuleError, RuleErrorCode, vali
 use whl_script::{EngineLimits, ScriptCompiler};
 
 const FORWARD_RULE: &str = "0190c3a2-7d1e-7000-8000-000000000001";
+const CHANNEL: &str = "0190c3a2-7d1e-7000-8000-0000000000c1";
 
 fn references() -> References {
     References {
         secrets: BTreeSet::from(["API_KEY".to_owned()]),
         forward_rules: BTreeSet::from([Uuid::parse_str(FORWARD_RULE).expect("a UUID")]),
+        channels: BTreeSet::from([Uuid::parse_str(CHANNEL).expect("a UUID")]),
     }
 }
 
@@ -320,6 +322,23 @@ fn rejects_a_forward_rule_that_does_not_exist_on_the_endpoint() {
         "rules.0.steps.0.forward_rule_id",
         RuleErrorCode::InvalidFormat,
     );
+}
+
+#[test]
+fn rejects_a_notify_step_whose_channel_is_not_on_the_endpoint() {
+    let rule =
+        one_step(json!({"kind": "notify", "channel_id": "0190c3a2-7d1e-7000-8000-0000000000c2"}));
+    expect_rejected(
+        vec![rule],
+        "rules.0.steps.0.channel_id",
+        RuleErrorCode::InvalidFormat,
+    );
+}
+
+#[test]
+fn accepts_a_notify_step_whose_channel_is_on_the_endpoint() {
+    let rule = one_step(json!({"kind": "notify", "channel_id": CHANNEL}));
+    assert!(check(&[rule]).is_ok());
 }
 
 #[test]

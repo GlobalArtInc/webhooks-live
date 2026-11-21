@@ -210,7 +210,17 @@ fn action(
         StepKind::Http => http(checker, map, path, steps)?,
         StepKind::Forward => forward(checker, map, path)?,
         StepKind::Notify => {
-            let channel_id = checker.uuid(map, path, "channel_id");
+            let channel_id = checker.uuid(map, path, "channel_id").filter(|id| {
+                let known = checker.references.channels.contains(id);
+                if !known {
+                    checker.fail(
+                        join(path, "channel_id"),
+                        RuleErrorCode::InvalidFormat,
+                        "notification channel is not found on this endpoint",
+                    );
+                }
+                known
+            });
             let message = optional_template(
                 checker,
                 map,

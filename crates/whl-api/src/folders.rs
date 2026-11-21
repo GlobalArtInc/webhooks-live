@@ -165,7 +165,7 @@ async fn remove_endpoint(
     }
 }
 
-fn signed_in(state: &ApiState, caller: &Caller) -> Result<Uuid, ApiError> {
+pub(crate) fn signed_in(state: &ApiState, caller: &Caller) -> Result<Uuid, ApiError> {
     if !state.access.has_users() {
         return Err(ApiError::NotAvailableInMode);
     }
@@ -221,7 +221,7 @@ fn parse_update(bytes: &[u8]) -> Result<FolderPatch, ApiError> {
     Ok(FolderPatch { name, position })
 }
 
-fn object_of(bytes: &[u8]) -> Result<Map<String, Value>, ApiError> {
+pub(crate) fn object_of(bytes: &[u8]) -> Result<Map<String, Value>, ApiError> {
     let value: Value = serde_json::from_slice(bytes)
         .map_err(|_| ApiError::InvalidJson("the request body is not valid JSON"))?;
     match value {
@@ -232,7 +232,7 @@ fn object_of(bytes: &[u8]) -> Result<Map<String, Value>, ApiError> {
     }
 }
 
-fn reject_unknown(
+pub(crate) fn reject_unknown(
     object: &Map<String, Value>,
     known: &[&str],
     violations: &mut Vec<FieldViolation>,
@@ -248,7 +248,7 @@ fn reject_unknown(
     }
 }
 
-fn name_of(value: &Value, violations: &mut Vec<FieldViolation>) -> Option<String> {
+pub(crate) fn name_of(value: &Value, violations: &mut Vec<FieldViolation>) -> Option<String> {
     let Some(text) = value.as_str() else {
         violations.push(FieldViolation::new(
             "name",

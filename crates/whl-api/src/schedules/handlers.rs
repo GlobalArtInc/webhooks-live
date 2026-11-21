@@ -321,7 +321,7 @@ fn first_run(schedule: &CronSchedule, now: OffsetDateTime) -> Result<OffsetDateT
         .map_err(|error| ApiError::Validation(vec![cron_violation(&error)]))
 }
 
-fn check_cron(
+pub(crate) fn check_cron(
     min_interval: Duration,
     cron: &str,
     timezone: &str,
@@ -364,29 +364,66 @@ async fn check_request(
     request: &ScheduleRequest,
     violations: &mut Vec<FieldViolation>,
 ) -> Result<(), ApiError> {
+    let known = known_secrets(state, endpoint, request).await?;
+    check_request_with(state, &known, request, violations).await;
+    Ok(())
+}
+
+pub(crate) async fn check_request_with(
+    state: &ApiState,
+    known: &BTreeSet<String>,
+    request: &ScheduleRequest,
+    violations: &mut Vec<FieldViolation>,
+) {
     let compiled = match CompiledRequest::compile(request) {
         Ok(compiled) => compiled,
         Err(found) => {
             violations.extend(found.iter().map(request_violation));
-            return Ok(());
+            return;
         }
     };
-    check_secrets(state, endpoint, &compiled, violations).await?;
+    check_secrets(known, &compiled, violations);
     if let Some(url) = &compiled.static_url {
         let vetted = vet_target(url, &state.forward.guard, state.forward.lookup.as_ref()).await;
         if let Err(error) = vetted {
             violations.push(target_violation(&error));
         }
     }
-    Ok(())
 }
 
-async fn check_secrets(
+async fn known_secrets(
     state: &ApiState,
     endpoint: &EndpointId,
+    request: &ScheduleRequest,
+) -> Result<BTreeSet<String>, ApiError> {
+    let Ok(compiled) = CompiledRequest::compile(request) else {
+        return Ok(BTreeSet::new());
+    };
+    if !compiled_uses_secrets(&compiled) || !state.secrets_enabled() {
+        return Ok(BTreeSet::new());
+    }
+    Ok(state
+        .store
+        .list_secrets(endpoint)
+        .await?
+        .into_iter()
+        .map(|meta| meta.name.unpack().to_owned())
+        .collect())
+}
+
+fn compiled_uses_secrets(compiled: &CompiledRequest) -> bool {
+    !compiled.url.referenced_secrets().is_empty()
+        || compiled
+            .headers
+            .iter()
+            .any(|header| !header.value.referenced_secrets().is_empty())
+}
+
+fn check_secrets(
+    known: &BTreeSet<String>,
     compiled: &CompiledRequest,
     violations: &mut Vec<FieldViolation>,
-) -> Result<(), ApiError> {
+) {
     let mut wanted: Vec<(String, BTreeSet<String>)> =
         vec![("request.url".to_owned(), compiled.url.referenced_secrets())];
     for (index, header) in compiled.headers.iter().enumerate() {
@@ -395,20 +432,6 @@ async fn check_secrets(
             header.value.referenced_secrets(),
         ));
     }
-    if wanted.iter().all(|(_, names)| names.is_empty()) {
-        return Ok(());
-    }
-    let known: BTreeSet<String> = if state.secrets_enabled() {
-        state
-            .store
-            .list_secrets(endpoint)
-            .await?
-            .into_iter()
-            .map(|meta| meta.name.unpack().to_owned())
-            .collect()
-    } else {
-        BTreeSet::new()
-    };
     for (field, names) in wanted {
         for name in names.iter().filter(|name| !known.contains(*name)) {
             violations.push(FieldViolation::new(
@@ -418,7 +441,6 @@ async fn check_secrets(
             ));
         }
     }
-    Ok(())
 }
 
 fn request_violation(violation: &Violation) -> FieldViolation {

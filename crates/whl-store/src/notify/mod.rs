@@ -7,6 +7,7 @@ mod wake;
 use sqlx::{Postgres, Transaction};
 use whl_core::endpoint_id::EndpointId;
 
+pub(crate) use channels::insert_channel;
 pub use channels::{
     ChannelPatch, ConfigChange, CreateChannelOutcome, DeleteChannelOutcome,
     MAX_CHANNELS_PER_ENDPOINT, NewChannel, UpdateChannelOutcome,

@@ -15,8 +15,11 @@ use whl_store::notify::{MAX_CHANNELS_PER_ENDPOINT, NotifyStoreError};
 use whl_store::rules::RuleStoreError;
 use whl_store::schedules::ScheduleStoreError;
 use whl_store::secrets::SecretStoreError;
+use whl_store::templates::{MAX_TEMPLATES_PER_USER, TemplateError};
 use whl_store::vars::{MAX_VARS_PER_ENDPOINT, VarStoreError};
-use whl_store::{ApiTokenStoreError, EndpointError, FolderError, LifecycleError, MembershipError};
+use whl_store::{
+    ApiTokenStoreError, CloneError, EndpointError, FolderError, LifecycleError, MembershipError,
+};
 
 use crate::dto::timestamp;
 use crate::tokens::{MAX_TOKENS_PER_HOUR, MAX_TOKENS_PER_USER};
@@ -63,6 +66,15 @@ impl FieldViolation {
             line: None,
             column: None,
         }
+    }
+
+    pub fn within(mut self, prefix: &str) -> Self {
+        self.field = if self.field.is_empty() {
+            prefix.to_owned()
+        } else {
+            format!("{prefix}.{}", self.field)
+        };
+        self
     }
 
     pub fn at(mut self, line: u32, column: u32) -> Self {
@@ -175,6 +187,14 @@ pub enum ApiError {
     Internal(EndpointError),
     #[error("forward storage failed: {0}")]
     ForwardStorage(ForwardStoreError),
+    #[error("the template is not found")]
+    TemplateNotFound,
+    #[error("a template with that name already exists")]
+    TemplateNameTaken,
+    #[error("the user already has the maximum number of templates")]
+    TemplateLimit,
+    #[error("template storage failed: {0}")]
+    TemplateStorage(TemplateError),
     #[error("the folder is not found")]
     FolderNotFound,
     #[error("a folder with that name already exists")]
@@ -309,6 +329,28 @@ impl From<SecretStoreError> for ApiError {
             Self::StoreUnavailable
         } else {
             Self::SecretStorage(error)
+        }
+    }
+}
+
+impl From<CloneError> for ApiError {
+    fn from(error: CloneError) -> Self {
+        match error {
+            CloneError::Lifecycle(error) => error.into(),
+            CloneError::Forward(error) => error.into(),
+            CloneError::Rule(error) => error.into(),
+            CloneError::Notify(error) => error.into(),
+            CloneError::Schedule(error) => error.into(),
+        }
+    }
+}
+
+impl From<TemplateError> for ApiError {
+    fn from(error: TemplateError) -> Self {
+        if error.is_unavailable() {
+            Self::StoreUnavailable
+        } else {
+            Self::TemplateStorage(error)
         }
     }
 }
@@ -466,6 +508,7 @@ impl IntoResponse for ApiError {
                 resets_at: Some(timestamp(*resets_at)),
             }),
             Self::FolderLimit => Some(LimitDetail::count("folders", MAX_FOLDERS_PER_USER)),
+            Self::TemplateLimit => Some(LimitDetail::count("templates", MAX_TEMPLATES_PER_USER)),
             Self::NeverExpireLimit { max } => Some(LimitDetail::count(
                 "never_expire",
                 usize::try_from(*max).unwrap_or(usize::MAX),
@@ -666,6 +709,28 @@ impl IntoResponse for ApiError {
             }
             Self::Internal(error) => {
                 tracing::error!(%error, "endpoint storage failed");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal_error",
+                    "the request could not be completed".to_owned(),
+                    None,
+                )
+            }
+            Self::TemplateNotFound => (
+                StatusCode::NOT_FOUND,
+                "template_not_found",
+                self.to_string(),
+                None,
+            ),
+            Self::TemplateNameTaken => (StatusCode::CONFLICT, "name_taken", self.to_string(), None),
+            Self::TemplateLimit => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "limit_reached",
+                self.to_string(),
+                None,
+            ),
+            Self::TemplateStorage(error) => {
+                tracing::error!(%error, "template storage failed");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "internal_error",

@@ -7,6 +7,9 @@ use axum::routing::{get, put};
 
 use crate::state::ApiState;
 
+pub(crate) use handlers::vet_all;
+pub(crate) use input::violations as rule_violations;
+
 pub fn routes() -> Router<ApiState> {
     Router::new()
         .route(

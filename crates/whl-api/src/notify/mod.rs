@@ -9,6 +9,7 @@ use axum::routing::{get, patch, post};
 use crate::state::ApiState;
 
 pub(crate) use dto::DeliveryDto;
+pub(crate) use handlers::build_channel;
 pub use settings::NotifyApiSettings;
 
 pub fn routes() -> Router<ApiState> {

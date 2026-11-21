@@ -29,6 +29,7 @@ pub fn requirement(mode: AccessMode, method: &Method, pattern: &str) -> Requirem
         "/endpoints" if mode == AccessMode::Mixed && *method == Method::POST => Requirement::Anyone,
         "/endpoints" => Requirement::SignedIn,
         "/folders" | "/folders/{folder_id}" => Requirement::SignedIn,
+        "/templates" | "/templates/{template_id}" => Requirement::SignedIn,
         "/folders/{folder_id}/endpoints/{id}" if *method == Method::PUT => {
             Requirement::Role(EndpointRole::Viewer)
         }
@@ -121,6 +122,7 @@ fn endpoint_role(method: &Method, tail: &str) -> EndpointRole {
             EndpointRole::Viewer
         }
         "/export" if read || *method == Method::POST => EndpointRole::Viewer,
+        "/clone" if *method == Method::POST => EndpointRole::Viewer,
         "/forward-rules" | "/rules" | "/notifications" if *method == Method::POST => {
             EndpointRole::Editor
         }
@@ -296,6 +298,29 @@ mod tests {
                     *expected,
                     "{mode:?} {method} {tail}"
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn clone_needs_a_viewer_and_template_routes_need_a_signed_in_caller() {
+        for mode in MODES {
+            assert_eq!(
+                requirement(mode, &POST, "/api/v1/endpoints/{id}/clone"),
+                Requirement::Role(EndpointRole::Viewer)
+            );
+            assert_eq!(
+                requirement(mode, &GET, "/api/v1/endpoints/{id}/clone"),
+                Requirement::Role(EndpointRole::Owner)
+            );
+            for pattern in ["/api/v1/templates", "/api/v1/templates/{template_id}"] {
+                for method in [&GET, &POST, &PATCH, &DELETE] {
+                    assert_eq!(
+                        requirement(mode, method, pattern),
+                        Requirement::SignedIn,
+                        "{mode:?} {method} {pattern}"
+                    );
+                }
             }
         }
     }

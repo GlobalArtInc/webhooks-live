@@ -346,26 +346,7 @@ impl Store {
         if usize::try_from(held).map_or(true, |held| held >= max_per_owner) {
             return Ok(CreateScheduleOutcome::LimitReached);
         }
-        let request = encode_request(&schedule.request)?;
-        let sql = format!(
-            "INSERT INTO schedules \
-             (id, endpoint_id, created_by, name, cron, timezone, request, enabled, next_run_at) \
-             VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6::text::jsonb, $7, $8) \
-             RETURNING {COLUMNS}"
-        );
-        let row = sqlx::query(&sql)
-            .bind(endpoint.unpack())
-            .bind(schedule.created_by)
-            .bind(schedule.name.as_str())
-            .bind(schedule.cron.as_str())
-            .bind(schedule.timezone.as_str())
-            .bind(request)
-            .bind(schedule.enabled)
-            .bind(schedule.next_run_at)
-            .fetch_one(&mut *tx)
-            .await
-            .map_err(classify)?;
-        let created = schedule_from_row(&row)?;
+        let created = insert_schedule(&mut tx, endpoint, schedule).await?;
         tx.commit().await.map_err(classify)?;
         Ok(CreateScheduleOutcome::Created(Box::new(created)))
     }
@@ -638,7 +619,34 @@ async fn write_update(
     row.as_ref().map(schedule_from_row).transpose()
 }
 
-async fn count_for_owner(
+pub(crate) async fn insert_schedule(
+    tx: &mut Transaction<'_, sqlx::Postgres>,
+    endpoint: &EndpointId,
+    schedule: &NewSchedule,
+) -> Result<ScheduleRecord, ScheduleStoreError> {
+    let request = encode_request(&schedule.request)?;
+    let sql = format!(
+        "INSERT INTO schedules \
+         (id, endpoint_id, created_by, name, cron, timezone, request, enabled, next_run_at) \
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6::text::jsonb, $7, $8) \
+         RETURNING {COLUMNS}"
+    );
+    let row = sqlx::query(&sql)
+        .bind(endpoint.unpack())
+        .bind(schedule.created_by)
+        .bind(schedule.name.as_str())
+        .bind(schedule.cron.as_str())
+        .bind(schedule.timezone.as_str())
+        .bind(request)
+        .bind(schedule.enabled)
+        .bind(schedule.next_run_at)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(classify)?;
+    schedule_from_row(&row)
+}
+
+pub(crate) async fn count_for_owner(
     tx: &mut Transaction<'_, sqlx::Postgres>,
     owner: Uuid,
 ) -> Result<i64, ScheduleStoreError> {

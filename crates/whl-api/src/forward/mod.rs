@@ -9,6 +9,7 @@ use axum::routing::{get, patch, post};
 use crate::state::ApiState;
 
 pub(crate) use dto::{JobDto, RuleDto};
+pub(crate) use handlers::build_rule;
 pub(crate) use input::target_violation_for;
 pub use settings::ForwardSettings;
 

@@ -4,6 +4,7 @@ pub mod capture_body;
 pub mod capture_queries;
 pub mod captures;
 mod claim;
+mod cloning;
 pub mod composer;
 pub mod dns;
 pub mod endpoints;
@@ -24,6 +25,7 @@ pub mod secrets;
 pub mod stats;
 mod store;
 pub mod stream;
+pub mod templates;
 pub mod vars;
 
 pub use api_tokens::{
@@ -40,6 +42,7 @@ pub use capture_queries::{
     Order, StatusFilter,
 };
 pub use claim::{ClaimOutcome, ClaimRefusal};
+pub use cloning::{CloneError, CloneOutcome, ClonedForwardRule, EndpointParts, NewClonedEndpoint};
 pub use endpoints::{
     EndpointChange, EndpointError, EndpointRecord, EndpointSettings, NewEndpoint, Overflow,
     ResponseTemplating, StoredVerifier,
@@ -58,3 +61,7 @@ pub use members::{
 pub use sqlx::types::Uuid;
 pub use stats::{EndpointStats, StatsBucket, StatsPoint};
 pub use store::{MigrationState, Status, Store};
+pub use templates::{
+    CreateTemplateOutcome, MAX_TEMPLATES_PER_USER, RenameTemplateOutcome, TemplateError,
+    TemplateRecord, TemplateSummary,
+};
