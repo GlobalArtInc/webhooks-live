@@ -1,7 +1,272 @@
+import { Outlet, useNavigate, useParams } from '@tanstack/react-router';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ScreenPlaceholder } from '../../components/ScreenPlaceholder/ScreenPlaceholder';
+import { useClearCaptures, useEndpoint } from '../../api/queries';
+import { CaptureList, type ListNavigation } from '../../components/CaptureList/CaptureList';
+import { ConfirmDialog } from '../../components/ConfirmDialog/ConfirmDialog';
+import { EmptyState } from '../../components/EmptyState/EmptyState';
+import { EndpointHeader } from '../../components/EndpointHeader/EndpointHeader';
+import { ListPager, type ListPagerProps } from '../../components/ListPager/ListPager';
+import { SplitHandle } from '../../components/SplitHandle/SplitHandle';
+import { UndoToast } from '../../components/UndoToast/UndoToast';
+import { useMarkedCapture } from '../../features/diff';
+import { RESIZE_STEP_PX } from '../../features/endpoint/constants';
+import { sampleCurl } from '../../features/endpoint/sampleCurl';
+import { useEndpointSelection } from '../../features/endpoint/useSelection';
+import { useViewportLayout } from '../../features/endpoint/useViewport';
+import { markEndpointOpened } from '../../features/endpoints';
+import {
+  activateCompare,
+  LIST_WIDTH_MAX,
+  LIST_WIDTH_MIN,
+  loadListWidth,
+  neighbourOf,
+  saveListWidth,
+  useCaptureList,
+  useDeleteWithUndo,
+  useVisibleMinuteNow,
+} from '../../features/list';
+import styles from './EndpointScreen.module.css';
+
+const ENDPOINT_ROUTE_ID = '/shell/e/$id';
+
+const CapturePane = lazy(() =>
+  import('../../features/endpoint/CapturePane').then((module) => ({ default: module.CapturePane })),
+);
+
+function PaneLoading() {
+  const { t } = useTranslation();
+  return (
+    <div role="status" className={styles.paneLoading}>
+      {t('wl.detail.state.loading')}
+    </div>
+  );
+}
 
 export function EndpointScreen() {
   const { t } = useTranslation();
-  return <ScreenPlaceholder title={t('wl.screen.endpoint')} />;
+  const navigate = useNavigate();
+  const { id: endpointId } = useParams({ from: ENDPOINT_ROUTE_ID });
+  const endpointQuery = useEndpoint(endpointId);
+  const endpoint = endpointQuery.data;
+  const loaded = endpoint !== undefined;
+  const list = useCaptureList(endpointId);
+  const layout = useViewportLayout();
+  const narrow = layout === 'narrow';
+  const wide = layout === 'wide';
+  const selection = useEndpointSelection(endpointId, list, !narrow);
+  const deletion = useDeleteWithUndo(endpointId);
+  const clear = useClearCaptures(endpointId);
+  const marked = useMarkedCapture(endpointId);
+  const now = useVisibleMinuteNow();
+  const [listWidth, setListWidth] = useState(loadListWidth);
+  const [closedFor, setClosedFor] = useState<string | null>(null);
+  const [clearOpen, setClearOpen] = useState(false);
+  const [clearFailed, setClearFailed] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
+  const backRequested = useRef(false);
+
+  useEffect(() => {
+    if (loaded) {
+      markEndpointOpened(endpointId);
+    }
+  }, [endpointId, loaded]);
+
+  useEffect(() => {
+    if (backRequested.current && selection.captureId === null) {
+      backRequested.current = false;
+      listRef.current?.querySelector<HTMLElement>('[role="listbox"]')?.focus();
+    }
+  }, [selection.captureId]);
+
+  if (endpoint === undefined) {
+    return null;
+  }
+
+  const paneId = selection.paneId;
+  const paneHidden = layout === 'medium' && closedFor !== null && closedFor === paneId;
+  const paneTarget = narrow ? selection.captureId : paneHidden ? null : paneId;
+  const showEmpty = list.hasData && list.total === 0 && list.items.length === 0;
+  const curl = sampleCurl(endpoint.url);
+
+  const pagerProps: ListPagerProps = {
+    position: selection.position,
+    total: list.total,
+    onFirst: selection.first,
+    onPrev: selection.previous,
+    onNext: selection.next,
+    onLast: selection.last,
+  };
+
+  function navigateList(navigation: ListNavigation): void {
+    switch (navigation) {
+      case 'first':
+        selection.first();
+        return;
+      case 'previous':
+        selection.previous();
+        return;
+      case 'next':
+        selection.next();
+        return;
+      case 'last':
+        selection.last();
+    }
+  }
+
+  function requestDelete(captureId: string): void {
+    const capture = list.items.find((item) => item.id === captureId);
+    if (capture === undefined) {
+      return;
+    }
+    const wasSelected = selection.captureId === captureId;
+    const neighbour = neighbourOf(list.items, captureId);
+    deletion.schedule(capture, wasSelected);
+    if (wasSelected) {
+      selection.replace(neighbour);
+    }
+  }
+
+  function undoDelete(): void {
+    const restored = deletion.undo();
+    if (restored !== null && restored.wasSelected) {
+      selection.replace(restored.capture.id);
+    }
+  }
+
+  function compare(captureId: string): void {
+    const route = activateCompare(endpointId, captureId, marked);
+    if (route !== null) {
+      void navigate({ to: '/e/$id/diff/$a/$b', params: route });
+    }
+  }
+
+  function goBack(): void {
+    backRequested.current = true;
+    selection.replace(null);
+  }
+
+  function resizeList(value: number): void {
+    setListWidth(value);
+  }
+
+  function commitListWidth(value: number): void {
+    setListWidth(value);
+    saveListWidth(value);
+  }
+
+  function clearAll(): void {
+    setClearFailed(false);
+    clear.mutate(undefined, {
+      onSuccess: () => {
+        setClearOpen(false);
+      },
+      onError: () => {
+        setClearFailed(true);
+      },
+    });
+  }
+
+  return (
+    <section className={styles.screen}>
+      <h1 className={styles.srOnly}>{t('wl.screen.endpoint')}</h1>
+      <EndpointHeader
+        endpointId={endpointId}
+        captureUrl={endpoint.url}
+        curl={curl}
+        count={endpoint.capture_count}
+        capacity={endpoint.max_captures}
+        expiresAt={endpoint.expires_at}
+        now={now}
+        narrow={narrow}
+        onDeleteAll={() => {
+          setClearOpen(true);
+        }}
+      />
+      {deletion.failed ? (
+        <p role="alert" className={styles.notice}>
+          {t('wl.endpoint.delete.failed')}
+        </p>
+      ) : null}
+      {showEmpty ? (
+        <div className={styles.empty}>
+          <EmptyState captureUrl={endpoint.url} curl={curl} />
+        </div>
+      ) : (
+        <div className={styles.body} data-pane={paneHidden ? 'hidden' : 'shown'}>
+          <div ref={listRef} className={styles.list} style={wide ? { width: listWidth } : undefined}>
+            <CaptureList
+              items={list.items}
+              selectedId={paneId}
+              markedId={marked}
+              variant={narrow ? 'two-line' : 'one-line'}
+              now={now}
+              total={list.total}
+              pending={list.isPending}
+              failed={list.error !== null && !list.hasData}
+              pageFailed={list.error !== null && list.hasData}
+              hasNextPage={list.hasNextPage}
+              isFetchingNextPage={list.isFetchingNextPage}
+              onNavigate={navigateList}
+              onSelect={selection.open}
+              onDelete={requestDelete}
+              onCompare={compare}
+              onLoadMore={list.fetchNextPage}
+              onRetry={list.retry}
+            />
+            {narrow ? null : <ListPager {...pagerProps} />}
+          </div>
+          {wide ? (
+            <SplitHandle
+              value={listWidth}
+              min={LIST_WIDTH_MIN}
+              max={LIST_WIDTH_MAX}
+              step={RESIZE_STEP_PX}
+              onChange={resizeList}
+              onCommit={commitListWidth}
+            />
+          ) : null}
+          {paneTarget === null ? null : (
+            <div className={narrow ? styles.detailNarrow : styles.detail}>
+              <Suspense fallback={<PaneLoading />}>
+                <CapturePane
+                  endpointId={endpointId}
+                  captureId={paneTarget}
+                  markedId={marked}
+                  narrow={narrow}
+                  pager={narrow ? pagerProps : null}
+                  onBack={narrow ? goBack : undefined}
+                  onClose={layout === 'medium' ? () => setClosedFor(paneId) : undefined}
+                  onCompare={() => {
+                    if (paneTarget !== null) {
+                      compare(paneTarget);
+                    }
+                  }}
+                />
+              </Suspense>
+            </div>
+          )}
+        </div>
+      )}
+      {deletion.pending === null ? null : (
+        <UndoToast message={t('wl.endpoint.undo.message')} onUndo={undoDelete} onDismiss={deletion.commit} />
+      )}
+      <ConfirmDialog
+        open={clearOpen}
+        title={t('wl.endpoint.clear.title')}
+        body={t('wl.endpoint.clear.body', { count: endpoint.capture_count })}
+        confirmLabel={t('wl.endpoint.clear.confirm')}
+        cancelLabel={t('wl.endpoint.clear.cancel')}
+        busy={clear.isPending}
+        onConfirm={clearAll}
+        onOpenChange={setClearOpen}
+      />
+      {clearFailed ? (
+        <p role="alert" className={styles.notice}>
+          {t('wl.endpoint.clear.failed')}
+        </p>
+      ) : null}
+      <Outlet />
+    </section>
+  );
 }

@@ -1,0 +1,104 @@
+.screen {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 100%;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.body {
+  display: flex;
+  height: calc(100dvh - 12rem);
+  min-height: 320px;
+  min-width: 0;
+  background: var(--color-surface);
+}
+
+.list {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: 380px;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--color-border);
+}
+
+.detail {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.paneLoading {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  font: var(--text-data);
+  color: var(--color-text-muted);
+}
+
+.detailNarrow {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface);
+}
+
+.empty {
+  flex: 1;
+  overflow-y: auto;
+  background: var(--color-bg);
+}
+
+.notice {
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  font: var(--text-meta);
+  color: var(--color-danger);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+@media (min-width: 768px) and (max-width: 1199px) {
+  .list {
+    width: 320px;
+  }
+}
+
+@media (min-width: 1200px) {
+  .list {
+    width: 380px;
+  }
+}
+
+.body[data-pane='hidden'] .list {
+  width: 100%;
+  border-right: none;
+}
+
+@media (max-width: 767px) {
+  .body {
+    flex-direction: column;
+    height: calc(100dvh - 14rem);
+  }
+
+  .list {
+    flex: 1;
+    width: 100%;
+    border-right: none;
+  }
+}

@@ -1,0 +1,109 @@
+.root {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.scroller {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--color-surface);
+}
+
+.listbox {
+  position: relative;
+  width: 100%;
+}
+
+.listbox:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+
+.actionLayer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.skeleton {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--color-surface);
+}
+
+.skeletonRow {
+  display: block;
+  height: 20px;
+  background: var(--color-surface-sunken);
+  border-radius: var(--radius-sm);
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.error,
+.more {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  font: var(--text-meta);
+  color: var(--color-text);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.error {
+  color: var(--color-danger);
+}
+
+.more {
+  justify-content: center;
+}
+
+.button {
+  min-height: 24px;
+  padding: 0 var(--space-3);
+  font: var(--text-data);
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.button:hover:not(:disabled) {
+  background: var(--color-surface-sunken);
+}
+
+.button:disabled {
+  color: var(--color-text-muted);
+  cursor: default;
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+@media (max-width: 767px) {
+  .button {
+    min-height: 44px;
+  }
+}

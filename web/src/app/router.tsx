@@ -104,38 +104,20 @@ const endpointRoute = createRoute({
 });
 
 const captureRoute = createRoute({
-  getParentRoute: () => shellRoute,
-  path: '/e/$id/c/$captureId',
-  validateSearch: validateEndpointSearch,
-  beforeLoad: ({ params }) => {
-    assertEndpointId(params.id);
-    assertCaptureId(params.captureId);
-  },
-  loader: ({ context, params }) => ensureEndpoint(context.queryClient, params.id),
-  errorComponent: RouteError,
-  notFoundComponent: NotFoundScreen,
+  getParentRoute: () => endpointRoute,
+  path: 'c/$captureId',
   component: CaptureScreen,
 });
 
 const endpointSettingsRoute = createRoute({
-  getParentRoute: () => shellRoute,
-  path: '/e/$id/settings',
-  validateSearch: validateEndpointSearch,
-  beforeLoad: ({ params }) => assertEndpointId(params.id),
-  loader: ({ context, params }) => ensureEndpoint(context.queryClient, params.id),
-  errorComponent: RouteError,
-  notFoundComponent: NotFoundScreen,
+  getParentRoute: () => endpointRoute,
+  path: 'settings',
   component: EndpointSettingsScreen,
 });
 
 const forwardingRoute = createRoute({
-  getParentRoute: () => shellRoute,
-  path: '/e/$id/forwarding',
-  validateSearch: validateEndpointSearch,
-  beforeLoad: ({ params }) => assertEndpointId(params.id),
-  loader: ({ context, params }) => ensureEndpoint(context.queryClient, params.id),
-  errorComponent: RouteError,
-  notFoundComponent: NotFoundScreen,
+  getParentRoute: () => endpointRoute,
+  path: 'forwarding',
   component: ForwardingScreen,
 });
 
@@ -176,10 +158,7 @@ const routeTree = rootRoute.addChildren([
     endpointsRoute,
     signInRoute,
     settingsRoute,
-    endpointRoute,
-    captureRoute,
-    endpointSettingsRoute,
-    forwardingRoute,
+    endpointRoute.addChildren([captureRoute, endpointSettingsRoute, forwardingRoute]),
     diffRoute,
     notFoundRoute,
   ]),

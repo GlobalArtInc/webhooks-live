@@ -47,7 +47,11 @@ export function KeyValueTable({ label, rows, rawRows, collapseAfter, copyable = 
               <tr>
                 <th scope="col">{t('wl.detail.keyValue.name')}</th>
                 <th scope="col">{t('wl.detail.keyValue.value')}</th>
-                {copyable ? <th scope="col" className={styles.copyColumn} /> : null}
+                {copyable ? (
+                  <th scope="col" className={styles.copyColumn}>
+                    <span className={styles.visuallyHidden}>{t('wl.detail.table.copyColumn')}</span>
+                  </th>
+                ) : null}
               </tr>
             </thead>
             <tbody>

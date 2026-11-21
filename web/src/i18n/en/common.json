@@ -10,8 +10,5 @@
   "wl.screen.endpoints": "My endpoints",
   "wl.screen.settings": "Settings",
   "wl.screen.endpoint": "Endpoint",
-  "wl.screen.capture": "Capture",
-  "wl.screen.endpointSettings": "Endpoint settings",
-  "wl.screen.forwarding": "Forwarding",
   "wl.screen.diff": "Diff"
 }

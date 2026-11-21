@@ -39,6 +39,7 @@
   "wl.detail.keyValue.showAll": "Show all {{count}}",
   "wl.detail.keyValue.showFewer": "Show fewer",
   "wl.detail.keyValue.copyRow": "Copy {{name}}",
+  "wl.detail.table.copyColumn": "Copy",
   "wl.detail.copy.idle": "Copy",
   "wl.detail.copy.copied": "Copied",
   "wl.detail.copy.failed": "Copy failed",

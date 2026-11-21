@@ -1,7 +1,5 @@
-import { useTranslation } from 'react-i18next';
-import { ScreenPlaceholder } from '../../components/ScreenPlaceholder/ScreenPlaceholder';
+import { ForwardingSheetPlaceholder } from './ForwardingSheetPlaceholder';
 
 export function ForwardingScreen() {
-  const { t } = useTranslation();
-  return <ScreenPlaceholder title={t('wl.screen.forwarding')} />;
+  return <ForwardingSheetPlaceholder />;
 }

@@ -3,6 +3,7 @@ import type { BundleLoader, BundleLoaders, Dictionary } from './bundles';
 import common from './en/common.json';
 import detail from './en/detail.json';
 import diff from './en/diff.json';
+import endpoint from './en/endpoint.json';
 import exportMessages from './en/export.json';
 import home from './en/home.json';
 import sample from './en/sample.json';
@@ -19,7 +20,7 @@ export function createI18nInstance(): I18nInstance {
     keySeparator: false,
     resources: {
       [SOURCE_LANGUAGE]: {
-        translation: { ...common, ...detail, ...diff, ...exportMessages, ...home, ...sample, ...state },
+        translation: { ...common, ...detail, ...diff, ...endpoint, ...exportMessages, ...home, ...sample, ...state },
       },
     },
     interpolation: { escapeValue: false },

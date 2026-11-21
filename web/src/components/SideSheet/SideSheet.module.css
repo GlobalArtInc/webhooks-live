@@ -1,0 +1,62 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: rgb(0 0 0 / 0.4);
+}
+
+.sheet {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 31;
+  display: flex;
+  flex-direction: column;
+  width: min(440px, 100vw);
+  background: var(--color-surface-raised);
+  border-left: 1px solid var(--color-border);
+  box-shadow: var(--elevation-2);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.title {
+  font: var(--text-section);
+  color: var(--color-text);
+}
+
+.close {
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  font: var(--text-data);
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.close:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.body {
+  flex: 1;
+  padding: var(--space-4);
+  overflow-y: auto;
+}
+
+@media (max-width: 767px) {
+  .sheet {
+    width: 100vw;
+  }
+}

@@ -1,0 +1,132 @@
+.option {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: 0 calc(var(--space-6) * 2 + var(--space-2)) 0 var(--space-3);
+  border-left: 3px solid transparent;
+  border-bottom: 1px solid var(--color-border);
+  cursor: pointer;
+}
+
+.option:hover {
+  background: var(--color-surface-sunken);
+}
+
+.option[data-selected='true'] {
+  background: var(--color-accent-soft);
+  border-left-color: var(--color-accent);
+}
+
+.line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font: var(--mono-data);
+  color: var(--color-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.size,
+.time,
+.forward {
+  flex: none;
+  font: var(--text-meta);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.forward[data-state='failed'] {
+  color: var(--color-danger);
+}
+
+.forward[data-state='succeeded'] {
+  color: var(--color-success);
+}
+
+.meta {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.option[data-variant='two-line'] .meta {
+  position: static;
+  display: flex;
+  gap: var(--space-3);
+  min-width: 0;
+  width: auto;
+  height: auto;
+  clip: auto;
+  font: var(--text-meta);
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.actions {
+  position: absolute;
+  top: 0;
+  right: var(--space-2);
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  pointer-events: auto;
+}
+
+.action {
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0 var(--space-1);
+  font: var(--text-meta);
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.action:hover {
+  background: var(--color-surface-sunken);
+}
+
+.action:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (max-width: 767px) {
+  .option {
+    padding-right: calc(var(--space-7) * 2 + var(--space-4));
+  }
+
+  .action {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
