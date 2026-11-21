@@ -3,7 +3,7 @@ use std::time::Duration;
 use whl_auth::{AccessControl, AccessMode, AuthRejection, Caller, Decision, EndpointRole};
 use whl_core::endpoint_id::EndpointId;
 use whl_live::{INBOX_MAX_ANONYMOUS_ENDPOINTS, INBOX_MAX_ENDPOINTS};
-use whl_store::{RoleFilter, Store, UserRecord};
+use whl_store::{EndpointFilter, RoleFilter, Store, UserRecord};
 
 use crate::error::{ApiError, FieldCode, FieldViolation};
 
@@ -77,9 +77,14 @@ async fn own_and_shared(
         .list_user_endpoints(
             user.id,
             retention,
-            RoleFilter::Any,
+            &EndpointFilter {
+                role: RoleFilter::Any,
+                tag: None,
+                folder: None,
+            },
             None,
             u32::try_from(limit).unwrap_or(u32::MAX),
+            None,
         )
         .await?;
     Ok(page.items.into_iter().map(|item| item.record.id).collect())
