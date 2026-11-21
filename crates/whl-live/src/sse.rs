@@ -11,13 +11,18 @@ pub fn ping_frame() -> Bytes {
 }
 
 pub fn event_frame(name: &str, id: Option<i64>, data: &str) -> Bytes {
+    let id = id.map(|id| id.to_string());
+    event_frame_with_text_id(name, id.as_deref(), data)
+}
+
+pub fn event_frame_with_text_id(name: &str, id: Option<&str>, data: &str) -> Bytes {
     let mut frame = String::with_capacity(name.len() + data.len() + 48);
     frame.push_str("event: ");
     frame.push_str(name);
     frame.push('\n');
     if let Some(id) = id {
         frame.push_str("id: ");
-        frame.push_str(&id.to_string());
+        frame.push_str(id);
         frame.push('\n');
     }
     for line in data.split(['\n', '\r']) {
@@ -37,6 +42,12 @@ mod tests {
     fn frames_a_capture_with_its_id() {
         let frame = event_frame("capture", Some(7), r#"{"seq":7}"#);
         assert_eq!(&frame[..], b"event: capture\nid: 7\ndata: {\"seq\":7}\n\n");
+    }
+
+    #[test]
+    fn frames_an_event_with_a_text_id() {
+        let frame = event_frame_with_text_id("capture", Some("abc_-9"), "{}");
+        assert_eq!(&frame[..], b"event: capture\nid: abc_-9\ndata: {}\n\n");
     }
 
     #[test]
