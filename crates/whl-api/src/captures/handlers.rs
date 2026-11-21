@@ -3,7 +3,8 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use whl_core::capture_id::CaptureId;
 use whl_core::endpoint_id::EndpointId;
-use whl_store::{CaptureError, DeleteOutcome};
+use whl_store::Uuid;
+use whl_store::{CaptureDetail, CaptureError, DeleteOutcome};
 
 use super::cursor::Cursor;
 use super::dto::{CaptureDto, ListDto, SummaryDto};
@@ -59,7 +60,7 @@ pub async fn latest(
         .latest_capture(&endpoint)
         .await?
         .ok_or(ApiError::CaptureNotFound)?;
-    Ok(Json(CaptureDto::from(detail)))
+    with_forwards(&state, detail).await.map(Json)
 }
 
 pub async fn show(
@@ -74,7 +75,7 @@ pub async fn show(
         .get_capture(&endpoint, &capture)
         .await?
         .ok_or(ApiError::CaptureNotFound)?;
-    Ok(Json(CaptureDto::from(detail)))
+    with_forwards(&state, detail).await.map(Json)
 }
 
 pub async fn delete(
@@ -108,6 +109,17 @@ pub async fn clear(
     } else {
         Err(ApiError::EndpointGone)
     }
+}
+
+async fn with_forwards(state: &ApiState, detail: CaptureDetail) -> Result<CaptureDto, ApiError> {
+    let capture = Uuid::try_parse(&detail.summary.id).map_err(|_| {
+        ApiError::Internal(whl_store::EndpointError::Invalid {
+            id: detail.summary.id.clone(),
+            reason: "the capture id is not a UUID".to_owned(),
+        })
+    })?;
+    let forwards = state.store.forward_jobs_for_capture(capture).await?;
+    Ok(CaptureDto::new(detail, &forwards))
 }
 
 async fn live_endpoint(state: &ApiState, endpoint: &EndpointId) -> Result<(), ApiError> {

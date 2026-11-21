@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+pub mod queue;
+
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};

@@ -5,6 +5,7 @@ use tokio::task::JoinError;
 use whl_auth::AuthError;
 use whl_capture::StateError;
 use whl_core::limiter::LimiterError;
+use whl_forward::{ForwardError, WorkerError};
 use whl_store::StoreError;
 
 #[derive(Debug, thiserror::Error)]
@@ -17,6 +18,10 @@ pub enum ServerError {
     Auth(#[from] AuthError),
     #[error("cannot set up the rate limiters: {0}")]
     Limiter(#[from] LimiterError),
+    #[error("cannot set up forwarding: {0}")]
+    Forward(#[from] ForwardError),
+    #[error("the forward worker settings are invalid: {0}")]
+    Worker(#[from] WorkerError),
     #[error("cannot bind the {listener} listener on {addr}: {source}")]
     Bind {
         listener: &'static str,

@@ -1,8 +1,10 @@
 use serde::Serialize;
+use whl_store::forward::ForwardJob;
 use whl_store::stream::CaptureSummary;
 use whl_store::{CaptureDetail, CaptureForm, NameValue};
 
 use crate::dto::BodyDto;
+use crate::forward::JobDto;
 
 #[derive(Serialize)]
 pub struct SummaryDto {
@@ -58,11 +60,11 @@ pub struct CaptureDto {
     query: Vec<NameValue>,
     form: Option<CaptureForm>,
     body: BodyDto,
-    forwards: Vec<serde_json::Value>,
+    forwards: Vec<JobDto>,
 }
 
-impl From<CaptureDetail> for CaptureDto {
-    fn from(detail: CaptureDetail) -> Self {
+impl CaptureDto {
+    pub fn new(detail: CaptureDetail, forwards: &[ForwardJob]) -> Self {
         Self {
             summary: SummaryDto::from(&detail.summary),
             url: detail.url,
@@ -71,7 +73,7 @@ impl From<CaptureDetail> for CaptureDto {
             query: detail.query,
             form: detail.form,
             body: BodyDto::from_prefix(&detail.body.prefix, detail.body.truncated),
-            forwards: Vec::new(),
+            forwards: forwards.iter().map(JobDto::from).collect(),
         }
     }
 }

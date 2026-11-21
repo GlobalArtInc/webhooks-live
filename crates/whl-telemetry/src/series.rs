@@ -13,6 +13,7 @@ pub const LISTENER_RECONNECTS_TOTAL: &str = "webhooks_live_listener_reconnects_t
 pub const FORWARD_ATTEMPTS_TOTAL: &str = "webhooks_live_forward_attempts_total";
 pub const FORWARD_DURATION_SECONDS: &str = "webhooks_live_forward_duration_seconds";
 pub const FORWARD_QUEUE_DEPTH: &str = "webhooks_live_forward_queue_depth";
+pub const FORWARD_IN_FLIGHT: &str = "webhooks_live_forward_in_flight";
 pub const STORE_BYTES: &str = "webhooks_live_store_bytes";
 pub const ENDPOINTS: &str = "webhooks_live_endpoints";
 pub const EVICTIONS_TOTAL: &str = "webhooks_live_evictions_total";

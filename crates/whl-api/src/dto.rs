@@ -6,7 +6,9 @@ use time::{OffsetDateTime, UtcOffset};
 use whl_core::header::MAX_HEADERS;
 use whl_core::response::{MAX_BODY_BYTES as RESPONSE_BODY_BYTES, MAX_DELAY_MS};
 use whl_store::EndpointRecord;
+use whl_store::forward::ForwardRule;
 
+use crate::forward::RuleDto;
 use crate::settings::ApiSettings;
 
 const MAX_FORWARD_RULES: u32 = 5;
@@ -81,7 +83,7 @@ pub struct EndpointDto {
     response: ResponseDto,
     cors: bool,
     overflow: &'static str,
-    forward_rules: Vec<serde_json::Value>,
+    forward_rules: Vec<RuleDto>,
     max_captures: u32,
     capture_count: i32,
     bytes_used: i64,
@@ -137,7 +139,11 @@ impl BodyDto {
 }
 
 impl EndpointDto {
-    pub fn from_record(record: &EndpointRecord, settings: &ApiSettings) -> Self {
+    pub fn from_record(
+        record: &EndpointRecord,
+        settings: &ApiSettings,
+        rules: &[ForwardRule],
+    ) -> Self {
         let stored = &record.settings;
         Self {
             id: record.id.unpack().to_owned(),
@@ -160,7 +166,7 @@ impl EndpointDto {
             },
             cors: stored.cors,
             overflow: stored.overflow.as_str(),
-            forward_rules: Vec::new(),
+            forward_rules: rules.iter().map(RuleDto::from).collect(),
             max_captures: settings.max_captures,
             capture_count: record.capture_count,
             bytes_used: record.bytes_used,

@@ -615,6 +615,13 @@ async fn execute_capture(
             .map_err(CaptureStoreError::classify)
     );
 
+    attempt!(
+        tx,
+        crate::forward::insert_rule_jobs(&mut tx, &capture.endpoint_id, id, &capture.method)
+            .await
+            .map_err(CaptureStoreError::classify)
+    );
+
     let payload = attempt!(tx, capture_event_payload(&capture, seq, response_status));
     attempt!(
         tx,

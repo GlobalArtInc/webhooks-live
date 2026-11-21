@@ -2,6 +2,7 @@ mod body;
 mod captures;
 mod dto;
 mod error;
+mod forward;
 mod handlers;
 mod input;
 mod limit;
@@ -16,6 +17,7 @@ use axum::middleware::{from_fn_with_state, map_response};
 use axum::response::Response;
 use axum::routing::{get, post};
 
+pub use forward::ForwardSettings;
 pub use limit::{ApiLimits, enforce_rate_limit};
 pub use settings::ApiSettings;
 pub use state::ApiState;
@@ -34,6 +36,7 @@ pub fn router(state: ApiState) -> Router {
                 .delete(handlers::delete),
         )
         .merge(captures::routes())
+        .merge(forward::routes())
         .fallback(not_found)
         .method_not_allowed_fallback(method_not_allowed)
         .with_state(state);

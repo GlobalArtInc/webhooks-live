@@ -9,13 +9,23 @@ publish.workspace = true
 bytes.workspace = true
 http.workspace = true
 ipnet.workspace = true
+metrics.workspace = true
+rand.workspace = true
 reqwest.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+tracing.workspace = true
 url.workspace = true
+whl-store.workspace = true
+whl-telemetry.workspace = true
 
 [features]
 test-support = []
 
 [dev-dependencies]
+serde_json.workspace = true
+sqlx.workspace = true
+time.workspace = true
+whl-core.workspace = true
 whl-forward = { workspace = true, features = ["test-support"] }
+whl-testkit.workspace = true

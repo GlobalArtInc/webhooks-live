@@ -35,7 +35,7 @@ pub async fn create(
     Ok((
         StatusCode::CREATED,
         [(header::LOCATION, location)],
-        Json(EndpointDto::from_record(&record, &state.settings)),
+        Json(EndpointDto::from_record(&record, &state.settings, &[])),
     )
         .into_response())
 }
@@ -50,7 +50,12 @@ pub async fn show(
         .get_endpoint(&id, state.settings.retention)
         .await?
         .ok_or(ApiError::EndpointGone)?;
-    Ok(Json(EndpointDto::from_record(&record, &state.settings)))
+    let rules = state.store.list_forward_rules(&id).await?;
+    Ok(Json(EndpointDto::from_record(
+        &record,
+        &state.settings,
+        &rules,
+    )))
 }
 
 pub async fn update(
@@ -73,7 +78,12 @@ pub async fn update(
         })
         .await?
         .ok_or(ApiError::EndpointGone)?;
-    Ok(Json(EndpointDto::from_record(&record, &state.settings)))
+    let rules = state.store.list_forward_rules(&id).await?;
+    Ok(Json(EndpointDto::from_record(
+        &record,
+        &state.settings,
+        &rules,
+    )))
 }
 
 pub async fn delete(

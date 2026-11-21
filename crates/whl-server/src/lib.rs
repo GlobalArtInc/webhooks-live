@@ -1,5 +1,6 @@
 mod background;
 mod error;
+mod forward;
 mod public;
 mod readiness;
 mod router;
@@ -13,7 +14,7 @@ use std::time::Duration;
 
 use tokio::net::TcpListener;
 use tokio::sync::{oneshot, watch};
-use whl_api::{ApiLimits, ApiSettings, ApiState};
+use whl_api::{ApiLimits, ApiSettings, ApiState, ForwardSettings};
 use whl_auth::{AuthSettings, AuthState};
 use whl_capture::{CaptureSettings, CaptureState};
 use whl_core::client_ip::TrustedProxies;
@@ -28,6 +29,7 @@ pub use public::{HEADER_READ_TIMEOUT, HttpLimits, MAX_HEADER_COUNT, MAX_HEADER_L
 pub use signal::shutdown_signal;
 
 use background::Background;
+use forward::ForwardRuntime;
 use readiness::Readiness;
 
 pub struct Bound {
@@ -40,6 +42,7 @@ pub struct Bound {
     retention: Duration,
     api: ApiSettings,
     capture: CaptureSettings,
+    forward: ForwardRuntime,
     http: HttpLimits,
     auth: Option<AuthSettings>,
     limiters: Limiters,
@@ -72,8 +75,10 @@ impl Bound {
         shutdown: impl Future<Output = ()> + Send + 'static,
     ) -> Result<(), ServerError> {
         let readiness = Arc::new(Readiness::default());
-        let state =
-            ApiState::new(store.clone(), self.api.clone()).with_limits(self.api_limits.clone());
+        let worker = self.forward.worker(&store)?;
+        let state = ApiState::new(store.clone(), self.api.clone())
+            .with_limits(self.api_limits.clone())
+            .with_forward(ForwardSettings::with_system_lookup(self.forward.guard()));
         tracing::info!(public = %self.public_addr, admin = %self.admin_addr, "listening");
 
         let capture =
@@ -105,6 +110,7 @@ impl Bound {
             stop: stop_rx.clone(),
             ready: public_ready,
         });
+        let worker_stop = stop_rx.clone();
         let admin = axum::serve(self.admin, router::admin(Arc::clone(&readiness)))
             .with_graceful_shutdown(until_stopped(stop_rx));
 
@@ -146,11 +152,16 @@ impl Bound {
             self.limiters,
             &background_stop,
         );
+        let mut forward = worker.map(|worker| worker.spawn(until_stopped(worker_stop)));
 
         tokio::select! {
             () = &mut shutdown => {}
             outcome = &mut serving => {
                 let _ = stop_tx.send(true);
+                live.close_streams();
+                if let Some(forward) = forward.as_mut() {
+                    forward.join().await;
+                }
                 background.join().await;
                 listener.join().await;
                 return joined(outcome);
@@ -163,11 +174,21 @@ impl Bound {
 
         let _ = stop_tx.send(true);
         live.close_streams();
-        let outcome = match tokio::time::timeout(self.grace, &mut serving).await {
+        let stopping = async {
+            let served = (&mut serving).await;
+            if let Some(forward) = forward.as_mut() {
+                forward.join().await;
+            }
+            served
+        };
+        let outcome = match tokio::time::timeout(self.grace, stopping).await {
             Ok(outcome) => joined(outcome),
             Err(_) => {
-                tracing::warn!(grace = ?self.grace, "grace period elapsed, stopping with requests in flight");
+                tracing::warn!(grace = ?self.grace, "grace period elapsed, stopping with requests and forward attempts in flight");
                 serving.abort();
+                if let Some(forward) = &forward {
+                    forward.abort();
+                }
                 Ok(())
             }
         };
@@ -196,6 +217,7 @@ pub async fn bind(config: &Config) -> Result<Bound, ServerError> {
         retention: config.capture.retention,
         api: ApiSettings::from_config(config),
         capture: CaptureSettings::from_config(config)?,
+        forward: ForwardRuntime::from_config(config)?,
         http: HttpLimits::default(),
         auth: AuthSettings::from_config(config)?,
         limiters,

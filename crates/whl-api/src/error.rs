@@ -4,6 +4,7 @@ use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 use whl_core::validation::{FieldPath, Violation, ViolationCode};
 use whl_store::EndpointError;
+use whl_store::forward::ForwardStoreError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -14,6 +15,8 @@ pub enum FieldCode {
     OutOfRange,
     TooMany,
     NotAllowed,
+    TargetRefused,
+    TargetUnresolvable,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -53,7 +56,7 @@ fn core_field(field: FieldPath) -> String {
     }
 }
 
-fn core_code(code: ViolationCode) -> FieldCode {
+pub(crate) fn core_code(code: ViolationCode) -> FieldCode {
     match code {
         ViolationCode::OutOfRange { .. } => FieldCode::OutOfRange,
         ViolationCode::Empty => FieldCode::Required,
@@ -86,6 +89,12 @@ pub enum ApiError {
     MethodNotAllowed,
     #[error("the capture is not found in this endpoint")]
     CaptureNotFound,
+    #[error("the forward rule is not found in this endpoint")]
+    ForwardRuleNotFound,
+    #[error("the endpoint already has the maximum number of forward rules")]
+    ForwardRuleLimit,
+    #[error("forwarding is disabled on this instance")]
+    ForwardingDisabled,
     #[error("the cursor is malformed or does not match the order and filters")]
     InvalidCursor,
     #[error("the database is unavailable")]
@@ -96,6 +105,18 @@ pub enum ApiError {
     ClientUnknown,
     #[error("endpoint storage failed: {0}")]
     Internal(EndpointError),
+    #[error("forward storage failed: {0}")]
+    ForwardStorage(ForwardStoreError),
+}
+
+impl From<ForwardStoreError> for ApiError {
+    fn from(error: ForwardStoreError) -> Self {
+        if error.is_unavailable() {
+            Self::StoreUnavailable
+        } else {
+            Self::ForwardStorage(error)
+        }
+    }
 }
 
 impl From<EndpointError> for ApiError {
@@ -174,6 +195,21 @@ impl IntoResponse for ApiError {
                 self.to_string(),
                 None,
             ),
+            Self::ForwardRuleNotFound => (
+                StatusCode::NOT_FOUND,
+                "forward_rule_not_found",
+                self.to_string(),
+                None,
+            ),
+            Self::ForwardRuleLimit => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "forward_rule_limit",
+                self.to_string(),
+                None,
+            ),
+            Self::ForwardingDisabled => {
+                (StatusCode::NOT_FOUND, "not_found", self.to_string(), None)
+            }
             Self::InvalidCursor => (
                 StatusCode::BAD_REQUEST,
                 "invalid_cursor",
@@ -203,6 +239,15 @@ impl IntoResponse for ApiError {
             }
             Self::Internal(error) => {
                 tracing::error!(%error, "endpoint storage failed");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal_error",
+                    "the request could not be completed".to_owned(),
+                    None,
+                )
+            }
+            Self::ForwardStorage(error) => {
+                tracing::error!(%error, "forward storage failed");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "internal_error",
