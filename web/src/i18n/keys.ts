@@ -1,3 +1,4 @@
+import access from './en/access.json';
 import common from './en/common.json';
 import detail from './en/detail.json';
 import diff from './en/diff.json';
@@ -11,7 +12,8 @@ import sample from './en/sample.json';
 import state from './en/state.json';
 import workspace from './en/workspace.json';
 
-export type SourceMessages = typeof common &
+export type SourceMessages = typeof access &
+  typeof common &
   typeof detail &
   typeof diff &
   typeof editor &

@@ -1,0 +1,251 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  min-width: 0;
+  max-width: 720px;
+}
+
+.heading {
+  margin: 0;
+  font: var(--text-section);
+  color: var(--color-text);
+}
+
+.loading,
+.hint,
+.status {
+  margin: 0;
+  font: var(--text-data);
+  color: var(--color-text-muted);
+}
+
+.hint {
+  font: var(--text-meta);
+}
+
+.form {
+  display: grid;
+  gap: var(--space-5);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.block {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.blockTitle {
+  margin: 0;
+  padding: 0;
+  font: var(--text-section);
+  color: var(--color-text);
+}
+
+.fields {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.field {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.label {
+  font: var(--text-meta);
+  color: var(--color-text-muted);
+}
+
+.inputRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.input,
+.select {
+  flex: 1 1 200px;
+  min-width: 0;
+  min-height: 36px;
+  padding: var(--space-1) var(--space-2);
+  font: var(--mono-data);
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.select {
+  flex: none;
+  font: var(--text-data);
+}
+
+.input[aria-invalid='true'] {
+  border-color: var(--color-danger);
+}
+
+.check,
+.radio {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 24px;
+  font: var(--text-data);
+  color: var(--color-text);
+}
+
+.radios {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.button,
+.primary,
+.danger {
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  font: var(--text-data);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.button {
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+}
+
+.primary {
+  color: var(--color-text-on-accent);
+  background: var(--color-accent);
+  border: 1px solid var(--color-accent);
+}
+
+.danger {
+  color: var(--color-danger);
+  background: var(--color-surface);
+  border: 1px solid var(--color-danger);
+}
+
+.button:disabled,
+.primary:disabled,
+.danger:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.button:focus-visible,
+.primary:focus-visible,
+.danger:focus-visible,
+.input:focus-visible,
+.select:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.error {
+  margin: 0;
+  font: var(--text-meta);
+  color: var(--color-danger);
+}
+
+.notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  font: var(--text-data);
+  color: var(--color-text);
+  background: var(--color-accent-soft);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.secret {
+  margin: 0;
+  font: var(--text-meta);
+  color: var(--color-warning);
+}
+
+.members {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.member {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+}
+
+.member + .member {
+  border-top: 1px solid var(--color-border);
+}
+
+.person {
+  display: grid;
+  min-width: 0;
+  font: var(--text-data);
+  color: var(--color-text);
+}
+
+.personName {
+  overflow-wrap: anywhere;
+}
+
+.personEmail {
+  overflow-wrap: anywhere;
+  font: var(--text-meta);
+  color: var(--color-text-muted);
+}
+
+.sectionHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+@media (max-width: 767px) {
+  .button,
+  .primary,
+  .danger,
+  .input,
+  .select {
+    min-height: 44px;
+  }
+}

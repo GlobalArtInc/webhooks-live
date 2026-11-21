@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setGrantRejectedHandler } from '../../api/client';
+import { clearGrant, readGrant, storeGrant } from '../access/grants';
 import { backoffDelay } from './backoff';
 import { createFakeEventSources, type FakeEventSources } from './fakeEventSource';
 import { LiveSource, type StatusProbe } from './LiveSource';
@@ -271,6 +273,34 @@ describe('LiveSource', () => {
 
     expect(source.getEndReason()).toBe('missing');
     source.close();
+  });
+
+  it('ends as locked when the probe answers 401, drops the grant, tells the handler, and stops retrying', async () => {
+    const rejected = vi.fn<(endpointId: string) => void>();
+    setGrantRejectedHandler(rejected);
+    storeGrant(ID, 'fake-grant', '2999-01-01T00:00:00.000Z');
+    const { fakes, source } = harness(vi.fn<StatusProbe>().mockResolvedValue(401));
+    fakes.latest().fail(true);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(source.getState()).toBe('ended');
+    expect(source.getEndReason()).toBe('locked');
+    expect(readGrant(ID)).toBeNull();
+    expect(rejected).toHaveBeenCalledWith(ID);
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(fakes.instances).toHaveLength(1);
+    source.close();
+    setGrantRejectedHandler(null);
+    clearGrant(ID);
+  });
+
+  it('adds the grant to the stream address', () => {
+    storeGrant(ID, 'fake-grant', '2999-01-01T00:00:00.000Z');
+    const { fakes, source } = harness(undefined, () => 7);
+
+    expect(fakes.latest().url).toBe(`/api/v1/endpoints/${ID}/stream?last_event_id=7&grant=fake-grant`);
+    source.close();
+    clearGrant(ID);
   });
 
   it('retries after a closed stream when the endpoint itself answers normally', async () => {

@@ -167,6 +167,10 @@ export function EndpointScreen() {
     return null;
   }
 
+  if (live.endReason === 'locked') {
+    return null;
+  }
+
   if (live.endReason !== null) {
     return <StatePage kind={live.endReason === 'missing' ? 'not-found' : 'gone'} />;
   }

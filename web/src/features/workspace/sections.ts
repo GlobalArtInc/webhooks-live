@@ -47,6 +47,10 @@ const ForwardingSection = lazy(() =>
   import('../forwarding/ForwardingSection').then((module) => ({ default: module.ForwardingSection })),
 );
 
+const AccessSection = lazy(() =>
+  import('../access/AccessSection').then((module) => ({ default: module.AccessSection })),
+);
+
 export const WORKSPACE_SECTIONS: readonly WorkspaceSection[] = [
   { id: 'general', labelKey: 'wl.workspace.section.general', Component: GeneralSection },
   { id: 'response', labelKey: 'wl.workspace.section.response', Component: ResponseSection },
@@ -57,7 +61,7 @@ export const WORKSPACE_SECTIONS: readonly WorkspaceSection[] = [
     Component: ForwardingSection,
     count: (endpoint) => endpoint.forward_rules.length,
   },
-  { id: 'access', labelKey: 'wl.workspace.section.access', Component: null },
+  { id: 'access', labelKey: 'wl.workspace.section.access', Component: AccessSection },
   { id: 'notifications', labelKey: 'wl.workspace.section.notifications', Component: null },
   { id: 'schedules', labelKey: 'wl.workspace.section.schedules', Component: null },
   { id: 'cli', labelKey: 'wl.workspace.section.cli', Component: null },
