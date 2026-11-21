@@ -72,6 +72,7 @@ fn endpoint_scope(method: &Method, tail: &str) -> Option<TokenScope> {
         | "/captures/latest"
         | "/captures/{capture_id}"
         | "/captures/{capture_id}/body"
+        | "/captures/{capture_id}/parts/{index}"
         | "/forward-rules"
         | "/secrets"
             if read =>
@@ -513,7 +514,7 @@ mod tests {
     #[test]
     fn every_documented_route_maps_to_the_token_scope_of_the_table() {
         use TokenScope::{CapturesWrite, EndpointsWrite, Read, RulesWrite, Send};
-        let table: [(&Method, &str, TokenPolicy); 30] = [
+        let table: [(&Method, &str, TokenPolicy); 31] = [
             (&GET, "/api/v1/instance", TokenPolicy::Scope(Read)),
             (&GET, "/api/v1/endpoints", TokenPolicy::Scope(Read)),
             (
@@ -560,6 +561,11 @@ mod tests {
             (
                 &GET,
                 "/api/v1/endpoints/{id}/captures/{capture_id}/body",
+                TokenPolicy::Scope(Read),
+            ),
+            (
+                &GET,
+                "/api/v1/endpoints/{id}/captures/{capture_id}/parts/{index}",
                 TokenPolicy::Scope(Read),
             ),
             (
