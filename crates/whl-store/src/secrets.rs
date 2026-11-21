@@ -68,6 +68,7 @@ pub enum DeleteSecretOutcome {
     Deleted,
     EndpointGone,
     NotFound,
+    InUse,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -185,6 +186,17 @@ impl Store {
         let mut tx = self.pool().begin().await.map_err(classify)?;
         if !lock_live_endpoint(&mut tx, endpoint, retention).await? {
             return Ok(DeleteSecretOutcome::EndpointGone);
+        }
+        let referenced: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM endpoints WHERE id = $1 AND verifier ->> 'secret_name' = $2)",
+        )
+        .bind(endpoint.unpack())
+        .bind(name.unpack())
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(classify)?;
+        if referenced {
+            return Ok(DeleteSecretOutcome::InUse);
         }
         let deleted =
             sqlx::query("DELETE FROM endpoint_secrets WHERE endpoint_id = $1 AND name = $2")

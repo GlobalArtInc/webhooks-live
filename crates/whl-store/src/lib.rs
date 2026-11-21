@@ -33,6 +33,7 @@ pub use capture_queries::{
 pub use claim::{ClaimOutcome, ClaimRefusal};
 pub use endpoints::{
     EndpointChange, EndpointError, EndpointRecord, EndpointSettings, NewEndpoint, Overflow,
+    StoredVerifier,
 };
 pub use error::StoreError;
 pub use folders::{
