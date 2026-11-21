@@ -142,6 +142,8 @@ struct RetentionDto {
 #[derive(Serialize)]
 struct ResponseDto {
     status: u16,
+    templated: bool,
+    status_template: Option<String>,
     content_type: String,
     headers: Vec<NameValueDto>,
     body: BodyDto,
@@ -195,6 +197,8 @@ impl EndpointDto {
             title: stored.title.clone(),
             response: ResponseDto {
                 status: stored.response.status().unpack(),
+                templated: stored.templating.enabled,
+                status_template: stored.templating.status.clone(),
                 content_type: stored.response.content_type().unpack().to_owned(),
                 headers: stored
                     .response

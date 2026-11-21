@@ -85,6 +85,29 @@ pub async fn endpoint_configured(harness: &Harness, configured: Configured) -> E
     id
 }
 
+pub async fn make_templated(harness: &Harness, id: &EndpointId, status_template: Option<&str>) {
+    sqlx::query(
+        "UPDATE endpoints SET response_templated = true, response_status_template = $2 WHERE id = $1",
+    )
+    .bind(id.unpack())
+    .bind(status_template)
+    .execute(harness.db.pool())
+    .await
+    .expect("endpoint becomes templated");
+}
+
+pub async fn set_var(harness: &Harness, id: &EndpointId, name: &str, value: serde_json::Value) {
+    sqlx::query(
+        "INSERT INTO endpoint_vars (endpoint_id, name, value) VALUES ($1, $2, $3::text::jsonb)",
+    )
+    .bind(id.unpack())
+    .bind(name)
+    .bind(value.to_string())
+    .execute(harness.db.pool())
+    .await
+    .expect("variable stores");
+}
+
 pub fn sorted_pairs(headers: &HeaderMap) -> Vec<(String, String)> {
     let mut pairs: Vec<(String, String)> = headers
         .iter()

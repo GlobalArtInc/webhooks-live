@@ -477,8 +477,10 @@ fn templates_list_the_counters_vars_and_secrets_they_reference() {
     assert_eq!(template.referenced_counters(), names(&["x", "y"]));
     assert_eq!(template.referenced_vars(), names(&["a", "b", "lo", "r"]));
     assert_eq!(template.referenced_secrets(), names(&["K", "F"]));
+    assert_eq!(template.referenced_store(), names(&["s"]));
     let plain = parse_in("{{ request.method }}", RenderTarget::Body);
     assert!(plain.referenced_counters().is_empty());
     assert!(plain.referenced_vars().is_empty());
     assert!(plain.referenced_secrets().is_empty());
+    assert!(plain.referenced_store().is_empty());
 }

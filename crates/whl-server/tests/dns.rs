@@ -78,6 +78,7 @@ async fn the_server_answers_and_captures_dns_queries_and_stops_with_the_rest() {
             &EndpointSettings {
                 title: None,
                 response: ResponseConfig::default(),
+                templating: Default::default(),
                 cors: false,
                 overflow: Overflow::Refuse,
                 tags: Vec::new(),

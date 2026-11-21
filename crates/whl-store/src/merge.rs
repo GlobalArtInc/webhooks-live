@@ -68,6 +68,9 @@ mod tests {
             response_status: 200,
             forward_state: None,
             kind: CaptureKind::Http,
+            starred: false,
+            has_note: false,
+            verification: None,
         }
     }
 

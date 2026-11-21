@@ -8,6 +8,7 @@ mod refusal;
 mod response;
 mod seams;
 mod state;
+mod template;
 mod verification;
 
 use axum::Router;
@@ -23,6 +24,10 @@ pub use seams::{Admission, StorageFull};
 pub use state::{
     BodyBudget, BudgetExhausted, CaptureLimits, CaptureSettings, CaptureSource, CaptureState,
     StateError, SystemSource,
+};
+pub use template::{
+    BODY_FIELD, ResponseSources, STATUS_FIELD, SourcePosition, TemplateSettings, TemplateViolation,
+    ViolationKind, validate_response_templates,
 };
 pub use verification::INLINE_VERIFY_BYTES;
 

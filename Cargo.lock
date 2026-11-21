@@ -5008,6 +5008,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "whl-auth",
+ "whl-capture",
  "whl-core",
  "whl-export",
  "whl-forward",
@@ -5073,6 +5074,7 @@ dependencies = [
  "whl-secrets",
  "whl-store",
  "whl-telemetry",
+ "whl-template",
  "whl-testkit",
  "whl-verify",
 ]

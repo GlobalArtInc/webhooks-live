@@ -34,6 +34,8 @@ impl BodyData {
 #[derive(Serialize)]
 struct ResponseData<'a> {
     status: i16,
+    templated: bool,
+    status_template: Option<&'a str>,
     content_type: &'a str,
     headers: &'a [HeaderView],
     body: BodyData,
@@ -149,6 +151,8 @@ pub fn endpoint_json(
         title: view.title.as_deref(),
         response: ResponseData {
             status: view.response_status,
+            templated: view.response_templated,
+            status_template: view.response_status_template.as_deref(),
             content_type: &view.response_content_type,
             headers: &view.response_headers,
             body: BodyData::from_bytes(&view.response_body, false),

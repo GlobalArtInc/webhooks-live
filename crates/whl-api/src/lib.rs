@@ -22,6 +22,7 @@ mod settings;
 mod state;
 mod stream;
 mod tokens;
+mod vars;
 
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
@@ -61,7 +62,8 @@ pub fn router(state: ApiState) -> Router {
         .merge(forward::routes())
         .merge(rules::routes())
         .merge(secrets::routes())
-        .merge(tokens::routes());
+        .merge(tokens::routes())
+        .merge(vars::routes());
     let api = guard_routes(api, &state.access)
         .fallback(not_found)
         .method_not_allowed_fallback(method_not_allowed)
