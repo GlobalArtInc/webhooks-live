@@ -104,6 +104,9 @@ pub enum Event {
     CaptureDeleted {
         data: JsonText,
     },
+    RuleResult {
+        data: JsonText,
+    },
     CapturesCleared,
     CapturesImported {
         data: JsonText,
@@ -158,6 +161,9 @@ impl Notification {
             "capture_deleted" => Event::CaptureDeleted {
                 data: object(&envelope, "capture_deleted")?,
             },
+            "rule_result" => Event::RuleResult {
+                data: object(&envelope, "rule_result")?,
+            },
             "captures_cleared" => Event::CapturesCleared,
             "captures_imported" => Event::CapturesImported {
                 data: object(&envelope, "captures_imported")?,
@@ -179,6 +185,7 @@ impl Event {
         match self {
             Self::Capture { .. } => "capture",
             Self::CaptureDeleted { .. } => "capture_deleted",
+            Self::RuleResult { .. } => "rule_result",
             Self::CapturesCleared => "captures_cleared",
             Self::CapturesImported { .. } => "captures_imported",
             Self::EndpointUpdated { .. } => "endpoint_updated",
@@ -200,9 +207,9 @@ impl Event {
     pub fn data(&self) -> Option<String> {
         match self {
             Self::Capture { summary, .. } => Some(summary.unpack().to_owned()),
-            Self::CaptureDeleted { data } | Self::CapturesImported { data } => {
-                Some(data.unpack().to_owned())
-            }
+            Self::CaptureDeleted { data }
+            | Self::CapturesImported { data }
+            | Self::RuleResult { data } => Some(data.unpack().to_owned()),
             Self::EndpointUpdated { lookup } | Self::ForwardResult { lookup, .. } => {
                 match lookup.resolved() {
                     Some(Outcome::Data(data)) => Some(data.unpack().to_owned()),
@@ -302,6 +309,17 @@ mod tests {
             Notification::Event { event, .. } => event,
             Notification::Heartbeat => panic!("a heartbeat is not an event"),
         }
+    }
+
+    #[test]
+    fn decodes_a_rule_result_as_its_data_object() {
+        let event = decoded(&format!(
+            r#"{{"t":"rule_result","e":"{ID}","d":{{"capture_id":"{CAPTURE}","run":{{"state":"queued"}}}}}}"#
+        ));
+        assert_eq!(event.name(), "rule_result");
+        let data: Value = serde_json::from_str(&event.data().expect("the data is present"))
+            .expect("the data is JSON");
+        assert_eq!(data["run"]["state"], "queued");
     }
 
     #[test]

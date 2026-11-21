@@ -8,6 +8,7 @@ mod public;
 mod readiness;
 mod rotate;
 mod router;
+mod rules;
 mod schedules;
 mod secrets;
 mod signal;
@@ -56,6 +57,7 @@ use composer::CaptureDelivery;
 use forward::ForwardRuntime;
 use notify::NotifyRuntime;
 use readiness::Readiness;
+use rules::RulesRuntimeSetup;
 use schedules::ScheduleRuntime;
 
 pub struct Bound {
@@ -74,6 +76,7 @@ pub struct Bound {
     composer: ComposerSettings,
     schedules: ScheduleRuntime,
     notify: NotifyRuntime,
+    rules: RulesRuntimeSetup,
     http: HttpLimits,
     auth: Option<AuthSettings>,
     auth_mode: AuthMode,
@@ -125,11 +128,14 @@ impl Bound {
         shutdown: impl Future<Output = ()> + Send + 'static,
     ) -> Result<(), ServerError> {
         credentials::warn_unusable_capture_credentials(&store, self.secrets.as_deref()).await;
-        let store = store.with_endpoint_byte_caps(EndpointByteCaps::from_tiers(&self.tiers));
+        let store = store
+            .with_endpoint_byte_caps(EndpointByteCaps::from_tiers(&self.tiers))
+            .with_rules_enabled(self.rules.settings().enabled);
         let readiness = Arc::new(Readiness::default());
         self.notify.prepare_push(&store).await?;
         let worker = self.forward.worker(&store)?;
         let notify_worker = self.notify.worker(&store)?;
+        let rules_worker = self.rules.worker(&store, self.secrets.clone())?;
         let auth = match self.auth.clone() {
             Some(settings) => {
                 Some(AuthState::new(store.clone(), settings)?.with_proxies(self.proxies.clone()))
@@ -151,8 +157,9 @@ impl Bound {
         }
         .with_proxies(self.proxies.clone())
         .with_token_limits(self.limiters.clone());
-        let capture =
-            CaptureState::new(store.clone(), self.capture)?.with_limiters(self.limiters.clone());
+        let capture = CaptureState::new(store.clone(), self.capture)?
+            .with_limiters(self.limiters.clone())
+            .with_rules(self.rules.settings(), self.rules.pool())?;
         let capture = match &self.secrets {
             Some(keyring) => capture.with_secrets(Arc::clone(keyring)),
             None => capture,
@@ -166,7 +173,8 @@ impl Bound {
             .with_composer(self.composer.with_local(Arc::new(delivery)))
             .with_schedules(self.schedules.settings())
             .with_notifications(self.notify.api_settings())
-            .with_tiers(self.tiers.clone());
+            .with_tiers(self.tiers.clone())
+            .with_rules(capture.rules().clone());
         let state = match self.notify.email_api() {
             Some(email) => state.with_email(email),
             None => state,
@@ -295,6 +303,7 @@ impl Bound {
                 dns,
                 schedules: schedule_runner,
                 notify: notify_worker,
+                rules: rules_worker,
             },
             &background_stop,
         );
@@ -404,6 +413,7 @@ pub async fn bind(config: &Config) -> Result<Bound, ServerError> {
         composer: ComposerSettings::from_config(config),
         schedules: ScheduleRuntime::from_config(config)?,
         notify,
+        rules: RulesRuntimeSetup::from_config(config)?,
         http: HttpLimits::default(),
         auth: AuthSettings::from_config(config)?,
         auth_mode: config.auth.mode,

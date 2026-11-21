@@ -152,3 +152,20 @@ async fn deleting_reports_missing_variables_and_gone_endpoints() {
     assert_eq!(second, DeleteVarOutcome::NotFound);
     assert_eq!(elsewhere, DeleteVarOutcome::EndpointGone);
 }
+
+#[tokio::test]
+async fn adding_to_a_counter_creates_it_and_applies_the_signed_amount() {
+    let (_db, store, endpoint) = fixture().await;
+
+    let created = store
+        .add_to_counter(&endpoint, RETENTION, "balance", 40)
+        .await
+        .expect("the counter is created");
+    let lowered = store
+        .add_to_counter(&endpoint, RETENTION, "balance", -15)
+        .await
+        .expect("the counter changes");
+
+    assert_eq!(created, IncrementOutcome::Value(40));
+    assert_eq!(lowered, IncrementOutcome::Value(25));
+}

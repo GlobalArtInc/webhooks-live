@@ -1,3 +1,5 @@
+use crate::model::Action;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StepClass {
     Response,
@@ -67,6 +69,26 @@ impl StepKind {
 
     pub fn parse(text: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|kind| kind.as_str() == text)
+    }
+
+    pub fn of(action: &Action) -> Self {
+        match action {
+            Action::Respond { .. } => Self::Respond,
+            Action::SetHeader { .. } => Self::SetHeader,
+            Action::RemoveHeader { .. } => Self::RemoveHeader,
+            Action::Delay { .. } => Self::Delay,
+            Action::Stop => Self::Stop,
+            Action::Extract { .. } => Self::Extract,
+            Action::SetVar { .. } => Self::SetVar,
+            Action::Transform { .. } => Self::Transform,
+            Action::SetStore { .. } => Self::SetStore,
+            Action::Increment { .. } => Self::Increment,
+            Action::Script { .. } => Self::Script,
+            Action::Http { .. } => Self::Http,
+            Action::Forward { .. } => Self::Forward,
+            Action::Notify { .. } => Self::Notify,
+            Action::StoreS3 { .. } => Self::StoreS3,
+        }
     }
 
     pub fn class(self) -> StepClass {

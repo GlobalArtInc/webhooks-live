@@ -12,6 +12,7 @@ static MIGRATIONS: migrator::Migrations = migrator::embed!("$CARGO_MANIFEST_DIR/
 pub struct Store {
     pool: PgPool,
     pub(crate) byte_caps: EndpointByteCaps,
+    rules_enabled: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -40,12 +41,22 @@ impl Store {
         Self {
             pool,
             byte_caps: EndpointByteCaps::default(),
+            rules_enabled: true,
         }
     }
 
     pub fn with_endpoint_byte_caps(mut self, caps: EndpointByteCaps) -> Self {
         self.byte_caps = caps;
         self
+    }
+
+    pub fn with_rules_enabled(mut self, enabled: bool) -> Self {
+        self.rules_enabled = enabled;
+        self
+    }
+
+    pub fn rules_enabled(&self) -> bool {
+        self.rules_enabled
     }
 
     pub fn pool(&self) -> &PgPool {

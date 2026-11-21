@@ -168,6 +168,10 @@ pub enum ApiError {
     RuleNotFound,
     #[error("the endpoint already has the maximum number of rules")]
     RuleLimit { max: usize },
+    #[error("a re-run of this capture is already queued or running")]
+    RerunActive,
+    #[error("this capture already has the maximum number of re-runs")]
+    RerunLimit,
     #[error("forwarding is disabled on this instance")]
     ForwardingDisabled,
     #[error("the cursor is malformed or does not match the order and filters")]
@@ -287,6 +291,8 @@ pub enum ApiError {
     RuleStorage(RuleStoreError),
     #[error("the script engine cannot be configured: {0}")]
     RuleEngine(LimitsError),
+    #[error("rules are switched off on this instance")]
+    RulesDisabled,
     #[error("the schedule is not found in this endpoint")]
     ScheduleNotFound,
     #[error("the owner already has the maximum number of schedules")]
@@ -601,6 +607,10 @@ impl IntoResponse for ApiError {
             }
             Self::TierNotAllowed { name } => Some(LimitDetail::total(name, 0, None)),
             Self::RuleLimit { max } => Some(LimitDetail::count("rules", *max)),
+            Self::RerunLimit => Some(LimitDetail::count(
+                "rule_reruns",
+                usize::try_from(whl_store::rule_exec::RERUNS_PER_CAPTURE).unwrap_or(usize::MAX),
+            )),
             Self::VarLimit => Some(LimitDetail::count("vars", MAX_VARS_PER_ENDPOINT)),
             Self::QuotaExceeded {
                 name,
@@ -707,12 +717,13 @@ impl IntoResponse for ApiError {
                 self.to_string(),
                 None,
             ),
-            Self::RuleLimit { .. } => (
+            Self::RuleLimit { .. } | Self::RerunLimit => (
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "limit_reached",
                 self.to_string(),
                 None,
             ),
+            Self::RerunActive => (StatusCode::CONFLICT, "rerun_active", self.to_string(), None),
             Self::RuleStorage(error) => {
                 tracing::error!(%error, "rule storage failed");
                 (
@@ -1084,7 +1095,7 @@ impl IntoResponse for ApiError {
                 self.to_string(),
                 None,
             ),
-            Self::SchedulesDisabled => (
+            Self::SchedulesDisabled | Self::RulesDisabled => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "feature_disabled",
                 self.to_string(),

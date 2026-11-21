@@ -23,6 +23,12 @@ const FILE_ENV: &str = "WEBHOOKS_LIVE_CONFIG";
 const ENV_PREFIX: &str = "WEBHOOKS_LIVE_";
 
 pub const MIN_DB_POOL_SIZE: u32 = 2;
+pub const MAX_RULES_SYNC_BUDGET: Duration = Duration::from_secs(10);
+pub const MAX_SCRIPT_THREADS: u32 = 64;
+pub const MIN_RULES_CACHE: ByteSize = ByteSize::mib(16);
+pub const MAX_RULES_WORKERS: u32 = 256;
+pub const MIN_SCRIPT_MEMORY: ByteSize = ByteSize::mib(1);
+pub const MAX_SCRIPT_MEMORY: ByteSize = ByteSize::gib(1);
 
 const DEFAULTS: &str = r#"
 listen_addr = "0.0.0.0:8080"
@@ -83,6 +89,17 @@ workers = 8
 [composer]
 enabled = true
 max_in_flight = 32
+
+[rules]
+enabled = true
+sync_budget = "3s"
+sync_concurrency = 256
+cache_bytes = "128MiB"
+workers = 16
+
+[script]
+threads = 2
+memory = "32MiB"
 
 [notify]
 enabled = true
@@ -185,6 +202,13 @@ const ENV_KEYS: &[(&str, &str)] = &[
     ("SCHEDULES_ENABLED", "schedules.enabled"),
     ("SCHEDULES_RUNS_PER_HOUR", "schedules.runs_per_hour"),
     ("SCHEDULES_WORKERS", "schedules.workers"),
+    ("RULES_ENABLED", "rules.enabled"),
+    ("RULES_SYNC_BUDGET", "rules.sync_budget"),
+    ("RULES_SYNC_CONCURRENCY", "rules.sync_concurrency"),
+    ("RULES_CACHE_BYTES", "rules.cache_bytes"),
+    ("RULES_WORKERS", "rules.workers"),
+    ("SCRIPT_THREADS", "script.threads"),
+    ("SCRIPT_MEMORY", "script.memory"),
     ("SHUTDOWN_DRAIN", "shutdown.drain"),
     ("SHUTDOWN_GRACE", "shutdown.grace"),
     ("NOTIFY_ENABLED", "notify.enabled"),
@@ -259,6 +283,8 @@ pub struct Config {
     pub alias: AliasConfig,
     #[serde(default, deserialize_with = "tiers::table")]
     pub tiers: Tiers,
+    pub rules: RulesConfig,
+    pub script: ScriptConfig,
     #[serde(default)]
     pub secrets: SecretsConfig,
     pub dns: DnsConfig,
@@ -368,6 +394,24 @@ pub struct SchedulesConfig {
     pub enabled: bool,
     pub runs_per_hour: u32,
     pub workers: u32,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RulesConfig {
+    pub enabled: bool,
+    #[serde(deserialize_with = "de::duration")]
+    pub sync_budget: Duration,
+    pub sync_concurrency: u32,
+    #[serde(deserialize_with = "de::byte_size")]
+    pub cache_bytes: ByteSize,
+    pub workers: u32,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ScriptConfig {
+    pub threads: u32,
+    #[serde(deserialize_with = "de::byte_size")]
+    pub memory: ByteSize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -594,6 +638,12 @@ pub enum Problem {
         replacement: &'static str,
     },
     TiersFromEnvironment,
+    RulesSyncBudgetOutOfRange,
+    RulesSyncConcurrencyZero,
+    RulesCacheTooSmall,
+    RulesWorkersOutOfRange,
+    ScriptThreadsOutOfRange,
+    ScriptMemoryOutOfRange,
 }
 
 impl fmt::Display for Problem {
@@ -643,6 +693,30 @@ impl fmt::Display for Problem {
             Self::TiersFromEnvironment => write!(
                 f,
                 "tiers are configured in the [tiers.<name>] tables of the config file only, not through {ENV_PREFIX}TIERS* variables"
+            ),
+            Self::RulesSyncBudgetOutOfRange => write!(
+                f,
+                "{ENV_PREFIX}RULES_SYNC_BUDGET must be above zero and at most {}s",
+                MAX_RULES_SYNC_BUDGET.as_secs()
+            ),
+            Self::RulesSyncConcurrencyZero => {
+                write!(f, "{ENV_PREFIX}RULES_SYNC_CONCURRENCY must be at least 1")
+            }
+            Self::RulesCacheTooSmall => write!(
+                f,
+                "{ENV_PREFIX}RULES_CACHE_BYTES must be at least {MIN_RULES_CACHE}"
+            ),
+            Self::RulesWorkersOutOfRange => write!(
+                f,
+                "{ENV_PREFIX}RULES_WORKERS must be between 1 and {MAX_RULES_WORKERS}"
+            ),
+            Self::ScriptThreadsOutOfRange => write!(
+                f,
+                "{ENV_PREFIX}SCRIPT_THREADS must be between 1 and {MAX_SCRIPT_THREADS}"
+            ),
+            Self::ScriptMemoryOutOfRange => write!(
+                f,
+                "{ENV_PREFIX}SCRIPT_MEMORY must be between {MIN_SCRIPT_MEMORY} and {MAX_SCRIPT_MEMORY}"
             ),
         }
     }
@@ -763,6 +837,29 @@ fn mail_problems(mail: &MailConfig) -> Vec<Problem> {
     problems
 }
 
+fn rules_problems(rules: &RulesConfig, script: &ScriptConfig) -> Vec<Problem> {
+    let mut problems = Vec::new();
+    if rules.sync_budget.is_zero() || rules.sync_budget > MAX_RULES_SYNC_BUDGET {
+        problems.push(Problem::RulesSyncBudgetOutOfRange);
+    }
+    if rules.sync_concurrency == 0 {
+        problems.push(Problem::RulesSyncConcurrencyZero);
+    }
+    if rules.cache_bytes < MIN_RULES_CACHE {
+        problems.push(Problem::RulesCacheTooSmall);
+    }
+    if rules.workers == 0 || rules.workers > MAX_RULES_WORKERS {
+        problems.push(Problem::RulesWorkersOutOfRange);
+    }
+    if script.threads == 0 || script.threads > MAX_SCRIPT_THREADS {
+        problems.push(Problem::ScriptThreadsOutOfRange);
+    }
+    if script.memory < MIN_SCRIPT_MEMORY || script.memory > MAX_SCRIPT_MEMORY {
+        problems.push(Problem::ScriptMemoryOutOfRange);
+    }
+    problems
+}
+
 fn join_problems(problems: &[Problem]) -> String {
     problems
         .iter()
@@ -826,6 +923,7 @@ impl Config {
         if self.alias.quarantine < POSITIVE_CACHE_TTL {
             problems.push(Problem::AliasQuarantineTooShort);
         }
+        problems.extend(rules_problems(&self.rules, &self.script));
 
         if problems.is_empty() {
             Ok(())

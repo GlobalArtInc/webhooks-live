@@ -12,6 +12,7 @@ use crate::message::OutboundRequest;
 use crate::target::validate_target_url;
 
 pub const CAPTURE_ID_HEADER: &str = "x-webhooks-live-capture-id";
+pub const HOP_HEADER: &str = "x-webhooks-live-hop";
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum RequestError {
@@ -34,12 +35,24 @@ pub fn build_request(
     } else {
         target
     };
+    let body = job.payload.clone().unwrap_or_else(|| capture.body.clone());
     Ok(OutboundRequest::new(
         method,
         url,
         headers(job, capture),
-        capture.body.clone(),
+        body,
     ))
+}
+
+fn outgoing_hop(capture: &JobCapture) -> u32 {
+    let incoming = capture
+        .headers
+        .iter()
+        .filter(|header| header.name.eq_ignore_ascii_case(HOP_HEADER))
+        .map(|header| header.value.trim().parse::<u32>().unwrap_or(u32::MAX))
+        .max()
+        .unwrap_or(0);
+    incoming.saturating_add(1)
 }
 
 fn headers(job: &ClaimedJob, capture: &JobCapture) -> HeaderMap {
@@ -54,6 +67,7 @@ fn headers(job: &ClaimedJob, capture: &JobCapture) -> HeaderMap {
         if !allowed.contains(&lowered)
             || lowered == CONTENT_TYPE.as_str()
             || lowered == CAPTURE_ID_HEADER
+            || lowered == HOP_HEADER
         {
             continue;
         }
@@ -76,6 +90,10 @@ fn headers(job: &ClaimedJob, capture: &JobCapture) -> HeaderMap {
     if let Ok(value) = HeaderValue::from_str(&job.capture_id.hyphenated().to_string()) {
         map.insert(HeaderName::from_static(CAPTURE_ID_HEADER), value);
     }
+    map.insert(
+        HeaderName::from_static(HOP_HEADER),
+        HeaderValue::from(outgoing_hop(capture)),
+    );
     map
 }
 
@@ -131,6 +149,7 @@ mod tests {
             header_allowlist: Vec::new(),
             append_path: false,
             attempt: 1,
+            payload: None,
         }
     }
 
@@ -185,7 +204,8 @@ mod tests {
             request.headers.get(CAPTURE_ID_HEADER).unwrap(),
             "00000000-0000-0000-0000-000000000000"
         );
-        assert_eq!(request.headers.len(), 4);
+        assert_eq!(request.headers.get(HOP_HEADER).unwrap(), "1");
+        assert_eq!(request.headers.len(), 5);
         assert_eq!(request.body, Bytes::from_static(b"{\"x\":1}"));
     }
 
@@ -226,6 +246,33 @@ mod tests {
             );
             assert!(!request.url.unpack().path().contains(".."), "{hostile}");
         }
+    }
+
+    #[test]
+    fn sends_the_incoming_hop_plus_one_even_when_the_header_is_allow_listed() {
+        let mut claimed = job("https://hooks.example.com/in");
+        claimed.header_allowlist = vec!["X-Webhooks-Live-Hop".to_owned()];
+        let request = build_request(
+            &claimed,
+            &capture(&[("X-Webhooks-Live-Hop", "2")]),
+            &config(),
+        )
+        .unwrap();
+        let hops: Vec<&str> = request
+            .headers
+            .get_all(HOP_HEADER)
+            .iter()
+            .map(|value| value.to_str().unwrap())
+            .collect();
+        assert_eq!(hops, ["3"]);
+    }
+
+    #[test]
+    fn sends_the_payload_instead_of_the_captured_body_when_the_job_has_one() {
+        let mut claimed = job("https://hooks.example.com/in");
+        claimed.payload = Some(Bytes::from_static(b"shaped"));
+        let request = build_request(&claimed, &capture(&[]), &config()).unwrap();
+        assert_eq!(request.body, Bytes::from_static(b"shaped"));
     }
 
     #[test]

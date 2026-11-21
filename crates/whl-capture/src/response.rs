@@ -14,7 +14,9 @@ use whl_core::content_type::ContentType;
 use whl_core::endpoint_id::EndpointId;
 use whl_core::header::{HeaderInput, MAX_HEADER_NAME_BYTES, MAX_HEADERS, is_token};
 use whl_core::response::{ResponseConfig, ResponseConfigInput, compose_response};
+use whl_core::status::HttpStatus;
 use whl_core::validation::ValidationError;
+use whl_rules::{FailureCode, ResponseDraft};
 use whl_store::captures::{Endpoint, StoredCapture};
 
 use crate::template::{FallbackCode, RenderedParts};
@@ -26,6 +28,9 @@ const SUBSTITUTED_STATUS: HeaderName =
 const TEMPLATE_STATE: HeaderName = HeaderName::from_static("x-webhooks-live-template");
 const TEMPLATE_ERROR: HeaderName = HeaderName::from_static("x-webhooks-live-template-error");
 const TEMPLATE_STATE_ERROR: &str = "error";
+const RULES_STATE: HeaderName = HeaderName::from_static("x-webhooks-live-rules");
+const RULES_ERROR: HeaderName = HeaderName::from_static("x-webhooks-live-rule-error");
+const RULES_STATE_ERROR: &str = "error";
 
 const RESERVED_PREFIX: &str = "x-webhooks-live-";
 const SANDBOX: &str = "sandbox";
@@ -69,6 +74,20 @@ pub(crate) enum Content {
     Fallback(FallbackCode),
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Rules<'a> {
+    None,
+    Applied(&'a ResponseDraft),
+    Failed(FailureCode),
+}
+
+struct Parts {
+    status: u16,
+    headers: Vec<(String, String)>,
+    content_type: String,
+    body: Bytes,
+}
+
 struct Preflight {
     method: String,
     headers: Option<String>,
@@ -100,7 +119,25 @@ pub(crate) fn build_content(
     request: &ReplyRequest<'_>,
     content: Content,
 ) -> Response {
-    match compose(endpoint, capture, status_override, request, content) {
+    build_ruled(
+        endpoint,
+        capture,
+        status_override,
+        request,
+        content,
+        Rules::None,
+    )
+}
+
+pub(crate) fn build_ruled(
+    endpoint: &Endpoint,
+    capture: &StoredCapture,
+    status_override: Option<whl_core::status::HttpStatus>,
+    request: &ReplyRequest<'_>,
+    content: Content,
+    rules: Rules<'_>,
+) -> Response {
+    match compose(endpoint, capture, status_override, request, content, rules) {
         Ok(response) => response,
         Err(error) => {
             tracing::error!(%error, endpoint_id = endpoint.id.unpack(), "the configured response cannot be served");
@@ -115,6 +152,7 @@ fn compose(
     status_override: Option<whl_core::status::HttpStatus>,
     request: &ReplyRequest<'_>,
     content: Content,
+    rules: Rules<'_>,
 ) -> Result<Response, ResponseError> {
     let fallback = match &content {
         Content::Fallback(code) => Some(*code),
@@ -128,11 +166,23 @@ fn compose(
     let mut headers = HeaderMap::new();
     let (status, body) = match &preflight {
         Some(_) => (StatusCode::NO_CONTENT, Bytes::new()),
-        None => configured(endpoint, status_override, request, &mut headers, content)?,
+        None => configured(
+            endpoint,
+            status_override,
+            request,
+            &mut headers,
+            content,
+            rules,
+        )?,
     };
     insert_mandatory(&mut headers, endpoint, capture, request.via_alias)?;
     if let Some(code) = fallback {
         insert_fallback(&mut headers, code)?;
+    }
+    if let Rules::Failed(code) = rules
+        && preflight.is_none()
+    {
+        insert_rule_failure(&mut headers, code)?;
     }
     if endpoint.cors {
         insert_cors(&mut headers, request.via_alias);
@@ -160,7 +210,27 @@ fn configured(
     request: &ReplyRequest<'_>,
     headers: &mut HeaderMap,
     content: Content,
+    rules: Rules<'_>,
 ) -> Result<(StatusCode, Bytes), ResponseError> {
+    if let Rules::Applied(draft) = rules {
+        let base = base_parts(endpoint, status_override, content)?;
+        let Parts {
+            status,
+            headers: pairs,
+            content_type,
+            body,
+        } = overlay(base, draft, status_override);
+        return finish(
+            headers,
+            status,
+            pairs
+                .iter()
+                .map(|(name, value)| (name.as_str(), value.as_str())),
+            &content_type,
+            || body,
+            request.method,
+        );
+    }
     match content {
         Content::Configured => {
             let config = rebuild_config(endpoint)?;
@@ -211,6 +281,75 @@ fn configured(
                 request.method,
             )
         }
+    }
+}
+
+fn base_parts(
+    endpoint: &Endpoint,
+    status_override: Option<HttpStatus>,
+    content: Content,
+) -> Result<Parts, ResponseError> {
+    match content {
+        Content::Configured => {
+            let config = rebuild_config(endpoint)?;
+            let composed = compose_response(&config, status_override);
+            Ok(Parts {
+                status: composed.status.unpack(),
+                headers: composed
+                    .headers
+                    .iter()
+                    .map(|header| {
+                        (
+                            header.name.unpack().to_owned(),
+                            header.value.unpack().to_owned(),
+                        )
+                    })
+                    .collect(),
+                content_type: composed.content_type.unpack().to_owned(),
+                body: Bytes::copy_from_slice(config.body()),
+            })
+        }
+        Content::Rendered(parts) => {
+            let content_type = stored_content_type(endpoint)?;
+            let status = status_override
+                .or(parts.status)
+                .unwrap_or(endpoint.status)
+                .unpack();
+            Ok(Parts {
+                status,
+                headers: parts
+                    .headers
+                    .into_iter()
+                    .map(|header| (header.name, header.value))
+                    .collect(),
+                content_type: content_type.unpack().to_owned(),
+                body: Bytes::from(parts.body),
+            })
+        }
+        Content::Fallback(_) => {
+            let content_type = stored_content_type(endpoint)?;
+            Ok(Parts {
+                status: status_override.unwrap_or(endpoint.status).unpack(),
+                headers: Vec::new(),
+                content_type: content_type.unpack().to_owned(),
+                body: Bytes::new(),
+            })
+        }
+    }
+}
+
+fn overlay(base: Parts, draft: &ResponseDraft, status_override: Option<HttpStatus>) -> Parts {
+    Parts {
+        status: status_override
+            .map(|status| status.unpack())
+            .or(draft.status)
+            .unwrap_or(base.status),
+        content_type: draft.content_type.clone().unwrap_or(base.content_type),
+        headers: draft.apply_headers(base.headers),
+        body: draft
+            .body
+            .as_ref()
+            .map_or(base.body, |body| Bytes::copy_from_slice(body)),
     }
 }
 
@@ -286,6 +425,17 @@ fn insert_fallback(headers: &mut HeaderMap, code: FallbackCode) -> Result<(), Re
         TEMPLATE_ERROR,
         HeaderValue::from_str(code.as_str()).map_err(|_| ResponseError::HeaderValue {
             name: TEMPLATE_ERROR.as_str().to_owned(),
+        })?,
+    );
+    Ok(())
+}
+
+fn insert_rule_failure(headers: &mut HeaderMap, code: FailureCode) -> Result<(), ResponseError> {
+    headers.insert(RULES_STATE, HeaderValue::from_static(RULES_STATE_ERROR));
+    headers.insert(
+        RULES_ERROR,
+        HeaderValue::from_str(code.as_str()).map_err(|_| ResponseError::HeaderValue {
+            name: RULES_ERROR.as_str().to_owned(),
         })?,
     );
     Ok(())

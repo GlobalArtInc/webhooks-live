@@ -11,6 +11,7 @@ use whl_core::config::Config;
 use whl_core::endpoint_id::EndpointId;
 use whl_core::entropy::IdGenerationError;
 use whl_core::limiter::Limiters;
+use whl_script::ScriptPool;
 use whl_secrets::Keyring;
 use whl_store::captures::CapturePolicy;
 use whl_store::{AliasStoreError, Store};
@@ -18,6 +19,7 @@ use whl_store::{AliasStoreError, Store};
 use crate::alias_cache::{AliasCache, AliasCacheSettings, CachedAlias};
 use crate::client_ip::TrustedProxies;
 use crate::delay::DelaySlots;
+use crate::rules::{RulesRuntime, RulesSettings};
 use crate::seams::{Admission, StorageFull, admit_client, admit_endpoint};
 use crate::template::{TemplateEngine, TemplateSettings};
 
@@ -39,6 +41,8 @@ pub enum StateError {
     PublicUrl,
     #[error("the delayed response cap of {0} is not supported")]
     MaxDelayed(u32),
+    #[error("the rules runtime cannot be set up")]
+    Rules,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -180,6 +184,7 @@ struct Inner {
     secrets: Option<Arc<Keyring>>,
     templates: Arc<TemplateEngine>,
     aliases: AliasCache,
+    rules: RulesRuntime,
 }
 
 impl CaptureState {
@@ -207,8 +212,43 @@ impl CaptureState {
                 secrets: None,
                 templates: Arc::new(TemplateEngine::new(TemplateSettings::default())),
                 aliases: AliasCache::default(),
+                rules: RulesRuntime::new(RulesSettings::default(), None)
+                    .map_err(|_| StateError::Rules)?,
             }),
         })
+    }
+
+    pub fn with_rules(
+        self,
+        settings: RulesSettings,
+        pool: Option<Arc<ScriptPool>>,
+    ) -> Result<Self, StateError> {
+        let rules = RulesRuntime::new(settings, pool).map_err(|_| StateError::Rules)?;
+        Ok(Self {
+            inner: Arc::new(Inner {
+                store: self
+                    .inner
+                    .store
+                    .clone()
+                    .with_rules_enabled(settings.enabled),
+                limits: self.inner.limits,
+                proxies: self.inner.proxies.clone(),
+                budget: self.inner.budget.clone(),
+                source: Arc::clone(&self.inner.source),
+                storage_full: self.inner.storage_full.clone(),
+                limiters: self.inner.limiters.clone(),
+                public_url: self.inner.public_url.clone(),
+                delays: self.inner.delays.clone(),
+                secrets: self.inner.secrets.clone(),
+                templates: Arc::clone(&self.inner.templates),
+                aliases: self.inner.aliases.clone(),
+                rules,
+            }),
+        })
+    }
+
+    pub fn rules(&self) -> &RulesRuntime {
+        &self.inner.rules
     }
 
     pub fn with_templates(self, settings: TemplateSettings) -> Self {
@@ -226,6 +266,7 @@ impl CaptureState {
                 secrets: self.inner.secrets.clone(),
                 templates: Arc::new(TemplateEngine::new(settings)),
                 aliases: self.inner.aliases.clone(),
+                rules: self.inner.rules.clone(),
             }),
         }
     }
@@ -245,6 +286,7 @@ impl CaptureState {
                 secrets: self.inner.secrets.clone(),
                 templates: Arc::clone(&self.inner.templates),
                 aliases: self.inner.aliases.clone(),
+                rules: self.inner.rules.clone(),
             }),
         }
     }
@@ -264,6 +306,7 @@ impl CaptureState {
                 secrets: Some(keyring),
                 templates: Arc::clone(&self.inner.templates),
                 aliases: self.inner.aliases.clone(),
+                rules: self.inner.rules.clone(),
             }),
         }
     }
@@ -283,6 +326,7 @@ impl CaptureState {
                 secrets: self.inner.secrets.clone(),
                 templates: Arc::clone(&self.inner.templates),
                 aliases: self.inner.aliases.clone(),
+                rules: self.inner.rules.clone(),
             }),
         }
     }
@@ -302,6 +346,7 @@ impl CaptureState {
                 secrets: self.inner.secrets.clone(),
                 templates: Arc::clone(&self.inner.templates),
                 aliases: AliasCache::new(settings),
+                rules: self.inner.rules.clone(),
             }),
         }
     }

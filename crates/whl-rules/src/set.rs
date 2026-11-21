@@ -38,7 +38,23 @@ pub fn validate_set_with(
     scripts: &ScriptCompiler,
     limits: RuleLimits,
 ) -> Result<Vec<Rule>, RuleError> {
-    let mut checker = Checker::new(references, scripts);
+    check_set(Checker::new(references, scripts), rules, limits)
+}
+
+pub fn load_set(rules: &[Value], scripts: &ScriptCompiler) -> Result<Vec<Rule>, RuleError> {
+    let references = References::default();
+    check_set(
+        Checker::stored(&references, scripts),
+        rules,
+        RuleLimits::UNBOUNDED,
+    )
+}
+
+fn check_set(
+    mut checker: Checker<'_>,
+    rules: &[Value],
+    limits: RuleLimits,
+) -> Result<Vec<Rule>, RuleError> {
     if rules.len() > limits.max_rules {
         checker.fail(
             "rules",
