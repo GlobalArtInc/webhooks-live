@@ -10,6 +10,7 @@ use axum::http::header::{
 use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode};
 use axum::response::Response;
 use bytes::Bytes;
+use whl_core::endpoint_id::EndpointId;
 use whl_core::header::{HeaderInput, MAX_HEADER_NAME_BYTES, MAX_HEADERS, is_token};
 use whl_core::response::{ResponseConfig, ResponseConfigInput, compose_response};
 use whl_core::validation::ValidationError;
@@ -307,4 +308,40 @@ fn failure(endpoint: &Endpoint, capture: &StoredCapture) -> Response {
         headers.insert(CACHE_CONTROL, HeaderValue::from_static(NO_STORE));
     }
     response
+}
+
+pub(crate) fn preflight_reply(
+    endpoint: &EndpointId,
+    request: &ReplyRequest<'_>,
+) -> Option<Response> {
+    let preflight = preflight_of(request)?;
+    match unstored_preflight(endpoint, &preflight) {
+        Ok(response) => Some(response),
+        Err(error) => {
+            tracing::error!(%error, endpoint_id = endpoint.unpack(), "the preflight answer cannot be built");
+            None
+        }
+    }
+}
+
+fn unstored_preflight(
+    endpoint: &EndpointId,
+    preflight: &Preflight,
+) -> Result<Response, ResponseError> {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        ENDPOINT_ID,
+        HeaderValue::from_str(endpoint.unpack()).map_err(|_| ResponseError::HeaderValue {
+            name: ENDPOINT_ID.as_str().to_owned(),
+        })?,
+    );
+    headers.insert(CONTENT_SECURITY_POLICY, HeaderValue::from_static(SANDBOX));
+    headers.insert(X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static(NOSNIFF));
+    headers.insert(CACHE_CONTROL, HeaderValue::from_static(NO_STORE));
+    insert_cors(&mut headers);
+    insert_preflight(&mut headers, preflight)?;
+    let mut response = Response::new(unsized_empty_body());
+    *response.status_mut() = StatusCode::NO_CONTENT;
+    *response.headers_mut() = headers;
+    Ok(response)
 }

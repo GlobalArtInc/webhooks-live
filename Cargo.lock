@@ -4848,6 +4848,7 @@ name = "whl-capture"
 version = "0.1.0-dev"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "bytes",
  "futures-util",
  "http-body-util",
@@ -4863,6 +4864,7 @@ dependencies = [
  "tracing",
  "url",
  "whl-core",
+ "whl-secrets",
  "whl-store",
  "whl-telemetry",
  "whl-testkit",
@@ -5021,6 +5023,7 @@ dependencies = [
 name = "whl-store"
 version = "0.1.0-dev"
 dependencies = [
+ "base64 0.22.1",
  "bytes",
  "metrics",
  "sea-orm",

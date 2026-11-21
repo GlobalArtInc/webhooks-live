@@ -1,8 +1,14 @@
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use serde_json::{Map, Value};
+use whl_core::capture_auth::{
+    AuthHeaderName, AuthHeaderNameError, AuthUsername, CredentialError, check_basic_password,
+    check_header_value,
+};
 use whl_core::header::HeaderInput;
+use whl_core::sender_allow::{MAX_SENDER_RANGES, SenderAllowList, SenderRange};
 use whl_core::tag::{MAX_TAGS, Tag};
+use whl_secrets::Secret;
 use whl_store::Overflow;
 
 use crate::error::{ApiError, FieldCode, FieldViolation};
@@ -17,7 +23,11 @@ const ENDPOINT_KEYS: &[&str] = &[
     "retention",
     "max_captures",
     "capture_ttl_seconds",
+    "sender_allow_cidrs",
+    "capture_auth",
 ];
+const BASIC_AUTH_KEYS: &[&str] = &["kind", "username", "password"];
+const HEADER_AUTH_KEYS: &[&str] = &["kind", "name", "value"];
 const RETENTION_KEYS: &[&str] = &["mode", "seconds"];
 const RESPONSE_KEYS: &[&str] = &["status", "content_type", "headers", "body", "delay_ms"];
 const HEADER_KEYS: &[&str] = &["name", "value"];
@@ -31,6 +41,31 @@ pub struct EndpointPatch {
     pub overflow: Option<Overflow>,
     pub tags: Option<Vec<Tag>>,
     pub lifecycle: LifecyclePatch,
+    pub access: AccessPatch,
+}
+
+#[derive(Debug, Default, PartialEq)]
+pub struct AccessPatch {
+    pub sender_allow: Option<SenderAllowList>,
+    pub capture_auth: Option<Option<CaptureAuthInput>>,
+}
+
+impl AccessPatch {
+    pub fn is_empty(&self) -> bool {
+        self.sender_allow.is_none() && self.capture_auth.is_none()
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum CaptureAuthInput {
+    Basic {
+        username: AuthUsername,
+        password: Secret,
+    },
+    Header {
+        name: AuthHeaderName,
+        value: Secret,
+    },
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -144,7 +179,156 @@ impl Walk {
             patch.lifecycle.capture_ttl_seconds =
                 self.nullable_integer(value, "capture_ttl_seconds");
         }
+        if let Some(value) = object.get("sender_allow_cidrs") {
+            patch.access.sender_allow = self.sender_allow(value);
+        }
+        if let Some(value) = object.get("capture_auth") {
+            patch.access.capture_auth = self.capture_auth(value);
+        }
         patch
+    }
+
+    fn sender_allow(&mut self, value: &Value) -> Option<SenderAllowList> {
+        let Value::Array(items) = value else {
+            self.push(
+                "sender_allow_cidrs",
+                FieldCode::InvalidFormat,
+                "must be an array of strings",
+            );
+            return None;
+        };
+        if items.len() > MAX_SENDER_RANGES {
+            self.push(
+                "sender_allow_cidrs",
+                FieldCode::TooMany,
+                format!("must have at most {MAX_SENDER_RANGES} entries"),
+            );
+            return None;
+        }
+        let mut ranges = Vec::with_capacity(items.len());
+        let mut valid = true;
+        for (index, item) in items.iter().enumerate() {
+            let field = format!("sender_allow_cidrs.{index}");
+            let Some(text) = item.as_str() else {
+                self.push(field, FieldCode::InvalidFormat, "must be a string");
+                valid = false;
+                continue;
+            };
+            match SenderRange::parse(text) {
+                Ok(range) => ranges.push(range),
+                Err(error) => {
+                    self.push(field, FieldCode::InvalidFormat, error.to_string());
+                    valid = false;
+                }
+            }
+        }
+        if !valid {
+            return None;
+        }
+        match SenderAllowList::new(ranges) {
+            Ok(list) => Some(list),
+            Err(error) => {
+                self.push("sender_allow_cidrs", FieldCode::TooMany, error.to_string());
+                None
+            }
+        }
+    }
+
+    fn capture_auth(&mut self, value: &Value) -> Option<Option<CaptureAuthInput>> {
+        if value.is_null() {
+            return Some(None);
+        }
+        let object = self.object(value, "capture_auth")?;
+        match object.get("kind").and_then(Value::as_str) {
+            Some("basic") => self.basic_auth(object).map(Some),
+            Some("header") => self.header_auth(object).map(Some),
+            _ => {
+                self.push(
+                    "capture_auth.kind",
+                    FieldCode::InvalidFormat,
+                    "must be basic or header",
+                );
+                None
+            }
+        }
+    }
+
+    fn basic_auth(&mut self, object: &Map<String, Value>) -> Option<CaptureAuthInput> {
+        self.unknown_keys(object, "capture_auth", BASIC_AUTH_KEYS);
+        let username = self
+            .required_text(object, "capture_auth", "username")
+            .and_then(|text| match AuthUsername::parse(&text) {
+                Ok(username) => Some(username),
+                Err(error) => {
+                    self.credential_violation("capture_auth.username", error);
+                    None
+                }
+            });
+        let password = self
+            .required_text(object, "capture_auth", "password")
+            .and_then(|text| self.credential("capture_auth.password", text, check_basic_password));
+        Some(CaptureAuthInput::Basic {
+            username: username?,
+            password: password?,
+        })
+    }
+
+    fn header_auth(&mut self, object: &Map<String, Value>) -> Option<CaptureAuthInput> {
+        self.unknown_keys(object, "capture_auth", HEADER_AUTH_KEYS);
+        let name = self
+            .required_text(object, "capture_auth", "name")
+            .and_then(|text| match AuthHeaderName::parse(&text) {
+                Ok(name) => Some(name),
+                Err(error) => {
+                    let code = match error {
+                        AuthHeaderNameError::Empty => FieldCode::Required,
+                        AuthHeaderNameError::TooLong => FieldCode::TooLong,
+                        AuthHeaderNameError::InvalidToken => FieldCode::InvalidFormat,
+                        AuthHeaderNameError::Denied => FieldCode::NotAllowed,
+                    };
+                    self.push("capture_auth.name", code, error.to_string());
+                    None
+                }
+            });
+        let value = self
+            .required_text(object, "capture_auth", "value")
+            .and_then(|text| self.credential("capture_auth.value", text, check_header_value));
+        Some(CaptureAuthInput::Header {
+            name: name?,
+            value: value?,
+        })
+    }
+
+    fn credential(
+        &mut self,
+        field: &str,
+        text: String,
+        check: fn(&str) -> Result<(), CredentialError>,
+    ) -> Option<Secret> {
+        if let Err(error) = check(&text) {
+            self.credential_violation(field, error);
+            return None;
+        }
+        match Secret::new(text) {
+            Ok(secret) => Some(secret),
+            Err(error) => {
+                self.push(field, FieldCode::InvalidFormat, error.to_string());
+                None
+            }
+        }
+    }
+
+    fn credential_violation(&mut self, field: &str, error: CredentialError) {
+        let code = match error {
+            CredentialError::Empty => FieldCode::Required,
+            CredentialError::TooLong => FieldCode::TooLong,
+            CredentialError::TooShort
+            | CredentialError::NotVisibleAscii
+            | CredentialError::NotPrintableAscii
+            | CredentialError::EdgeSpace
+            | CredentialError::Colon => FieldCode::InvalidFormat,
+        };
+        self.push(field, code, error.to_string());
     }
 
     fn tags(&mut self, value: &Value) -> Option<Vec<Tag>> {

@@ -17,6 +17,7 @@ use whl_core::capture_id::CaptureId;
 use whl_core::endpoint_id::EndpointId;
 use whl_core::entropy::IdGenerationError;
 use whl_core::limiter::Limiters;
+use whl_secrets::Keyring;
 use whl_store::Store;
 use whl_testkit::TestDb;
 
@@ -75,6 +76,12 @@ impl Harness {
 
     pub fn with_source(mut self, source: Arc<dyn CaptureSource>) -> Self {
         self.state = self.state.with_source(source);
+        self.router = router(self.state.clone());
+        self
+    }
+
+    pub fn with_secrets(mut self, keyring: Arc<Keyring>) -> Self {
+        self.state = self.state.with_secrets(keyring);
         self.router = router(self.state.clone());
         self
     }

@@ -7,7 +7,7 @@ use whl_auth::AccessControl;
 use whl_core::header::MAX_HEADERS;
 use whl_core::response::{MAX_BODY_BYTES as RESPONSE_BODY_BYTES, MAX_DELAY_MS};
 use whl_store::forward::ForwardRule;
-use whl_store::{EndpointRecord, EndpointRole, UserRecord};
+use whl_store::{CaptureAuthRecord, EndpointRecord, EndpointRole, UserRecord};
 
 use crate::forward::RuleDto;
 use crate::settings::ApiSettings;
@@ -128,8 +128,30 @@ pub struct EndpointDto {
     expires_at: Option<String>,
     retention: RetentionDto,
     capture_ttl_seconds: Option<i32>,
+    sender_allow_cidrs: Vec<String>,
+    capture_auth: Option<CaptureAuthDto>,
     owner: Option<UserDto>,
     my_role: Option<&'static str>,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum CaptureAuthDto {
+    Basic { username: String },
+    Header { name: String },
+}
+
+impl From<&CaptureAuthRecord> for CaptureAuthDto {
+    fn from(record: &CaptureAuthRecord) -> Self {
+        match record {
+            CaptureAuthRecord::Basic { username, .. } => Self::Basic {
+                username: username.unpack().to_owned(),
+            },
+            CaptureAuthRecord::Header { name, .. } => Self::Header {
+                name: name.unpack().to_owned(),
+            },
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -233,6 +255,18 @@ impl EndpointDto {
                 seconds: record.lifecycle.retention_seconds,
             },
             capture_ttl_seconds: record.lifecycle.capture_ttl_seconds,
+            sender_allow_cidrs: record
+                .access
+                .sender_allow
+                .ranges()
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+            capture_auth: record
+                .access
+                .capture_auth
+                .as_ref()
+                .map(CaptureAuthDto::from),
             owner: None,
             my_role: None,
         }

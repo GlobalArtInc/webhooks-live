@@ -3,16 +3,19 @@ use std::time::Duration;
 
 use axum::body::{Body, HttpBody};
 use axum::extract::{ConnectInfo, Request, State};
-use axum::http::header::{CONTENT_LENGTH, CONTENT_TYPE, HOST};
-use axum::http::{HeaderMap, Uri};
+use axum::http::header::{CONNECTION, CONTENT_LENGTH, CONTENT_TYPE, HOST};
+use axum::http::{HeaderMap, HeaderValue, Uri};
 use axum::response::Response;
 use bytes::Bytes;
 use whl_core::endpoint_id::{ENDPOINT_ID_LEN, EndpointId};
 use whl_core::status::status_override_from_path;
+use whl_store::CaptureAuthRecord;
 use whl_store::captures::{
     CaptureOutcome, CaptureStoreError, EndpointState, NameValue, NewCapture,
 };
+use whl_telemetry::series;
 
+use crate::access::{Admit, admit};
 use crate::body::{ReadFailure, read_body};
 use crate::client_ip::{ForwardedRequest, sanitize_host};
 use crate::form::{FormLimits, parse_form, parse_query};
@@ -20,6 +23,8 @@ use crate::refusal::{Failure, Refusal};
 use crate::response::{ReplyRequest, build_response};
 use crate::seams::Admission;
 use crate::state::CaptureState;
+
+const REDACTED_VALUE: &str = "[redacted]";
 
 pub(crate) async fn capture(State(state): State<CaptureState>, request: Request) -> Response {
     match run(&state, request).await {
@@ -49,15 +54,43 @@ async fn run(state: &CaptureState, request: Request) -> Result<Response, Failure
         return Err(early(Refusal::StorageFull));
     }
 
-    match state.store().endpoint_state(&id, state.policy()).await {
-        Ok(EndpointState::Live) => {
+    let admission = match state.store().endpoint_admission(&id, state.policy()).await {
+        Ok(admission) => admission,
+        Err(error) => return Err(early(store_refusal(&error))),
+    };
+    match admission.state {
+        EndpointState::Gone => return Err(early(Refusal::Gone(id))),
+        known @ (EndpointState::Live | EndpointState::Full) => {
+            let incoming = ReplyRequest {
+                method: &parts.method,
+                headers: &parts.headers,
+            };
+            let entry = admit(
+                &admission.access,
+                admission.cors,
+                &id,
+                forwarded.client_ip,
+                &incoming,
+                state.secrets(),
+            );
+            match entry.map_err(early)? {
+                Admit::Preflight(mut response) => {
+                    if unread {
+                        response
+                            .headers_mut()
+                            .insert(CONNECTION, HeaderValue::from_static("close"));
+                    }
+                    return Ok(response);
+                }
+                Admit::Proceed => {}
+            }
+            if known == EndpointState::Full {
+                return Err(early(Refusal::Full(id)));
+            }
             if let Admission::Limited { retry_after } = state.admit_endpoint(&id) {
                 return Err(early(Refusal::RateLimited { retry_after }));
             }
         }
-        Ok(EndpointState::Full) => return Err(early(Refusal::Full(id))),
-        Ok(EndpointState::Gone) => return Err(early(Refusal::Gone(id))),
-        Err(error) => return Err(early(store_refusal(&error))),
     }
 
     let declared = declared_length(&parts.headers, &body);
@@ -90,7 +123,14 @@ async fn run(state: &CaptureState, request: Request) -> Result<Response, Failure
         query_string: parts.uri.query().unwrap_or_default().to_owned(),
         host: host_of(&parts.uri, &parts.headers, &forwarded),
         client_ip: forwarded.client_ip,
-        headers: header_pairs(&parts.headers),
+        headers: header_pairs(
+            &parts.headers,
+            admission
+                .access
+                .capture_auth
+                .as_ref()
+                .map(CaptureAuthRecord::credential_header),
+        ),
         query: parse_query(parts.uri.query(), &limits),
         form,
         content_type,
@@ -117,6 +157,7 @@ async fn run(state: &CaptureState, request: Request) -> Result<Response, Failure
 
     match outcome {
         CaptureOutcome::Stored { endpoint, capture } => {
+            metrics::counter!(series::CAPTURES_TOTAL, "result" => "stored").increment(1);
             let reply = ReplyRequest {
                 method: &parts.method,
                 headers: &parts.headers,
@@ -171,12 +212,16 @@ fn first_header_text(headers: &HeaderMap, name: &str) -> Option<String> {
         .map(|value| String::from_utf8_lossy(value.as_bytes()).into_owned())
 }
 
-fn header_pairs(headers: &HeaderMap) -> Vec<NameValue> {
+fn header_pairs(headers: &HeaderMap, redacted: Option<&str>) -> Vec<NameValue> {
     headers
         .iter()
         .map(|(name, value)| NameValue {
             name: name.as_str().to_owned(),
-            value: String::from_utf8_lossy(value.as_bytes()).into_owned(),
+            value: if redacted == Some(name.as_str()) {
+                REDACTED_VALUE.to_owned()
+            } else {
+                String::from_utf8_lossy(value.as_bytes()).into_owned()
+            },
         })
         .collect()
 }

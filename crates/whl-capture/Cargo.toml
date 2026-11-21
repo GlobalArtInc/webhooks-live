@@ -7,6 +7,7 @@ publish.workspace = true
 
 [dependencies]
 axum.workspace = true
+base64.workspace = true
 bytes.workspace = true
 futures-util.workspace = true
 http-body-util.workspace = true
@@ -20,6 +21,7 @@ tower.workspace = true
 tracing.workspace = true
 url.workspace = true
 whl-core.workspace = true
+whl-secrets.workspace = true
 whl-store.workspace = true
 whl-telemetry.workspace = true
 

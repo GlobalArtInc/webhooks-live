@@ -11,6 +11,7 @@ use whl_core::capture_id::CaptureId;
 use whl_core::endpoint_id::EndpointId;
 use whl_core::status::HttpStatus;
 
+use crate::access::{AccessSettings, access_from_columns};
 use crate::kind::CaptureKind;
 use crate::store::Store;
 
@@ -32,7 +33,8 @@ const ENDPOINT_LIVE: &str = "SELECT 1 FROM endpoints \
      WHERE id = $1 AND deleted_at IS NULL \
      AND (never_expires OR last_active_at > now() - make_interval(secs => COALESCE(retention_seconds::float8, $2)))";
 
-const ENDPOINT_ADMISSION: &str = "SELECT (capture_count >= COALESCE(max_captures::bigint, $3) AND overflow <> 'ring') AS full \
+const ENDPOINT_ADMISSION: &str = "SELECT (capture_count >= COALESCE(max_captures::bigint, $3) AND overflow <> 'ring') AS full, \
+     cors, sender_allow_cidrs::text[] AS sender_allow_cidrs, capture_auth::text AS capture_auth \
      FROM endpoints \
      WHERE id = $1 AND deleted_at IS NULL \
      AND (never_expires OR last_active_at > now() - make_interval(secs => COALESCE(retention_seconds::float8, $2)))";
@@ -178,6 +180,13 @@ pub enum EndpointState {
     Live,
     Full,
     Gone,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EndpointAdmission {
+    pub state: EndpointState,
+    pub access: AccessSettings,
+    pub cors: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -391,6 +400,14 @@ impl Store {
         id: &EndpointId,
         policy: CapturePolicy,
     ) -> Result<EndpointState, CaptureStoreError> {
+        Ok(self.endpoint_admission(id, policy).await?.state)
+    }
+
+    pub async fn endpoint_admission(
+        &self,
+        id: &EndpointId,
+        policy: CapturePolicy,
+    ) -> Result<EndpointAdmission, CaptureStoreError> {
         let mut connection = self.acquire_capture_connection().await?;
         let query = sqlx::query(ENDPOINT_ADMISSION)
             .bind(id.unpack())
@@ -402,13 +419,30 @@ impl Store {
             .map_err(|_| CaptureStoreError::DeadlineExceeded)?
             .map_err(CaptureStoreError::classify)?;
         let Some(row) = row else {
-            return Ok(EndpointState::Gone);
+            return Ok(EndpointAdmission {
+                state: EndpointState::Gone,
+                access: AccessSettings::default(),
+                cors: false,
+            });
         };
         let full: bool = row.try_get("full").map_err(CaptureStoreError::classify)?;
-        Ok(if full {
-            EndpointState::Full
-        } else {
-            EndpointState::Live
+        let cors: bool = row.try_get("cors").map_err(CaptureStoreError::classify)?;
+        let ranges: Vec<String> = row
+            .try_get("sender_allow_cidrs")
+            .map_err(CaptureStoreError::classify)?;
+        let document: Option<String> = row
+            .try_get("capture_auth")
+            .map_err(CaptureStoreError::classify)?;
+        let access = access_from_columns(&ranges, document.as_deref())
+            .map_err(|error| CaptureStoreError::Corrupt(error.to_string()))?;
+        Ok(EndpointAdmission {
+            state: if full {
+                EndpointState::Full
+            } else {
+                EndpointState::Live
+            },
+            access,
+            cors,
         })
     }
 

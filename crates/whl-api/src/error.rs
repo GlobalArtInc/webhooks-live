@@ -5,7 +5,7 @@ use serde::Serialize;
 use time::OffsetDateTime;
 use whl_auth::AuthRejection;
 use whl_core::validation::{FieldPath, Violation, ViolationCode};
-use whl_secrets::{MAX_SECRETS_PER_ENDPOINT, SealError};
+use whl_secrets::{MAX_SECRETS_PER_ENDPOINT, MacError, SealError};
 use whl_store::MAX_FOLDERS_PER_USER;
 use whl_store::forward::ForwardStoreError;
 use whl_store::secrets::SecretStoreError;
@@ -163,6 +163,8 @@ pub enum ApiError {
     SecretStorage(SecretStoreError),
     #[error("a secret could not be sealed: {0}")]
     SecretSeal(SealError),
+    #[error("the capture authentication code could not be computed: {0}")]
+    CaptureAuthMac(MacError),
     #[error("the API token is not found")]
     TokenNotFound,
     #[error("the maximum number of active API tokens is reached")]
@@ -559,6 +561,15 @@ impl IntoResponse for ApiError {
             ),
             Self::SecretStorage(error) => {
                 tracing::error!(%error, "secret storage failed");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal_error",
+                    "the request could not be completed".to_owned(),
+                    None,
+                )
+            }
+            Self::CaptureAuthMac(error) => {
+                tracing::error!(%error, "the capture authentication code could not be computed");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "internal_error",

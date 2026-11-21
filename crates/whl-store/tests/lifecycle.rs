@@ -10,8 +10,8 @@ use whl_core::endpoint_id::EndpointId;
 use whl_core::response::ResponseConfig;
 use whl_store::captures::{CaptureOutcome, CapturePolicy, NewCapture};
 use whl_store::{
-    EndpointChange, EndpointSettings, Lifecycle, LifecycleError, LifecycleLimits, NewEndpoint,
-    Overflow, Store,
+    AccessSettings, EndpointChange, EndpointSettings, Lifecycle, LifecycleError, LifecycleLimits,
+    NewEndpoint, Overflow, Store,
 };
 use whl_testkit::TestDb;
 
@@ -53,13 +53,17 @@ async fn create(
     limit: u32,
 ) -> Result<EndpointId, LifecycleError> {
     let settings = settings(overflow);
+    let id = EndpointId::generate().expect("entropy");
+    let access = AccessSettings::default();
     store
         .create_endpoint_with_lifecycle(
             NewEndpoint {
+                id: &id,
                 owner,
                 creator_net: None,
                 settings: &settings,
                 lifecycle,
+                access: &access,
                 limits: limits(limit),
             },
             DEFAULT_RETENTION,
@@ -239,6 +243,7 @@ async fn parallel_updates_never_push_an_owner_past_the_never_expire_limit() {
                         Ok(EndpointChange {
                             settings: current.settings.clone(),
                             lifecycle: never(),
+                            access: current.access.clone(),
                         })
                     },
                 )
@@ -320,6 +325,7 @@ async fn an_update_keeps_an_existing_never_expire_flag_without_counting_it_again
                         ..current.settings.clone()
                     },
                     lifecycle: current.lifecycle,
+                    access: current.access.clone(),
                 })
             },
         )

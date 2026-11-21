@@ -203,6 +203,17 @@ async fn secrets(command: SecretsCommand) -> ExitCode {
         "done: rotated {}, skipped {} changed meanwhile, failed {}, {remaining} rows remain under another key",
         report.rotated, report.skipped, report.failed
     );
+    match whl_server::stale_capture_credentials(&store, Some(&keyring)).await {
+        Ok(stale) => {
+            for entry in &stale {
+                eprintln!("webhooks-live: {entry}");
+            }
+        }
+        Err(error) => {
+            tracing::error!(%error, "secrets rotate failed");
+            return ExitCode::FAILURE;
+        }
+    }
     if report.failed > 0 {
         eprintln!(
             "webhooks-live: {} secrets could not be rotated and were left untouched, see the warnings above",
