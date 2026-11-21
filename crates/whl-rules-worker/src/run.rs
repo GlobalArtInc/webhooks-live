@@ -149,12 +149,12 @@ impl Runner<'_> {
                     log.push(step_entry(
                         entry,
                         kind,
-                        Outcome::Ok,
+                        done.outcome,
                         elapsed,
                         done.detail,
                         Some(done.output),
                     ));
-                    count_step(kind, Outcome::Ok);
+                    count_step(kind, done.outcome);
                     if let Some(name) = &step.name {
                         let mut data = done.data.unwrap_or_default();
                         data.duration_ms = elapsed;

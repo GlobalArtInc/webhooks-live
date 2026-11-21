@@ -3,7 +3,7 @@ use std::time::Duration;
 use http::Method;
 use serde_json::json;
 use whl_forward::validate_target_url;
-use whl_rules::{BodySource, FailureCode, ForwardCall, OutboundDone};
+use whl_rules::{BodySource, FailureCode, ForwardCall, OutboundDone, Outcome};
 use whl_store::rule_exec::{EnqueueOutcome, ForwardStepJob};
 
 use crate::ids::step_id;
@@ -65,6 +65,7 @@ pub(crate) async fn execute(ctx: &Ctx<'_>, call: &ForwardCall, position: usize) 
         Ok(EnqueueOutcome::Queued) => {
             count(PURPOSE, "queued");
             StepAttempt::Done(Box::new(OutboundDone {
+                outcome: Outcome::Ok,
                 detail: None,
                 output: json!({"job_id": job.id.hyphenated().to_string()}),
                 data: None,

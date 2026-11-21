@@ -554,7 +554,7 @@ async fn a_rerun_is_refused_while_a_run_of_the_capture_is_still_active() {
 }
 
 #[tokio::test]
-async fn a_second_notify_step_to_the_same_channel_fails_instead_of_logging_a_missing_delivery() {
+async fn a_second_notify_step_to_the_same_channel_is_a_noop_that_says_nothing_was_sent() {
     let scene = scene().await;
     let own = channel(&scene, scene.endpoint.unpack()).await;
     scene
@@ -572,12 +572,56 @@ async fn a_second_notify_step_to_the_same_channel_fails_instead_of_logging_a_mis
     let run = scene.wait_for_final(&capture).await;
     worker.stop().await;
 
-    assert_eq!(run.state, "failed");
+    assert_eq!(run.state, "succeeded", "{:?}", run.error);
+    let steps = run.step_entries();
+    assert_eq!(steps[0]["outcome"], "ok");
+    assert_eq!(steps[1]["outcome"], "skipped");
     assert!(
-        run.error
-            .expect("the failure is recorded")
-            .contains("delivery_exists")
+        steps[1]["detail"]
+            .as_str()
+            .is_some_and(|detail| detail.contains("already exists"))
     );
+    assert_eq!(
+        scene
+            .count("SELECT count(*) FROM notification_deliveries")
+            .await,
+        1
+    );
+}
+
+#[tokio::test]
+async fn a_rerun_of_a_capture_whose_rule_notifies_succeeds_without_a_second_delivery() {
+    let scene = scene().await;
+    let own = channel(&scene, scene.endpoint.unpack()).await;
+    scene
+        .add_rule(
+            rule(vec![
+                json!({"kind": "notify", "channel_id": own.to_string()}),
+            ]),
+            &[],
+        )
+        .await;
+    let capture = scene.capture(Vec::new()).await;
+    let worker = start(&scene, loopback_guard(), settings(), None);
+    let original = scene.wait_for_final(&capture).await;
+    assert_eq!(original.state, "succeeded", "{:?}", original.error);
+
+    let created = scene
+        .store
+        .create_rule_rerun(
+            &scene.endpoint,
+            common::RETENTION,
+            capture.unpack(),
+            Uuid::now_v7(),
+        )
+        .await
+        .expect("the rerun is requested");
+    assert!(matches!(created, RerunOutcome::Created(_)), "{created:?}");
+    let rerun = scene.wait_for_rerun(&capture).await;
+    worker.stop().await;
+
+    assert_eq!(rerun.state, "succeeded", "{:?}", rerun.error);
+    assert_eq!(rerun.step_entries()[0]["outcome"], "skipped");
     assert_eq!(
         scene
             .count("SELECT count(*) FROM notification_deliveries")

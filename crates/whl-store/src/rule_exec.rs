@@ -32,6 +32,8 @@ const CLAIM: &str = "WITH busy AS ( \
          AND ((r.state = 'queued' AND r.next_attempt_at <= now()) \
            OR (r.state IN ('sync', 'running') AND r.locked_until < now())) \
          AND NOT EXISTS ( \
+           SELECT 1 FROM endpoints e WHERE e.id = r.endpoint_id AND e.deleted_at IS NOT NULL) \
+         AND NOT EXISTS ( \
            SELECT 1 FROM busy b WHERE b.endpoint_id = r.endpoint_id AND b.running >= $2::int4) \
        ORDER BY r.next_attempt_at, r.id \
        LIMIT $1::bigint * 32), \
@@ -346,6 +348,7 @@ pub enum EnqueueOutcome {
     RuleNotFound,
     ChannelNotFound,
     ChannelDisabled,
+    AlreadyDelivered,
     DeliveryExists,
 }
 
@@ -893,7 +896,20 @@ impl Store {
             .await
             .map_err(classify)?;
             if !own {
-                return Ok(EnqueueOutcome::DeliveryExists);
+                let paired: bool = sqlx::query_scalar(
+                    "SELECT EXISTS (SELECT 1 FROM notification_deliveries \
+                     WHERE channel_id = $1 AND capture_id = $2 AND kind = 'single')",
+                )
+                .bind(delivery.channel)
+                .bind(delivery.capture)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(classify)?;
+                return Ok(if paired {
+                    EnqueueOutcome::AlreadyDelivered
+                } else {
+                    EnqueueOutcome::DeliveryExists
+                });
             }
         }
         tx.commit().await.map_err(classify)?;

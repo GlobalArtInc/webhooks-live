@@ -105,6 +105,7 @@ fn drive(
 
 fn done(status: u16) -> Result<OutboundDone, Failure> {
     Ok(OutboundDone {
+        outcome: Outcome::Ok,
         detail: None,
         output: json!({"status": status}),
         data: Some(StepData {
@@ -344,6 +345,7 @@ fn a_notify_step_carries_the_rendered_message_and_a_forward_step_its_payload() {
 
     let report = run_after(&rules, context(), 0, |_| {
         Ok(OutboundDone {
+            outcome: Outcome::Ok,
             detail: None,
             output: json!({}),
             data: None,

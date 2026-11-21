@@ -9,7 +9,7 @@ use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
 use url::Url;
 use whl_forward::{ForwardError, HOP_HEADER, OutboundRequest, validate_target_url};
-use whl_rules::{FailureCode, OutboundDone, S3Content, StoreS3Call, bound_text};
+use whl_rules::{FailureCode, OutboundDone, Outcome, S3Content, StoreS3Call, bound_text};
 use whl_store::CaptureDetail;
 
 use crate::http::{DELIVERY_HEADER, describe, is_retryable_error, is_retryable_status};
@@ -299,6 +299,7 @@ pub(crate) async fn execute(
             if (200..300).contains(&status) {
                 count(PURPOSE, "sent");
                 return StepAttempt::Done(Box::new(OutboundDone {
+                    outcome: Outcome::Ok,
                     detail: None,
                     output: json!({
                         "status": status,
