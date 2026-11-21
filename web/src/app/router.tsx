@@ -3,6 +3,7 @@ import {
   createRoute,
   createRootRouteWithContext,
   createRouter,
+  lazyRouteComponent,
   notFound,
   redirect,
   type RouterHistory,
@@ -21,6 +22,7 @@ import { SettingsIndexScreen } from '../routes/settings/SettingsIndexScreen';
 import { SettingsSectionScreen } from '../routes/settings/SettingsSectionScreen';
 import { SignInScreen } from '../routes/signin/SignInScreen';
 import { validateCaptureSearch } from '../features/filters/captureSearch';
+import { validateComposeSearch } from '../features/composer/search';
 import { isCaptureId, isEndpointId } from './ids';
 import { ensureEndpoint } from './endpointQuery';
 import { isWorkspaceSectionId } from '../features/workspace/sections';
@@ -101,6 +103,13 @@ const settingsRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/settings',
   component: SettingsScreen,
+});
+
+const composeRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/send',
+  validateSearch: validateComposeSearch,
+  component: lazyRouteComponent(() => import('../routes/compose/ComposeScreen'), 'ComposeScreen'),
 });
 
 const endpointRoute = createRoute({
@@ -189,6 +198,7 @@ const routeTree = rootRoute.addChildren([
     endpointsRoute,
     signInRoute,
     settingsRoute,
+    composeRoute,
     endpointRoute.addChildren([
       captureRoute,
       endpointSettingsRoute.addChildren([settingsIndexRoute, settingsSectionRoute]),

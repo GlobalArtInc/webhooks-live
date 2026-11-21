@@ -7,6 +7,7 @@ import type {
   EndpointInput,
   EndpointListQuery,
   EndpointPage,
+  ErrorLimit,
   FieldError,
   ForwardJob,
   ForwardRequest,
@@ -16,6 +17,10 @@ import type {
   Member,
   MemberInput,
   MemberList,
+  SendRequest,
+  SendResult,
+  SentRequestPage,
+  SentRequestQuery,
 } from './types';
 
 export const API_PREFIX = '/api/v1';
@@ -38,6 +43,7 @@ interface ApiErrorInit {
   message: string;
   details: FieldError[];
   retryAfter: number | null;
+  limit?: ErrorLimit | null;
 }
 
 export class ApiError extends Error {
@@ -45,6 +51,7 @@ export class ApiError extends Error {
   readonly code: string | null;
   readonly details: FieldError[];
   readonly retryAfter: number | null;
+  readonly limit: ErrorLimit | null;
 
   constructor(init: ApiErrorInit) {
     super(init.message);
@@ -53,6 +60,7 @@ export class ApiError extends Error {
     this.code = init.code;
     this.details = init.details;
     this.retryAfter = init.retryAfter;
+    this.limit = init.limit ?? null;
   }
 }
 
@@ -60,12 +68,14 @@ interface RequestOptions {
   method: HttpMethod;
   query?: QueryParams;
   body?: unknown;
+  signal?: AbortSignal;
 }
 
 interface ParsedError {
   code: string | null;
   message: string | null;
   fields: FieldError[];
+  limit: ErrorLimit | null;
 }
 
 let rateLimitObserver: RateLimitObserver | null = null;
@@ -107,6 +117,13 @@ function readFieldErrors(value: unknown): FieldError[] {
   return fields;
 }
 
+function readErrorLimit(value: unknown): ErrorLimit | null {
+  if (!isRecord(value) || typeof value.name !== 'string' || typeof value.max !== 'number') {
+    return null;
+  }
+  return { name: value.name, max: value.max };
+}
+
 function parseErrorBody(text: string): ParsedError | null {
   let parsed: unknown;
   try {
@@ -122,6 +139,7 @@ function parseErrorBody(text: string): ParsedError | null {
     code: typeof error.code === 'string' ? error.code : null,
     message: typeof error.message === 'string' ? error.message : null,
     fields: readFieldErrors(error.fields),
+    limit: readErrorLimit(error.limit),
   };
 }
 
@@ -134,6 +152,7 @@ async function readApiError(response: Response): Promise<ApiError> {
     message: parsed?.message ?? `Request failed with status ${response.status}`,
     details: parsed?.fields ?? [],
     retryAfter: parseNonNegativeInteger(response.headers.get('Retry-After')),
+    limit: parsed?.limit ?? null,
   });
 }
 
@@ -161,6 +180,7 @@ async function send(path: string, options: RequestOptions): Promise<Response> {
     headers,
     body,
     credentials: 'same-origin',
+    signal: options.signal,
   });
   observeRateLimit(response.headers);
   if (!response.ok) {
@@ -280,4 +300,16 @@ export function patchForwardRule(
 
 export function deleteForwardRule(endpointId: string, ruleId: string): Promise<void> {
   return requestEmpty(`${endpointPath(endpointId)}/forward-rules/${encodeURIComponent(ruleId)}`, { method: 'DELETE' });
+}
+
+export function sendRequest(input: SendRequest, signal?: AbortSignal): Promise<SendResult> {
+  return requestJson<SendResult>('/send', { method: 'POST', body: input, signal });
+}
+
+export function listSentRequests(query: SentRequestQuery = {}): Promise<SentRequestPage> {
+  return requestJson<SentRequestPage>('/send/history', { method: 'GET', query: { ...query } });
+}
+
+export function deleteSentRequest(sentId: string): Promise<void> {
+  return requestEmpty(`/send/history/${encodeURIComponent(sentId)}`, { method: 'DELETE' });
 }

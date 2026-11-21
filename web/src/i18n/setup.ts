@@ -1,6 +1,7 @@
 import { createInstance, type i18n as I18nInstance } from 'i18next';
 import type { BundleLoader, BundleLoaders, Dictionary } from './bundles';
 import common from './en/common.json';
+import composer from './en/composer.json';
 import detail from './en/detail.json';
 import diff from './en/diff.json';
 import editor from './en/editor.json';
@@ -26,6 +27,7 @@ export function createI18nInstance(): I18nInstance {
       [SOURCE_LANGUAGE]: {
         translation: {
           ...common,
+          ...composer,
           ...detail,
           ...diff,
           ...editor,

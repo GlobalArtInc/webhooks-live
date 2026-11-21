@@ -44,6 +44,9 @@ export function EndpointRail() {
         {isPending ? t('wl.home.create.busy') : t('wl.home.rail.new')}
       </button>
       {error !== null && !isPending && <CreateErrorNotice error={error} onRetry={() => create({})} />}
+      <Link to="/send" className={styles.link} activeProps={{ className: styles.active }}>
+        {t('wl.composer.rail')}
+      </Link>
       {sorted.length === 0 && <p className={styles.empty}>{t('wl.home.rail.empty')}</p>}
       <ul id={listId} className={styles.list}>
         {sorted.map((entry) => (
