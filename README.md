@@ -29,3 +29,19 @@ Containerfile container image build
 ```
 
 The Helm chart lives in the GlobalArt helm-charts repository. The layout is described in [docs/architecture.md](docs/architecture.md).
+
+## Quick start
+
+The image is `globalartltd/webhooks-live` on Docker Hub (linux/amd64). It needs a PostgreSQL database and two variables: `WEBHOOKS_LIVE_PUBLIC_URL` (the public URL that webhook senders use) and `WEBHOOKS_LIVE_DATABASE_URL` (the PostgreSQL connection string).
+
+```sh
+export WEBHOOKS_LIVE_PUBLIC_URL=https://hooks.example.com
+export WEBHOOKS_LIVE_DATABASE_URL=postgres://user:password@db-host:5432/webhooks_live
+
+docker run --rm -e WEBHOOKS_LIVE_PUBLIC_URL -e WEBHOOKS_LIVE_DATABASE_URL globalartltd/webhooks-live:latest migrate up
+docker run -d -p 8080:8080 -p 9090:9090 -e WEBHOOKS_LIVE_PUBLIC_URL -e WEBHOOKS_LIVE_DATABASE_URL globalartltd/webhooks-live:latest
+```
+
+Run `migrate up` once before the first start and again after each upgrade. Port 8080 serves the interface and receives captured requests. Port 9090 is the admin listener (`/healthz`, `/readyz`, `/metrics`) and should not be exposed publicly.
+
+The full configuration table is in [docs/architecture.md](docs/architecture.md), section 11.
