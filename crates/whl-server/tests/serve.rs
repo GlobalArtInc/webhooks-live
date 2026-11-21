@@ -7,6 +7,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::oneshot;
 use whl_core::config::Config;
+use whl_server::ServerError;
+use whl_store::{Store, StoreError};
+use whl_testkit::TestDb;
 
 struct Reply {
     status: u16,
@@ -24,13 +27,13 @@ async fn get(addr: SocketAddr, path: &str) -> io::Result<Reply> {
     let text = String::from_utf8_lossy(&raw).into_owned();
     let (head, body) = text
         .split_once("\r\n\r\n")
-        .expect("response has a header block");
+        .ok_or_else(|| io::Error::other("response has no header block"))?;
     let status = head
         .lines()
         .next()
         .and_then(|line| line.split_whitespace().nth(1))
         .and_then(|code| code.parse().ok())
-        .expect("response has a status code");
+        .ok_or_else(|| io::Error::other("response has no status code"))?;
     let content_type = head
         .lines()
         .find_map(|line| {
@@ -48,12 +51,12 @@ async fn get(addr: SocketAddr, path: &str) -> io::Result<Reply> {
 }
 
 #[allow(clippy::result_large_err)]
-fn load_config() -> Config {
+fn load_config(database_url: &str) -> Config {
     let mut result = None;
     Jail::expect_with(|jail| {
         let vars = [
             ("WEBHOOKS_LIVE_PUBLIC_URL", "http://127.0.0.1"),
-            ("WEBHOOKS_LIVE_DATABASE_URL", "postgres://u:p@localhost/db"),
+            ("WEBHOOKS_LIVE_DATABASE_URL", database_url),
             ("WEBHOOKS_LIVE_LISTEN_ADDR", "127.0.0.1:0"),
             ("WEBHOOKS_LIVE_ADMIN_ADDR", "127.0.0.1:0"),
             ("WEBHOOKS_LIVE_SHUTDOWN_DRAIN", "1s"),
@@ -70,22 +73,41 @@ fn load_config() -> Config {
         .expect("test configuration loads")
 }
 
+async fn wait_ready(admin: SocketAddr) {
+    for _ in 0..500 {
+        let ready = get(admin, "/readyz")
+            .await
+            .is_ok_and(|reply| reply.status == 200);
+        if ready {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("readyz never answered 200");
+}
+
 #[tokio::test]
 async fn serves_probes_and_drains_when_shutdown_fires() {
-    let bound = whl_server::bind(&load_config())
+    let db = TestDb::new().await;
+    let config = load_config(db.url());
+    let store = Store::connect(&config.database)
+        .await
+        .expect("the test database accepts connections");
+    let bound = whl_server::bind(&config)
         .await
         .expect("ephemeral ports bind");
     let public = bound.public_addr();
     let admin = bound.admin_addr();
 
     let (trigger, stop) = oneshot::channel::<()>();
-    let server = tokio::spawn(bound.serve(async {
+    let server = tokio::spawn(bound.serve(store, async {
         let _ = stop.await;
     }));
 
     let healthz = get(admin, "/healthz").await.expect("admin answers");
     assert_eq!((healthz.status, healthz.body.as_str()), (200, "ok"));
 
+    wait_ready(admin).await;
     let readyz = get(admin, "/readyz").await.expect("admin answers");
     assert_eq!((readyz.status, readyz.body.as_str()), (200, "ok"));
 
@@ -128,12 +150,58 @@ async fn serves_probes_and_drains_when_shutdown_fires() {
 
 #[tokio::test]
 async fn run_returns_ok_when_the_shutdown_future_completes() {
+    let db = TestDb::new().await;
     let result = tokio::time::timeout(
         Duration::from_secs(5),
-        whl_server::run(load_config(), async {}),
+        whl_server::run(load_config(db.url()), async {}),
     )
     .await
     .expect("run returns within the grace period");
 
     result.expect("run exits cleanly");
+}
+
+#[tokio::test]
+async fn never_reports_ready_while_a_migration_is_missing() {
+    let db = TestDb::new().await;
+    Store::from_pool(db.pool().clone())
+        .migrate_down()
+        .await
+        .expect("the last migration takes back");
+    let config = load_config(db.url());
+    let store = Store::connect(&config.database)
+        .await
+        .expect("the test database accepts connections");
+    let bound = whl_server::bind(&config)
+        .await
+        .expect("ephemeral ports bind");
+    let admin = bound.admin_addr();
+
+    let server = tokio::spawn(bound.serve(store, std::future::pending::<()>()));
+    let probing = async {
+        while !server.is_finished() {
+            if let Ok(reply) = get(admin, "/readyz").await {
+                assert_ne!(
+                    reply.status, 200,
+                    "readyz answered 200 while a migration is missing"
+                );
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(5), probing)
+        .await
+        .expect("serve returns once the schema check fails");
+
+    let outcome = tokio::time::timeout(Duration::from_secs(5), server)
+        .await
+        .expect("serve returns once the schema check fails")
+        .expect("server task joins");
+    assert!(
+        matches!(
+            outcome,
+            Err(ServerError::Database(StoreError::SchemaBehind { .. }))
+        ),
+        "{outcome:?}"
+    );
 }

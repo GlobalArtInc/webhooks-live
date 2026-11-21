@@ -12,6 +12,7 @@ use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 use whl_core::config::Config;
+use whl_store::Store;
 
 pub use error::ServerError;
 pub use signal::shutdown_signal;
@@ -38,10 +39,10 @@ impl Bound {
 
     pub async fn serve(
         self,
+        store: Store,
         shutdown: impl Future<Output = ()> + Send + 'static,
     ) -> Result<(), ServerError> {
         let readiness = Arc::new(Readiness::default());
-        readiness.mark_ready();
         tracing::info!(public = %self.public_addr, admin = %self.admin_addr, "listening");
 
         let (stop_tx, stop_rx) = watch::channel(false);
@@ -59,6 +60,21 @@ impl Bound {
         });
 
         tokio::pin!(shutdown);
+        let checked = tokio::select! {
+            outcome = store.check_schema_version() => outcome,
+            outcome = &mut serving => return joined(outcome),
+            () = &mut shutdown => {
+                let _ = stop_tx.send(true);
+                return joined(serving.await);
+            }
+        };
+        if let Err(error) = checked {
+            let _ = stop_tx.send(true);
+            let _ = serving.await;
+            return Err(error.into());
+        }
+        readiness.mark_ready();
+
         tokio::select! {
             () = &mut shutdown => {}
             outcome = &mut serving => return joined(outcome),
@@ -98,7 +114,8 @@ pub async fn run(
     config: Config,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> Result<(), ServerError> {
-    bind(&config).await?.serve(shutdown).await
+    let store = Store::connect(&config.database).await?;
+    bind(&config).await?.serve(store, shutdown).await
 }
 
 async fn bind_listener(

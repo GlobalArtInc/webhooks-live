@@ -2,9 +2,12 @@ use std::io;
 use std::net::SocketAddr;
 
 use tokio::task::JoinError;
+use whl_store::StoreError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ServerError {
+    #[error("cannot prepare the database: {0}")]
+    Database(#[from] StoreError),
     #[error("cannot bind the {listener} listener on {addr}: {source}")]
     Bind {
         listener: &'static str,
