@@ -1,0 +1,181 @@
+name: CLI release
+
+on:
+  push:
+    tags: ["cli-v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cli-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  BINARY: webhooks-live-cli
+
+jobs:
+  build:
+    name: Build ${{ matrix.asset }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            asset: linux-amd64
+            static: true
+            smoke: true
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-24.04-arm
+            asset: linux-arm64
+            static: true
+            smoke: true
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            asset: macos-arm64
+            static: false
+            smoke: true
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            asset: macos-amd64
+            static: false
+            smoke: false
+
+    steps:
+      - name: Check the tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if ! [[ "$TAG" =~ ^cli-v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "the tag $TAG is not cli-vMAJOR.MINOR.PATCH[-suffix]" >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@v7.0.1
+
+      - name: Install the toolchain from rust-toolchain.toml
+        run: |
+          rustup toolchain install
+          rustup target add "$TARGET"
+          rustc --version
+          cargo --version
+        env:
+          TARGET: ${{ matrix.target }}
+
+      - name: Install musl-gcc
+        if: matrix.static
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+          echo "CC_${TARGET//-/_}=musl-gcc" >> "$GITHUB_ENV"
+
+      - name: Check that the tag matches the crate version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          crate_version="$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "whl-cli") | .version')"
+          tag_version="${TAG#cli-v}"
+          if [ "$crate_version" != "$tag_version" ]; then
+            echo "the tag says $tag_version but whl-cli is $crate_version" >&2
+            exit 1
+          fi
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: cli-${{ matrix.target }}
+
+      - name: Build
+        env:
+          TARGET: ${{ matrix.target }}
+        run: cargo build --locked --release -p whl-cli --target "$TARGET"
+
+      - name: Check that the Linux binary is static
+        if: matrix.static
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          binary="target/$TARGET/release/$BINARY"
+          file "$binary"
+          if readelf -d "$binary" | grep -q '(NEEDED)'; then
+            echo "the binary needs shared libraries" >&2
+            exit 1
+          fi
+          if readelf -lW "$binary" | grep -q INTERP; then
+            echo "the binary names a dynamic loader" >&2
+            exit 1
+          fi
+
+      - name: Run the binary
+        if: matrix.smoke
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          "target/$TARGET/release/$BINARY" --version
+          "target/$TARGET/release/$BINARY" forward --help > /dev/null
+
+      - name: Package
+        env:
+          TARGET: ${{ matrix.target }}
+          ASSET: ${{ matrix.asset }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#cli-v}"
+          name="$BINARY-$version-$ASSET"
+          mkdir "$name"
+          cp "target/$TARGET/release/$BINARY" "$name/$BINARY"
+          tar -czf "$name.tar.gz" "$name"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: archive-${{ matrix.asset }}
+          path: ${{ env.BINARY }}-*-${{ matrix.asset }}.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: Publish the release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: archive-*
+          path: archives
+          merge-multiple: true
+
+      - name: Write the checksums
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#cli-v}"
+          cd archives
+          test "$(find . -maxdepth 1 -name "$BINARY-*.tar.gz" | wc -l)" -eq 4
+          sha256sum "$BINARY"-*.tar.gz > "$BINARY-$version-checksums.txt"
+          cat "$BINARY-$version-checksums.txt"
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          flags=()
+          if [[ "$TAG" == *-* ]]; then
+            flags+=(--prerelease)
+          fi
+          gh release create "$TAG" archives/* \
+            --verify-tag \
+            --title "Command-line forwarder ${TAG#cli-v}" \
+            --generate-notes \
+            "${flags[@]}"

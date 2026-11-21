@@ -1,0 +1,31 @@
+[package]
+name = "whl-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "Command-line forwarder that replays the captures of a webhooks.live endpoint to a local URL"
+
+[lib]
+name = "whl_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "webhooks-live-cli"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true, features = ["env"] }
+rand.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+axum.workspace = true
+bytes.workspace = true
+futures-util.workspace = true
+tokio = { workspace = true, features = ["process"] }
