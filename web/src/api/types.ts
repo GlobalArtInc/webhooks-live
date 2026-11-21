@@ -250,6 +250,22 @@ export interface EndpointListQuery {
   role?: EndpointRoleFilter;
 }
 
+export type ExportFormat = 'json' | 'ndjson' | 'csv' | 'zip';
+
+export interface CaptureExportQuery extends Pick<CaptureListFilters, 'method' | 'status' | 'q' | 'since' | 'until'> {
+  format: ExportFormat;
+}
+
+export interface CaptureExportInput {
+  format: ExportFormat;
+  capture_ids: string[];
+}
+
+export interface CaptureExportFile {
+  blob: Blob;
+  contentDisposition: string | null;
+}
+
 export interface CaptureBodyOptions {
   view?: 'text';
   download?: boolean;

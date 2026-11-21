@@ -1,7 +1,9 @@
 import { http, HttpResponse, type HttpHandler } from 'msw';
 import type {
   Capture,
+  CaptureExportInput,
   Endpoint,
+  ExportFormat,
   EndpointInput,
   ForwardJob,
   ForwardRequest,
@@ -41,6 +43,14 @@ const MEMBERS = '/api/v1/endpoints/:endpointId/members';
 const MEMBER = '/api/v1/endpoints/:endpointId/members/:userId';
 const CAPTURES = '/api/v1/endpoints/:endpointId/captures';
 const LATEST = '/api/v1/endpoints/:endpointId/captures/latest';
+const EXPORT = '/api/v1/endpoints/:endpointId/export';
+const MOCK_EXPORT_LIMIT = 500;
+const EXPORT_CONTENT_TYPES: Readonly<Record<ExportFormat, string>> = {
+  json: 'application/json',
+  ndjson: 'application/x-ndjson',
+  csv: 'text/csv; charset=utf-8',
+  zip: 'application/zip',
+};
 const CAPTURE = '/api/v1/endpoints/:endpointId/captures/:captureId';
 const CAPTURE_BODY = '/api/v1/endpoints/:endpointId/captures/:captureId/body';
 const CAPTURE_FORWARD = '/api/v1/endpoints/:endpointId/captures/:captureId/forward';
@@ -409,6 +419,27 @@ export const handlers: HttpHandler[] = [
     }
     const latest = mockStore.captures.get(params.endpointId)?.at(-1);
     return latest === undefined ? captureMissing() : jsonResponse(latest);
+  }),
+
+  http.post<EndpointPath>(EXPORT, async ({ params, request }) => {
+    if (!mockStore.endpoints.has(params.endpointId)) {
+      return endpointMissing();
+    }
+    const input = await readJsonBody<CaptureExportInput>(request);
+    if (input === null) {
+      return errorResponse(422, 'validation_failed', 'The request body is not valid JSON.');
+    }
+    if (input.capture_ids.length > MOCK_EXPORT_LIMIT) {
+      return errorResponse(422, 'export_too_large', 'The selection is above the export size.');
+    }
+    return new HttpResponse(`webhooks-live export ${input.format}`, {
+      headers: {
+        ...API_HEADERS,
+        'Content-Type': EXPORT_CONTENT_TYPES[input.format],
+        'Content-Disposition': `attachment; filename="webhooks-live-${params.endpointId}-20261121101000.${input.format}"`,
+        'X-Content-Type-Options': 'nosniff',
+      },
+    });
   }),
 
   http.get<CapturePath>(CAPTURE, ({ params }) => {
