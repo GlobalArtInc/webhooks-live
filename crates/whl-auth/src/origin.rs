@@ -10,10 +10,12 @@ use axum::response::{IntoResponse, Response};
 use tower::{Layer, Service};
 use url::Url;
 
+use crate::api_token::bearer;
 use crate::cookies::CookiePolicy;
 use crate::error::AuthRejection;
 
-const GUARDED_PREFIXES: [&str; 2] = ["/api", "/auth"];
+const API_PREFIX: &str = "/api";
+const GUARDED_PREFIXES: [&str; 2] = [API_PREFIX, "/auth"];
 
 #[derive(Debug)]
 struct Policy {
@@ -40,6 +42,9 @@ impl OriginCheck {
         if is_safe(method) || !is_guarded(path) {
             return true;
         }
+        if is_api(path) && bearer(headers).is_present() {
+            return true;
+        }
         if headers.get_all(header::ORIGIN).iter().count() > 1 {
             return false;
         }
@@ -52,6 +57,11 @@ impl OriginCheck {
 
 fn is_safe(method: &Method) -> bool {
     matches!(*method, Method::GET | Method::HEAD | Method::OPTIONS)
+}
+
+fn is_api(path: &str) -> bool {
+    path.strip_prefix(API_PREFIX)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
 }
 
 fn is_guarded(path: &str) -> bool {

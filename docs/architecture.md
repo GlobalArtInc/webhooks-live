@@ -614,6 +614,11 @@ operator may not have).
 | Extraction | `Authorization: Bearer` present: token path only, cookies ignored, CSRF origin check skipped (no ambient credential). Unknown, expired or revoked: 401 `invalid_token`, never a fallback to the cookie. |
 | Bookkeeping | `last_used_at` written at most once a minute per token. Rate limiter keyed by token id with the API limits. |
 | Expiry | Required, 1–365 days, default 90. The maintenance job deletes tokens 30 days after expiry or revocation. |
+| Scope map | `GET`/`HEAD` and both streams: `read`. `PATCH`/`DELETE` of an endpoint, `POST /endpoints`, secret `PUT`/`DELETE`: `endpoints:write`. Capture `DELETE`: `captures:write`. Forward rule `POST`/`PATCH`/`DELETE`: `rules:write`. Capture forward and resend: `send`. Claim, members, tokens and every unlisted route or method: session only. A missing scope or an endpoint outside the limit answers 403 `insufficient_scope` before any endpoint is looked up. |
+| Endpoint limit | A limited token sees only its endpoints in the listing, cannot create endpoints, and is refused on any other endpoint. |
+| Lookup | `prefix` is indexed, not unique; every row with the prefix is compared with the SHA-256 in constant time, an unknown prefix costs the same comparison against a dummy, and the expiry and revocation checks run after it, so unknown, wrong, expired, revoked and malformed tokens share one 401 body. |
+| Creation limits | At most 20 active tokens and 10 creations per hour per user, counted under the user row lock; 422 `limit_reached`, 429 `quota_exceeded`. |
+| Rate limit | One limiter per token id with the `api_ip` rate, applied after the token resolves; a stream re-check does not count. |
 
 **API CORS.** `/api/v1/*` answers preflights with `204`, `Access-Control-Allow-Origin: *`,
 `Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE`, `Access-Control-Allow-Headers: Authorization,

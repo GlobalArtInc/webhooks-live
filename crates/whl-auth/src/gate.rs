@@ -12,9 +12,12 @@ use axum::response::{IntoResponse, Response};
 use whl_core::client_ip::TrustedProxies;
 use whl_core::creator_net::CreatorNet;
 use whl_core::endpoint_id::EndpointId;
-use whl_store::{EndpointRole, EndpointStanding, UserRecord, Uuid};
+use whl_core::limiter::{Limiters, Verdict, whole_seconds_up};
+use whl_store::{EndpointRole, EndpointStanding, TokenScope, UserRecord, Uuid};
+use whl_telemetry::series;
 
 use crate::access::decide_access;
+use crate::api_token::{self, BearerHeader, TokenGrant};
 use crate::current_user::CurrentUser;
 use crate::error::{AccessDenied, AuthRejection};
 use crate::state::AuthState;
@@ -49,19 +52,31 @@ pub enum Caller {
         user: CurrentUser,
         ip: Option<IpAddr>,
     },
+    Token {
+        user: CurrentUser,
+        token: TokenGrant,
+        ip: Option<IpAddr>,
+    },
 }
 
 impl Caller {
     pub fn user(&self) -> Option<&UserRecord> {
         match self {
             Self::Anonymous { .. } => None,
-            Self::Session { user, .. } => Some(user.unpack()),
+            Self::Session { user, .. } | Self::Token { user, .. } => Some(user.unpack()),
+        }
+    }
+
+    pub fn token(&self) -> Option<&TokenGrant> {
+        match self {
+            Self::Token { token, .. } => Some(token),
+            Self::Anonymous { .. } | Self::Session { .. } => None,
         }
     }
 
     pub fn ip(&self) -> Option<IpAddr> {
         match self {
-            Self::Anonymous { ip } | Self::Session { ip, .. } => *ip,
+            Self::Anonymous { ip } | Self::Session { ip, .. } | Self::Token { ip, .. } => *ip,
         }
     }
 
@@ -92,6 +107,7 @@ pub enum Creation {
     Anonymous { network: Option<CreatorNet> },
 }
 
+#[derive(Clone)]
 enum Mode {
     Open,
     Sso {
@@ -107,6 +123,7 @@ enum Mode {
 struct Inner {
     mode: Mode,
     proxies: TrustedProxies,
+    limiters: Option<Limiters>,
 }
 
 #[derive(Clone)]
@@ -140,24 +157,28 @@ impl AccessControl {
             inner: Arc::new(Inner {
                 mode,
                 proxies: TrustedProxies::default(),
+                limiters: None,
             }),
         }
     }
 
     pub fn with_proxies(self, proxies: TrustedProxies) -> Self {
-        let mode = match &self.inner.mode {
-            Mode::Open => Mode::Open,
-            Mode::Sso { auth, retention } => Mode::Sso {
-                auth: auth.clone(),
-                retention: *retention,
-            },
-            Mode::Mixed { auth, retention } => Mode::Mixed {
-                auth: auth.clone(),
-                retention: *retention,
-            },
-        };
         Self {
-            inner: Arc::new(Inner { mode, proxies }),
+            inner: Arc::new(Inner {
+                mode: self.inner.mode.clone(),
+                proxies,
+                limiters: self.inner.limiters.clone(),
+            }),
+        }
+    }
+
+    pub fn with_token_limits(self, limiters: Limiters) -> Self {
+        Self {
+            inner: Arc::new(Inner {
+                mode: self.inner.mode.clone(),
+                proxies: self.inner.proxies.clone(),
+                limiters: Some(limiters),
+            }),
         }
     }
 
@@ -205,6 +226,10 @@ impl AccessControl {
         let Some(auth) = self.auth() else {
             return Ok(Caller::Anonymous { ip });
         };
+        if let BearerHeader::Present(secret) = api_token::bearer(headers) {
+            let (user, token) = api_token::resolve(auth.store(), secret.as_ref()).await?;
+            return Ok(Caller::Token { user, token, ip });
+        }
         Ok(match auth.resolve_user(headers).await? {
             Some(user) => Caller::Session {
                 user: CurrentUser::new(user),
@@ -214,11 +239,20 @@ impl AccessControl {
         })
     }
 
+    pub fn token_covers(&self, caller: &Caller, scope: TokenScope) -> bool {
+        caller.token().is_none_or(|grant| grant.allows_scope(scope))
+    }
+
     async fn standing(
         &self,
         caller: &Caller,
         endpoint: &EndpointId,
     ) -> Result<Option<EndpointStanding>, AuthRejection> {
+        if let Some(grant) = caller.token()
+            && !grant.allows_endpoint(endpoint)
+        {
+            return Ok(None);
+        }
         let user = caller.user().map(|user| user.id);
         match &self.inner.mode {
             Mode::Open => Ok(None),
@@ -273,6 +307,12 @@ impl AccessControl {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TokenPolicy {
+    Scope(TokenScope),
+    SessionOnly,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Requirement {
     Anyone,
     SignedIn,
@@ -304,6 +344,43 @@ impl AccessControl {
         &self,
         requirement: Requirement,
         endpoint_param: EndpointParam,
+        request: Request,
+        next: Next,
+    ) -> Response {
+        self.enforce_for(
+            requirement,
+            TokenPolicy::SessionOnly,
+            endpoint_param,
+            request,
+            next,
+        )
+        .await
+    }
+
+    fn refuse_token(&self, caller: &Caller, policy: TokenPolicy) -> Option<AuthRejection> {
+        let grant = caller.token()?;
+        if let Some(limiters) = &self.inner.limiters
+            && let Verdict::Limited { retry_after, .. } = limiters.check_api_token(grant.id())
+        {
+            metrics::counter!(series::RATE_LIMITED_TOTAL, "scope" => "api_token").increment(1);
+            return Some(AuthRejection::TokenRateLimited {
+                retry_after_secs: whole_seconds_up(retry_after),
+            });
+        }
+        match policy {
+            TokenPolicy::SessionOnly => Some(AuthRejection::SessionRequired),
+            TokenPolicy::Scope(scope) if !grant.allows_scope(scope) => {
+                Some(AuthRejection::InsufficientScope)
+            }
+            TokenPolicy::Scope(_) => None,
+        }
+    }
+
+    pub async fn enforce_for(
+        &self,
+        requirement: Requirement,
+        token_policy: TokenPolicy,
+        endpoint_param: EndpointParam,
         mut request: Request,
         next: Next,
     ) -> Response {
@@ -322,6 +399,9 @@ impl AccessControl {
             });
             request.extensions_mut().insert(caller);
             return next.run(request).await;
+        }
+        if let Some(refusal) = self.refuse_token(&caller, token_policy) {
+            return refusal.into_response();
         }
         let access = match requirement {
             Requirement::Anyone => None,
@@ -376,6 +456,11 @@ impl AccessControl {
         let Ok(endpoint) = EndpointId::parse(raw) else {
             return Err(AuthRejection::NotFound.into());
         };
+        if let Some(grant) = caller.token()
+            && !grant.allows_endpoint(&endpoint)
+        {
+            return Err(AuthRejection::InsufficientScope.into());
+        }
         let standing = self.standing(caller, &endpoint).await?;
         let role = standing.and_then(|standing| standing.role);
         decide_access(role, needed).into_result()?;
