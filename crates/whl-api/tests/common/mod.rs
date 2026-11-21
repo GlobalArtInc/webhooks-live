@@ -414,6 +414,7 @@ impl LiveApp {
             status: parts.status,
             body: body.into_data_stream(),
             buffer: String::new(),
+            last_id: None,
         }
     }
 }
