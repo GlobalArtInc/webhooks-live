@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use figment::Jail;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
+use tokio::net::{TcpSocket, TcpStream};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use whl_core::config::Config;
@@ -641,4 +641,79 @@ async fn keeps_serving_requests_on_one_connection_and_large_bodies_after_the_lim
         .expect("the capture reads");
     assert_eq!(stored, 300 * 1024);
     running.stop().await;
+}
+
+const SHORT_WRITE_TIMEOUT: Duration = Duration::from_millis(500);
+const FLOOD_EVENTS: usize = 4000;
+const FLOOD_PADDING: usize = 6000;
+const CLIENT_RECEIVE_BUFFER: u32 = 4096;
+const SHUTDOWN_BUDGET: Duration = Duration::from_secs(4);
+
+#[tokio::test]
+async fn a_peer_that_stops_reading_is_closed_and_does_not_delay_shutdown() {
+    let db = TestDb::new().await;
+    let limits = HttpLimits {
+        write_timeout: SHORT_WRITE_TIMEOUT,
+        ..HttpLimits::default()
+    };
+    let running = Running::start(&db, limits).await;
+    let id = insert_endpoint(&db).await;
+
+    let socket = TcpSocket::new_v4().expect("a socket is created");
+    socket
+        .set_recv_buffer_size(CLIENT_RECEIVE_BUFFER)
+        .expect("the receive buffer is set");
+    let mut client = socket
+        .connect(running.public)
+        .await
+        .expect("public accepts");
+    let request = format!(
+        "GET /api/v1/endpoints/{id}/stream HTTP/1.1\r\nHost: localhost\r\nAccept: text/event-stream\r\n\r\n"
+    );
+    client
+        .write_all(request.as_bytes())
+        .await
+        .expect("the request is written");
+    let mut head = Vec::new();
+    let mut chunk = [0_u8; 512];
+    while !String::from_utf8_lossy(&head).contains("event: ready") {
+        let read = tokio::time::timeout(Duration::from_secs(5), client.read(&mut chunk))
+            .await
+            .expect("the stream starts")
+            .expect("the stream is readable");
+        assert_ne!(read, 0, "the stream ended before ready");
+        head.extend_from_slice(&chunk[..read]);
+    }
+
+    let padding = "x".repeat(FLOOD_PADDING);
+    for seq in 1..=FLOOD_EVENTS {
+        let payload = format!(
+            r#"{{"t":"capture","e":"{id}","seq":{seq},"s":{{"seq":{seq},"pad":"{padding}"}}}}"#
+        );
+        sqlx::query("SELECT pg_notify('whl_events', $1)")
+            .bind(payload)
+            .execute(db.pool())
+            .await
+            .expect("the notification is sent");
+    }
+
+    let closed = tokio::time::timeout(Duration::from_secs(10), async {
+        let mut sink = [0_u8; 65536];
+        loop {
+            match client.read(&mut sink).await {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {}
+            }
+        }
+    })
+    .await;
+    assert!(closed.is_ok(), "the stalled connection was never closed");
+
+    let started = std::time::Instant::now();
+    running.stop().await;
+    assert!(
+        started.elapsed() < SHUTDOWN_BUDGET,
+        "{:?}",
+        started.elapsed()
+    );
 }

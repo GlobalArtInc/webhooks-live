@@ -14,10 +14,12 @@ use hyper_util::server::graceful::{GracefulShutdown, Watcher};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinSet;
 use tower::ServiceExt;
+use whl_live::WriteTimeout;
 
 pub const MAX_HEADER_LIST_BYTES: u32 = 64 * 1024;
 pub const MAX_HEADER_COUNT: usize = 100;
 pub const HEADER_READ_TIMEOUT: Duration = Duration::from_secs(10);
+pub const WRITE_TIMEOUT: Duration = whl_live::WRITE_TIMEOUT;
 
 const MIN_HEADER_BUFFER: usize = 8192;
 const ACCEPT_BACKOFF: Duration = Duration::from_secs(1);
@@ -29,6 +31,7 @@ pub struct HttpLimits {
     pub max_header_list_bytes: u32,
     pub max_header_count: usize,
     pub header_read_timeout: Duration,
+    pub write_timeout: Duration,
 }
 
 impl Default for HttpLimits {
@@ -37,6 +40,7 @@ impl Default for HttpLimits {
             max_header_list_bytes: MAX_HEADER_LIST_BYTES,
             max_header_count: MAX_HEADER_COUNT,
             header_read_timeout: HEADER_READ_TIMEOUT,
+            write_timeout: WRITE_TIMEOUT,
         }
     }
 }
@@ -89,6 +93,7 @@ pub(crate) async fn serve(
                         builder.clone(),
                         graceful.watcher(),
                         limits.header_read_timeout,
+                        limits.write_timeout,
                     ));
                 }
                 Err(error) => {
@@ -113,6 +118,7 @@ async fn serve_connection(
     builder: Builder<TokioExecutor>,
     watcher: Watcher,
     header_read_timeout: Duration,
+    write_timeout: Duration,
 ) {
     match tokio::time::timeout(header_read_timeout, settle_protocol(&stream)).await {
         Ok(Ok(())) => {}
@@ -130,7 +136,10 @@ async fn serve_connection(
         request.extensions_mut().insert(ConnectInfo(peer));
         app.clone().oneshot(request)
     });
-    let connection = builder.serve_connection(TokioIo::new(stream), service);
+    let connection = builder.serve_connection(
+        TokioIo::new(WriteTimeout::new(stream, write_timeout)),
+        service,
+    );
     if let Err(error) = watcher.watch(connection).await {
         tracing::debug!(%peer, %error, "the connection ended with an error");
     }

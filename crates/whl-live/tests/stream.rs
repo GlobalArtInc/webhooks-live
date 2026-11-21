@@ -191,6 +191,67 @@ async fn the_resume_point_takes_the_larger_of_header_and_query_and_ignores_a_mal
 }
 
 #[tokio::test]
+async fn a_resume_point_beyond_the_last_seq_resyncs_and_keeps_later_captures_flowing() {
+    let db = TestDb::new().await;
+    let app = TestApp::start(&db).await;
+    let endpoint = insert_endpoint(db.pool()).await;
+    insert_captures(db.pool(), &endpoint, 1, 3).await;
+
+    let mut client = app
+        .open_with(
+            &stream_path(&endpoint),
+            &[("Last-Event-ID", "9000000000000")],
+        )
+        .await;
+    client.expect_event("ready").await;
+    let resync = client.expect_event("resync").await;
+    assert_eq!(resync.json(), serde_json::json!({"reason": "gap"}));
+
+    notify(db.pool(), &capture_payload(&endpoint, 4)).await;
+    client.expect_capture(4).await;
+}
+
+#[tokio::test]
+async fn each_stream_gets_its_own_jittered_lifetime() {
+    const STREAMS: usize = 10;
+    const BASE: Duration = Duration::from_millis(1000);
+
+    let db = TestDb::new().await;
+    let mut settings = StreamSettings::new(RETENTION);
+    settings.max_lifetime = BASE;
+    let app = std::sync::Arc::new(TestApp::start_with(&db, 256, settings).await);
+    let endpoint = insert_endpoint(db.pool()).await;
+
+    let mut tasks = Vec::new();
+    for _ in 0..STREAMS {
+        let app = std::sync::Arc::clone(&app);
+        let endpoint = endpoint.clone();
+        tasks.push(tokio::spawn(async move {
+            let started = Instant::now();
+            let mut client = app.open(&endpoint).await;
+            client.expect_end().await;
+            started.elapsed()
+        }));
+    }
+    let mut lifetimes = Vec::new();
+    for task in tasks {
+        lifetimes.push(task.await.expect("the viewer task finishes"));
+    }
+
+    let shortest = lifetimes.iter().min().copied().expect("there are streams");
+    let longest = lifetimes.iter().max().copied().expect("there are streams");
+    assert!(shortest >= BASE.mul_f64(0.9), "{shortest:?}");
+    assert!(
+        longest <= BASE.mul_f64(1.1) + Duration::from_secs(2),
+        "{longest:?}"
+    );
+    assert!(
+        longest - shortest >= Duration::from_millis(30),
+        "the lifetimes are not spread: {lifetimes:?}"
+    );
+}
+
+#[tokio::test]
 async fn sends_comment_pings_while_idle() {
     let db = TestDb::new().await;
     let mut settings = StreamSettings::new(RETENTION);

@@ -1,6 +1,8 @@
 use std::collections::VecDeque;
 use std::convert::Infallible;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 use std::time::Duration;
 
 use axum::Router;
@@ -10,34 +12,43 @@ use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use bytes::Bytes;
-use futures_util::stream;
+use futures_util::Stream;
 use serde::Serialize;
 use tokio::sync::broadcast::error::RecvError;
+use tokio::sync::mpsc;
 use tokio::time::Instant;
 use whl_core::endpoint_id::EndpointId;
 use whl_store::Store;
 use whl_store::stream::{CaptureSummary, EndpointLiveState};
 
-use crate::event::{Event, ResyncReason};
+use crate::emit::{self, ConnectionGauge};
+use crate::event::{Event, Outcome, ResyncReason};
+use crate::guard::WRITE_TIMEOUT;
 use crate::hub::{Hub, Subscription};
-use crate::sse;
+use crate::{jitter, load, sse};
 
 pub const STREAM_PATH: &str = "/api/v1/endpoints/{id}/stream";
 pub const RETRY_MILLIS: u64 = 2000;
 pub const PING_INTERVAL: Duration = Duration::from_secs(15);
 pub const MAX_LIFETIME: Duration = Duration::from_secs(30 * 60);
 pub const REPLAY_LIMIT: usize = 100;
+pub const LIFETIME_JITTER: f64 = 0.1;
+pub const DEFAULT_MAX_CAPTURES: u32 = 500;
 
+const OUTBOX_FRAMES: usize = 8;
 const LAST_EVENT_ID_HEADER: &str = "last-event-id";
 const LAST_EVENT_ID_PARAM: &str = "last_event_id";
 const RETRY_AFTER_SECONDS: &str = "5";
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct StreamSettings {
     pub ping_interval: Duration,
     pub max_lifetime: Duration,
     pub replay_limit: usize,
     pub retention: Duration,
+    pub write_timeout: Duration,
+    pub public_url: String,
+    pub max_captures: u32,
 }
 
 impl StreamSettings {
@@ -47,15 +58,24 @@ impl StreamSettings {
             max_lifetime: MAX_LIFETIME,
             replay_limit: REPLAY_LIMIT,
             retention,
+            write_timeout: WRITE_TIMEOUT,
+            public_url: String::new(),
+            max_captures: DEFAULT_MAX_CAPTURES,
         }
+    }
+
+    pub fn with_instance(mut self, public_url: impl Into<String>, max_captures: u32) -> Self {
+        self.public_url = public_url.into();
+        self.max_captures = max_captures;
+        self
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct LiveState {
-    store: Store,
-    hub: Arc<Hub>,
-    settings: StreamSettings,
+    pub(crate) store: Store,
+    pub(crate) hub: Arc<Hub>,
+    pub(crate) settings: Arc<StreamSettings>,
 }
 
 impl LiveState {
@@ -63,7 +83,7 @@ impl LiveState {
         Self {
             store,
             hub,
-            settings,
+            settings: Arc::new(settings),
         }
     }
 
@@ -179,16 +199,7 @@ async fn stream_endpoint(
     };
 
     let subscription = state.hub.subscribe(&endpoint);
-    let now = Instant::now();
-    let mut viewer = Viewer {
-        subscription,
-        queue: VecDeque::new(),
-        floor: i64::MIN,
-        ping_interval: state.settings.ping_interval,
-        next_ping: now + state.settings.ping_interval,
-        deadline: now + state.settings.max_lifetime,
-        finishing: false,
-    };
+    let mut viewer = Viewer::new(endpoint.clone(), subscription, &state.settings);
     viewer.queue.push_back(sse::retry_frame(RETRY_MILLIS));
     if viewer.subscription.was_closing_at_subscribe() {
         viewer.push_event(&Event::Bye);
@@ -196,13 +207,13 @@ async fn stream_endpoint(
     } else {
         viewer.push_ready(&endpoint, live);
         if let Some(after) = resume {
-            viewer.floor = after;
-            viewer.replay(&state, &endpoint, after).await;
+            viewer.resume(&state, after, live.last_seq).await;
         }
     }
 
-    let body = Body::from_stream(stream::unfold(viewer, next_chunk));
-    stream_response(body)
+    let (outbox, frames) = mpsc::channel(OUTBOX_FRAMES);
+    tokio::spawn(pump(viewer, outbox, state));
+    stream_response(Body::from_stream(FrameStream { frames }))
 }
 
 fn stream_response(body: Body) -> Response {
@@ -251,32 +262,78 @@ fn parse_cursor(source: &'static str, text: &str) -> Option<i64> {
     }
 }
 
+struct FrameStream {
+    frames: mpsc::Receiver<Bytes>,
+}
+
+impl Stream for FrameStream {
+    type Item = Result<Bytes, Infallible>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.frames.poll_recv(cx).map(|frame| frame.map(Ok))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ending {
+    Finished,
+    Disconnected,
+    Stalled,
+    HubClosed,
+}
+
 struct Viewer {
+    endpoint: EndpointId,
     subscription: Subscription,
     queue: VecDeque<Bytes>,
     floor: i64,
     ping_interval: Duration,
+    write_timeout: Duration,
     next_ping: Instant,
     deadline: Instant,
     finishing: bool,
+    _connection: ConnectionGauge,
 }
 
 impl Viewer {
+    fn new(endpoint: EndpointId, subscription: Subscription, settings: &StreamSettings) -> Self {
+        let now = Instant::now();
+        Self {
+            endpoint,
+            subscription,
+            queue: VecDeque::new(),
+            floor: i64::MIN,
+            ping_interval: settings.ping_interval,
+            write_timeout: settings.write_timeout,
+            next_ping: now + settings.ping_interval,
+            deadline: now + jitter::jittered(settings.max_lifetime, LIFETIME_JITTER),
+            finishing: false,
+            _connection: ConnectionGauge::open(),
+        }
+    }
+
     fn push_event(&mut self, event: &Event) {
-        self.queue.push_back(sse::event_frame(
-            event.name(),
-            event.event_id(),
-            &event.data(),
-        ));
+        match event.data() {
+            Some(data) => self.push_frame(event.name(), event.event_id(), &data),
+            None => {
+                tracing::error!(event = event.name(), "an unresolved event reached a stream");
+            }
+        }
+    }
+
+    fn push_frame(&mut self, name: &'static str, id: Option<i64>, data: &str) {
+        self.queue.push_back(sse::event_frame(name, id, data));
+        emit::event_sent(name);
     }
 
     fn push_resync(&mut self, reason: ResyncReason) {
+        emit::resync_sent(reason);
         self.push_event(&Event::Resync { reason });
     }
 
-    fn push_json(&mut self, name: &str, id: Option<i64>, body: &impl Serialize) {
+    fn push_json(&mut self, name: &'static str, id: Option<i64>, body: &impl Serialize) {
         match serde_json::to_string(body) {
-            Ok(data) => self.queue.push_back(sse::event_frame(name, id, &data)),
+            Ok(data) => self.push_frame(name, id, &data),
             Err(error) => tracing::error!(%error, event = name, "cannot encode a stream event"),
         }
     }
@@ -309,10 +366,35 @@ impl Viewer {
         self.push_json("capture", Some(capture.seq), &body);
     }
 
-    async fn replay(&mut self, state: &LiveState, endpoint: &EndpointId, after: i64) {
+    fn push_resolved(&mut self, event: &Event, outcome: &Outcome) {
+        match outcome {
+            Outcome::Data(data) => self.push_frame(event.name(), None, data.unpack()),
+            Outcome::Gone => {
+                tracing::debug!(event = event.name(), endpoint_id = %self.endpoint, "dropped an event whose subject no longer exists");
+            }
+            Outcome::Failed => self.push_resync(ResyncReason::Gap),
+        }
+    }
+
+    async fn resume(&mut self, state: &LiveState, after: i64, last_seq: i64) {
+        if after > last_seq {
+            tracing::info!(endpoint_id = %self.endpoint, after, last_seq, "the resume point is beyond the endpoint's last seq");
+            self.floor = last_seq;
+            self.push_resync(ResyncReason::Gap);
+            return;
+        }
+        self.floor = after;
+        self.replay(state, after).await;
+    }
+
+    async fn replay(&mut self, state: &LiveState, after: i64) {
         let limit = state.settings.replay_limit;
         let fetch = i64::try_from(limit.saturating_add(1)).unwrap_or(i64::MAX);
-        match state.store.captures_after(endpoint, after, fetch).await {
+        match state
+            .store
+            .captures_after(&self.endpoint, after, fetch)
+            .await
+        {
             Ok(captures) if captures.len() > limit => self.push_resync(ResyncReason::Gap),
             Ok(captures) => {
                 for capture in &captures {
@@ -321,46 +403,80 @@ impl Viewer {
                 }
             }
             Err(error) => {
-                tracing::error!(%error, endpoint_id = %endpoint, "cannot replay captures for a stream");
+                tracing::error!(%error, endpoint_id = %self.endpoint, "cannot replay captures for a stream");
                 self.push_resync(ResyncReason::Gap);
             }
         }
     }
 
-    fn accept(&mut self, event: &Event) {
+    async fn accept(&mut self, event: &Event, state: &LiveState) {
         match event {
             Event::Capture { seq, .. } if *seq <= self.floor => {}
             Event::Bye => {
                 self.push_event(event);
                 self.finishing = true;
             }
+            Event::EndpointUpdated { lookup } => {
+                let outcome = lookup.resolve(load::endpoint(state, &self.endpoint)).await;
+                self.push_resolved(event, outcome);
+            }
+            Event::ForwardResult {
+                capture_id,
+                job_id,
+                lookup,
+            } => {
+                let loading = load::forward_result(state, &self.endpoint, capture_id, job_id);
+                let outcome = lookup.resolve(loading).await;
+                self.push_resolved(event, outcome);
+            }
             _ => self.push_event(event),
+        }
+    }
+
+    async fn flush(&mut self, outbox: &mpsc::Sender<Bytes>) -> Option<Ending> {
+        while let Some(frame) = self.queue.pop_front() {
+            match tokio::time::timeout(self.write_timeout, outbox.send(frame)).await {
+                Ok(Ok(())) => self.next_ping = Instant::now() + self.ping_interval,
+                Ok(Err(_)) => return Some(Ending::Disconnected),
+                Err(_) => return Some(Ending::Stalled),
+            }
+        }
+        None
+    }
+
+    async fn run(&mut self, outbox: &mpsc::Sender<Bytes>, state: &LiveState) -> Ending {
+        loop {
+            if let Some(ending) = self.flush(outbox).await {
+                return ending;
+            }
+            if self.finishing || Instant::now() >= self.deadline {
+                return Ending::Finished;
+            }
+            tokio::select! {
+                received = self.subscription.recv() => match received {
+                    Ok(event) => self.accept(&event, state).await,
+                    Err(RecvError::Lagged(skipped)) => {
+                        tracing::debug!(skipped, "a stream viewer lagged behind");
+                        self.push_resync(ResyncReason::Lagged);
+                    }
+                    Err(RecvError::Closed) => return Ending::HubClosed,
+                },
+                () = tokio::time::sleep_until(self.next_ping) => {
+                    self.queue.push_back(sse::ping_frame());
+                }
+                () = tokio::time::sleep_until(self.deadline) => return Ending::Finished,
+                () = outbox.closed() => return Ending::Disconnected,
+            }
         }
     }
 }
 
-async fn next_chunk(mut viewer: Viewer) -> Option<(Result<Bytes, Infallible>, Viewer)> {
-    loop {
-        if let Some(frame) = viewer.queue.pop_front() {
-            viewer.next_ping = Instant::now() + viewer.ping_interval;
-            return Some((Ok(frame), viewer));
-        }
-        if viewer.finishing || Instant::now() >= viewer.deadline {
-            return None;
-        }
-        tokio::select! {
-            received = viewer.subscription.recv() => match received {
-                Ok(event) => viewer.accept(&event),
-                Err(RecvError::Lagged(skipped)) => {
-                    tracing::debug!(skipped, "a stream viewer lagged behind");
-                    viewer.push_resync(ResyncReason::Lagged);
-                }
-                Err(RecvError::Closed) => return None,
-            },
-            () = tokio::time::sleep_until(viewer.next_ping) => {
-                viewer.queue.push_back(sse::ping_frame());
-            }
-            () = tokio::time::sleep_until(viewer.deadline) => return None,
-        }
+async fn pump(mut viewer: Viewer, outbox: mpsc::Sender<Bytes>, state: LiveState) {
+    if viewer.run(&outbox, &state).await == Ending::Stalled {
+        tracing::warn!(
+            endpoint_id = %viewer.endpoint,
+            write_timeout = ?viewer.write_timeout,
+            "evicted a viewer that stopped reading"
+        );
     }
 }

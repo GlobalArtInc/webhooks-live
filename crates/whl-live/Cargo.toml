@@ -7,8 +7,10 @@ publish.workspace = true
 
 [dependencies]
 axum.workspace = true
+base64.workspace = true
 bytes.workspace = true
 futures-util.workspace = true
+metrics.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
@@ -17,6 +19,10 @@ tokio.workspace = true
 tracing.workspace = true
 whl-core.workspace = true
 whl-store.workspace = true
+whl-telemetry.workspace = true
 
 [dev-dependencies]
+hyper.workspace = true
+hyper-util.workspace = true
+tower.workspace = true
 whl-testkit.workspace = true

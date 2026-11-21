@@ -14,18 +14,22 @@ use std::time::Duration;
 
 use tokio::net::TcpListener;
 use tokio::sync::{oneshot, watch};
+use tokio::task::JoinHandle;
 use whl_api::{ApiLimits, ApiSettings, ApiState, ForwardSettings};
 use whl_auth::{AuthSettings, AuthState};
 use whl_capture::{CaptureSettings, CaptureState};
 use whl_core::client_ip::TrustedProxies;
 use whl_core::config::Config;
 use whl_core::limiter::{LimiterSettings, Limiters};
-use whl_live::{HUB_CAPACITY, Hub, LiveState, StreamSettings};
+use whl_forward::WorkerHandle;
+use whl_live::{HUB_CAPACITY, Hub, ListenerHandle, LiveState, StreamSettings};
 use whl_store::Store;
 
 pub use background::{BackgroundSettings, LIMITER_CLEANUP_INTERVAL, STORAGE_REFRESH_INTERVAL};
 pub use error::ServerError;
-pub use public::{HEADER_READ_TIMEOUT, HttpLimits, MAX_HEADER_COUNT, MAX_HEADER_LIST_BYTES};
+pub use public::{
+    HEADER_READ_TIMEOUT, HttpLimits, MAX_HEADER_COUNT, MAX_HEADER_LIST_BYTES, WRITE_TIMEOUT,
+};
 pub use signal::shutdown_signal;
 
 use background::Background;
@@ -90,13 +94,15 @@ impl Bound {
         let live = LiveState::new(
             store.clone(),
             Arc::clone(&hub),
-            StreamSettings::new(self.retention),
+            StreamSettings::new(self.retention)
+                .with_instance(self.api.public_url.clone(), self.api.max_captures),
         );
         let listener = whl_live::spawn_listener(
             store.clone(),
             Arc::clone(&hub),
             until_stopped(stop_rx.clone()),
         );
+        let liveness = listener.liveness();
         let (public_ready, public_started) = oneshot::channel();
         let public = serve_public(PublicParts {
             listener: self.public,
@@ -144,6 +150,21 @@ impl Bound {
             listener.join().await;
             return Err(error.into());
         }
+        if !liveness.is_alive() {
+            return fail_listener(
+                &readiness,
+                &stop_tx,
+                &live,
+                &mut serving,
+                self.grace,
+                ListenerStop {
+                    listener,
+                    forward: None,
+                    background: None,
+                },
+            )
+            .await;
+        }
         readiness.mark_ready();
         let background = Background::spawn(
             store.clone(),
@@ -165,6 +186,21 @@ impl Bound {
                 background.join().await;
                 listener.join().await;
                 return joined(outcome);
+            }
+            () = liveness.stopped() => {
+                return fail_listener(
+                    &readiness,
+                    &stop_tx,
+                    &live,
+                    &mut serving,
+                    self.grace,
+                    ListenerStop {
+                        listener,
+                        forward: forward.as_mut(),
+                        background: Some(background),
+                    },
+                )
+                .await;
             }
         }
 
@@ -291,6 +327,57 @@ async fn serve_listener(
         .into_future()
         .await
         .map_err(|source| ServerError::Serve { listener, source })
+}
+
+struct ListenerStop<'a> {
+    listener: ListenerHandle,
+    forward: Option<&'a mut WorkerHandle>,
+    background: Option<Background>,
+}
+
+async fn fail_listener(
+    readiness: &Readiness,
+    stop: &watch::Sender<bool>,
+    live: &LiveState,
+    serving: &mut JoinHandle<Result<(), ServerError>>,
+    grace: Duration,
+    stopping: ListenerStop<'_>,
+) -> Result<(), ServerError> {
+    let ListenerStop {
+        listener,
+        mut forward,
+        background,
+    } = stopping;
+    tracing::error!(
+        "the notification listener stopped, live updates cannot be delivered, shutting down"
+    );
+    readiness.mark_draining();
+    let _ = stop.send(true);
+    live.close_streams();
+    let draining = async {
+        let _ = (&mut *serving).await;
+        if let Some(forward) = forward.as_deref_mut() {
+            forward.join().await;
+        }
+    };
+    if tokio::time::timeout(grace, draining).await.is_err() {
+        tracing::warn!(
+            ?grace,
+            "grace period elapsed, stopping with requests in flight"
+        );
+        serving.abort();
+        if let Some(forward) = forward.as_deref() {
+            forward.abort();
+        }
+    }
+    if let Some(background) = background {
+        background.join().await;
+    }
+    listener.join().await;
+    Err(ServerError::Serve {
+        listener: "live",
+        source: io::Error::other("the notification listener stopped"),
+    })
 }
 
 pub(crate) async fn until_stopped(mut stop: watch::Receiver<bool>) {

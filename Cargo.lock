@@ -4463,16 +4463,22 @@ name = "whl-live"
 version = "0.1.0-dev"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "bytes",
  "futures-util",
+ "hyper",
+ "hyper-util",
+ "metrics",
  "serde",
  "serde_json",
  "sqlx",
  "thiserror 2.0.21",
  "tokio",
+ "tower",
  "tracing",
  "whl-core",
  "whl-store",
+ "whl-telemetry",
  "whl-testkit",
 ]
 

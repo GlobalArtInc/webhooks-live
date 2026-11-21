@@ -5,13 +5,23 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::http::Request;
+use hyper::body::Incoming;
+use hyper::server::conn::http1;
+use hyper::service::service_fn;
+use hyper_util::rt::TokioIo;
 use sqlx::PgPool;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use sqlx::types::Uuid;
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
+use tower::ServiceExt;
 use whl_core::endpoint_id::EndpointId;
-use whl_live::{Hub, ListenerHandle, LiveState, StreamSettings, router, spawn_listener};
+use whl_live::{
+    Event, Hub, ListenerHandle, ListenerSettings, LiveState, Notification, StreamSettings, router,
+    spawn_listener_with,
+};
 use whl_store::Store;
 use whl_testkit::TestDb;
 
@@ -35,10 +45,19 @@ impl TestApp {
 
     pub async fn start_with(db: &TestDb, capacity: usize, settings: StreamSettings) -> Self {
         let store = Store::from_pool(db.pool().clone());
+        Self::start_on(store, capacity, settings, ListenerSettings::default()).await
+    }
+
+    pub async fn start_on(
+        store: Store,
+        capacity: usize,
+        settings: StreamSettings,
+        listening: ListenerSettings,
+    ) -> Self {
         let hub = Hub::new(capacity);
         let live = LiveState::new(store.clone(), Arc::clone(&hub), settings);
         let (stop, mut stopped) = watch::channel(false);
-        let listener = spawn_listener(store, Arc::clone(&hub), async move {
+        let listener = spawn_listener_with(store, Arc::clone(&hub), listening, async move {
             let _ = stopped.wait_for(|stop| *stop).await;
         });
         listener
@@ -69,6 +88,46 @@ impl TestApp {
 
     pub async fn open_with(&self, path: &str, headers: &[(&str, &str)]) -> SseClient {
         SseClient::open(self.addr, path, headers).await
+    }
+
+    pub async fn open_over(&self, io: impl Pipe, endpoint: &EndpointId) -> SseClient {
+        SseClient::open_on(io, &stream_path(endpoint), &[]).await
+    }
+}
+
+pub const PIPE_BYTES: usize = 1024;
+pub const PIPE_WRITE_BUFFER: usize = 16 * 1024;
+
+pub trait Pipe: AsyncRead + AsyncWrite + Unpin + Send + 'static {}
+
+impl<T: AsyncRead + AsyncWrite + Unpin + Send + 'static> Pipe for T {}
+
+pub fn pipe() -> (tokio::io::DuplexStream, tokio::io::DuplexStream) {
+    tokio::io::duplex(PIPE_BYTES)
+}
+
+pub async fn serve_http1(io: impl Pipe, live: LiveState) -> Result<(), hyper::Error> {
+    serve_http1_until(io, live, std::future::pending()).await
+}
+
+pub async fn serve_http1_until(
+    io: impl Pipe,
+    live: LiveState,
+    stop: impl std::future::Future<Output = ()>,
+) -> Result<(), hyper::Error> {
+    let app = router(live);
+    let service = service_fn(move |request: Request<Incoming>| app.clone().oneshot(request));
+    let mut connection = std::pin::pin!(
+        http1::Builder::new()
+            .max_buf_size(PIPE_WRITE_BUFFER)
+            .serve_connection(TokioIo::new(io), service)
+    );
+    tokio::select! {
+        result = connection.as_mut() => result,
+        () = stop => {
+            connection.as_mut().graceful_shutdown();
+            connection.await
+        }
     }
 }
 
@@ -122,6 +181,42 @@ pub async fn insert_captures(pool: &PgPool, endpoint: &EndpointId, first: i64, l
     .expect("the counters update");
 }
 
+pub async fn insert_forward_job(pool: &PgPool, endpoint: &EndpointId, seq: i64) -> (Uuid, Uuid) {
+    let job: Uuid = sqlx::query_scalar(
+        "INSERT INTO forward_jobs (id, capture_id, kind, target_url, method, header_allowlist, state) \
+         SELECT gen_random_uuid(), id, 'manual', 'http://target.test', 'POST', '{}', 'failed' \
+         FROM captures WHERE endpoint_id = $1 AND seq = $2 RETURNING id",
+    )
+    .bind(endpoint.unpack())
+    .bind(seq)
+    .fetch_one(pool)
+    .await
+    .expect("the job inserts");
+    sqlx::query(
+        "INSERT INTO forward_attempts (job_id, attempt, started_at, duration_ms, status, response_content_type, response_body) \
+         VALUES ($1, 1, now(), 9, 502, 'text/plain', 'bad gateway'::bytea)",
+    )
+    .bind(job)
+    .execute(pool)
+    .await
+    .expect("the attempt inserts");
+    let capture: Uuid = sqlx::query_scalar("SELECT capture_id FROM forward_jobs WHERE id = $1")
+        .bind(job)
+        .fetch_one(pool)
+        .await
+        .expect("the capture id is read");
+    (capture, job)
+}
+
+pub fn padded_event(endpoint: &EndpointId, seq: i64, padding: usize) -> Event {
+    match Notification::decode(&padded_capture_payload(endpoint, seq, padding))
+        .expect("the payload decodes")
+    {
+        Notification::Event { event, .. } => event,
+        Notification::Heartbeat => panic!("a capture payload is not a heartbeat"),
+    }
+}
+
 pub async fn notify(pool: &PgPool, payload: &str) {
     sqlx::query("SELECT pg_notify('whl_events', $1)")
         .bind(payload)
@@ -172,7 +267,7 @@ impl Frame {
 }
 
 pub struct SseClient {
-    reader: BufReader<TcpStream>,
+    reader: BufReader<Box<dyn Pipe>>,
     buffer: String,
     pub status: u16,
     pub headers: Vec<(String, String)>,
@@ -181,7 +276,11 @@ pub struct SseClient {
 
 impl SseClient {
     pub async fn open(addr: SocketAddr, path: &str, extra: &[(&str, &str)]) -> Self {
-        let mut stream = TcpStream::connect(addr).await.expect("the server accepts");
+        let stream = TcpStream::connect(addr).await.expect("the server accepts");
+        Self::open_on(stream, path, extra).await
+    }
+
+    pub async fn open_on(mut stream: impl Pipe, path: &str, extra: &[(&str, &str)]) -> Self {
         let mut request =
             format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nAccept: text/event-stream\r\n");
         for (name, value) in extra {
@@ -192,7 +291,8 @@ impl SseClient {
             .write_all(request.as_bytes())
             .await
             .expect("the request is written");
-        let mut reader = BufReader::new(stream);
+        let boxed: Box<dyn Pipe> = Box::new(stream);
+        let mut reader = BufReader::new(boxed);
         let mut status_line = String::new();
         reader
             .read_line(&mut status_line)
