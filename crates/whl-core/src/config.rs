@@ -33,6 +33,7 @@ pool_size = 20
 mode = "open"
 session_idle = "12h"
 session_max = "7d"
+max_pending_logins = 50000
 
 [auth.oidc]
 scopes = ["openid", "email", "profile"]
@@ -77,6 +78,7 @@ const ENV_KEYS: &[(&str, &str)] = &[
     ("OIDC_PROVIDER_NAME", "auth.oidc.provider_name"),
     ("SESSION_IDLE", "auth.session_idle"),
     ("SESSION_MAX", "auth.session_max"),
+    ("AUTH_MAX_PENDING_LOGINS", "auth.max_pending_logins"),
     ("TRUSTED_PROXIES", "trusted_proxies"),
     ("RETENTION", "capture.retention"),
     ("MAX_CAPTURES", "capture.max_captures"),
@@ -128,6 +130,7 @@ pub struct AuthConfig {
     pub session_idle: Duration,
     #[serde(deserialize_with = "de::duration")]
     pub session_max: Duration,
+    pub max_pending_logins: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]

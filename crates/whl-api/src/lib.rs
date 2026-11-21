@@ -6,6 +6,9 @@ mod forward;
 mod handlers;
 mod input;
 mod limit;
+mod listing;
+mod members;
+mod policy;
 mod resolve;
 mod settings;
 mod state;
@@ -15,10 +18,11 @@ use axum::extract::DefaultBodyLimit;
 use axum::http::{HeaderValue, header};
 use axum::middleware::{from_fn_with_state, map_response};
 use axum::response::Response;
-use axum::routing::{get, post};
+use axum::routing::get;
 
 pub use forward::ForwardSettings;
 pub use limit::{ApiLimits, enforce_rate_limit};
+pub use policy::guard_routes;
 pub use settings::ApiSettings;
 pub use state::ApiState;
 
@@ -28,15 +32,17 @@ pub fn router(state: ApiState) -> Router {
     let limits = state.limits.clone();
     let api = Router::new()
         .route("/instance", get(handlers::instance))
-        .route("/endpoints", post(handlers::create))
+        .route("/endpoints", get(listing::list).post(handlers::create))
         .route(
             "/endpoints/{id}",
             get(handlers::show)
                 .patch(handlers::update)
                 .delete(handlers::delete),
         )
+        .merge(members::routes())
         .merge(captures::routes())
-        .merge(forward::routes())
+        .merge(forward::routes());
+    let api = guard_routes(api, &state.access)
         .fallback(not_found)
         .method_not_allowed_fallback(method_not_allowed)
         .with_state(state);

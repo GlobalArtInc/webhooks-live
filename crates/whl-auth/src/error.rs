@@ -4,6 +4,8 @@ use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 use whl_store::AuthStoreError;
 
+const LONG_RETRY_AFTER: &str = "30";
+
 #[derive(Debug, thiserror::Error)]
 pub enum AuthError {
     #[error("{key} is required when WEBHOOKS_LIVE_AUTH_MODE is sso")]
@@ -34,6 +36,10 @@ pub enum LoginFailure {
     MissingEmail,
     #[error("the identity provider has not verified the email address")]
     EmailNotVerified,
+    #[error("the ID token carries an email_verified claim that is not a boolean")]
+    EmailVerifiedInvalid,
+    #[error("too many sign-ins are pending")]
+    Busy,
     #[error("the sign-in could not be completed right now")]
     Unavailable,
     #[error("the sign-in failed unexpectedly")]
@@ -50,6 +56,8 @@ impl LoginFailure {
             Self::InvalidToken => "invalid_token",
             Self::MissingEmail => "missing_email",
             Self::EmailNotVerified => "email_not_verified",
+            Self::EmailVerifiedInvalid => "email_verified_invalid",
+            Self::Busy => "busy",
             Self::Unavailable => "unavailable",
             Self::Internal => "internal_error",
         }
@@ -60,6 +68,7 @@ impl From<AuthStoreError> for LoginFailure {
     fn from(error: AuthStoreError) -> Self {
         match error {
             AuthStoreError::Unavailable(_) => Self::Unavailable,
+            AuthStoreError::LoginsFull => Self::Busy,
             AuthStoreError::Query(_) | AuthStoreError::Invalid(_) => Self::Internal,
         }
     }
@@ -79,6 +88,10 @@ pub enum AuthRejection {
     NotFound,
     #[error("the database is unavailable")]
     StoreUnavailable,
+    #[error("sign-in is not available right now")]
+    AuthUnavailable,
+    #[error("too many sign-ins are pending, try again shortly")]
+    LoginBusy,
     #[error("the request could not be completed")]
     Internal,
 }
@@ -87,6 +100,7 @@ impl From<AuthStoreError> for AuthRejection {
     fn from(error: AuthStoreError) -> Self {
         match error {
             AuthStoreError::Unavailable(_) => Self::StoreUnavailable,
+            AuthStoreError::LoginsFull => Self::LoginBusy,
             other @ (AuthStoreError::Query(_) | AuthStoreError::Invalid(_)) => {
                 tracing::error!(%other, "auth storage failed");
                 Self::Internal
@@ -139,9 +153,18 @@ impl IntoResponse for AuthRejection {
             Self::MethodNotAllowed => (StatusCode::METHOD_NOT_ALLOWED, "method_not_allowed"),
             Self::NotFound => (StatusCode::NOT_FOUND, "not_found"),
             Self::StoreUnavailable => (StatusCode::SERVICE_UNAVAILABLE, "store_unavailable"),
+            Self::AuthUnavailable => (StatusCode::SERVICE_UNAVAILABLE, "auth_unavailable"),
+            Self::LoginBusy => (StatusCode::SERVICE_UNAVAILABLE, "login_busy"),
             Self::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "internal_error"),
         };
-        error_response(status, code, self.to_string())
+        let mut response = error_response(status, code, self.to_string());
+        if matches!(self, Self::AuthUnavailable | Self::LoginBusy) {
+            response.headers_mut().insert(
+                header::RETRY_AFTER,
+                HeaderValue::from_static(LONG_RETRY_AFTER),
+            );
+        }
+        response
     }
 }
 

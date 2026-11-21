@@ -1,6 +1,8 @@
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use openidconnect::core::{
     CoreAuthenticationFlow, CoreClient, CoreErrorResponseType, CoreIdToken, CoreIdTokenClaims,
     CoreJwsSigningAlgorithm, CoreProviderMetadata,
@@ -22,6 +24,7 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 const METADATA_TTL: Duration = Duration::from_secs(3600);
 const RETRY_AFTER_FAILURE: Duration = Duration::from_secs(60);
 const MIN_FORCED_INTERVAL: Duration = Duration::from_secs(60);
+pub const CLOCK_LEEWAY: Duration = Duration::from_secs(60);
 
 const ALLOWED_ALGORITHMS: [CoreJwsSigningAlgorithm; 8] = [
     CoreJwsSigningAlgorithm::RsaSsaPkcs1V15Sha256,
@@ -62,13 +65,19 @@ pub struct Provider {
     refresh_gate: Mutex<()>,
 }
 
+pub(crate) fn http_client() -> Result<reqwest::Client, AuthError> {
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(HTTP_TIMEOUT)
+        .build()
+        .map_err(|error| AuthError::HttpClient(error.to_string()))
+}
+
 impl Provider {
-    pub async fn discover(settings: AuthSettings) -> Result<Self, AuthError> {
-        let http = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .timeout(HTTP_TIMEOUT)
-            .build()
-            .map_err(|error| AuthError::HttpClient(error.to_string()))?;
+    pub async fn discover(
+        http: reqwest::Client,
+        settings: AuthSettings,
+    ) -> Result<Self, AuthError> {
         let (issuer, metadata) = fetch_any(&http, &settings).await?;
         let now = Instant::now();
         tracing::info!(issuer = issuer.as_str(), "OIDC discovery succeeded");
@@ -130,7 +139,10 @@ impl Provider {
             .await
             .map_err(|error| {
                 tracing::warn!(kind = request_error_kind(&error), "token exchange failed");
-                LoginFailure::ExchangeFailed
+                match &error {
+                    RequestTokenError::Parse(_, body) => classify_unparseable(body),
+                    _ => LoginFailure::ExchangeFailed,
+                }
             })?;
         let Some(id_token) = response.id_token() else {
             tracing::warn!("the token response carries no ID token");
@@ -151,6 +163,42 @@ impl Provider {
             tracing::warn!(%error, "the ID token did not verify");
             LoginFailure::InvalidToken
         })?;
+        let payload = serde_json::to_value(id_token).ok().and_then(|token| {
+            token
+                .as_str()
+                .and_then(|compact| payload_of(compact.as_bytes()))
+        });
+        let not_before = match payload.as_ref().map(not_before_of) {
+            Some(NotBefore::Absent) => None,
+            Some(NotBefore::At(seconds)) => Some(seconds),
+            Some(NotBefore::Malformed) | None => {
+                tracing::warn!("the ID token payload cannot be inspected");
+                return Err(LoginFailure::InvalidToken);
+            }
+        };
+        let audiences: Vec<&str> = claims
+            .audiences()
+            .iter()
+            .map(|audience| audience.as_str())
+            .collect();
+        let authorized_party = claims.authorized_party().map(|party| party.as_str());
+        if !audience_is_valid(
+            &audiences,
+            authorized_party,
+            self.settings.client_id.as_str(),
+        ) {
+            tracing::warn!("the ID token has an authorized party that is not this client");
+            return Err(LoginFailure::InvalidToken);
+        }
+        if !times_are_valid(
+            claims.issue_time().timestamp(),
+            not_before,
+            unix_now(),
+            leeway_seconds(),
+        ) {
+            tracing::warn!("the ID token was issued or becomes valid in the future");
+            return Err(LoginFailure::InvalidToken);
+        }
         identity_from(claims)
     }
 
@@ -286,6 +334,70 @@ fn request_error_kind<E: std::error::Error>(
     }
 }
 
+fn unix_now() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|elapsed| i64::try_from(elapsed.as_secs()).ok())
+        .unwrap_or(i64::MAX)
+}
+
+fn leeway_seconds() -> i64 {
+    i64::try_from(CLOCK_LEEWAY.as_secs()).unwrap_or(i64::MAX)
+}
+
+fn times_are_valid(issued_at: i64, not_before: Option<i64>, now: i64, leeway: i64) -> bool {
+    let latest = now.saturating_add(leeway);
+    issued_at <= latest && not_before.is_none_or(|not_before| not_before <= latest)
+}
+
+fn audience_is_valid(audiences: &[&str], authorized_party: Option<&str>, client_id: &str) -> bool {
+    match authorized_party {
+        Some(party) => party == client_id,
+        None => audiences.len() <= 1,
+    }
+}
+
+fn payload_of(compact: &[u8]) -> Option<serde_json::Value> {
+    let mut segments = compact.split(|byte| *byte == b'.');
+    let payload = segments.nth(1)?;
+    let decoded = URL_SAFE_NO_PAD.decode(payload).ok()?;
+    serde_json::from_slice(&decoded).ok()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NotBefore {
+    Absent,
+    At(i64),
+    Malformed,
+}
+
+fn not_before_of(payload: &serde_json::Value) -> NotBefore {
+    match payload.get("nbf") {
+        None | Some(serde_json::Value::Null) => NotBefore::Absent,
+        Some(value) => value.as_i64().map_or(NotBefore::Malformed, NotBefore::At),
+    }
+}
+
+fn classify_unparseable(body: &[u8]) -> LoginFailure {
+    let id_token = serde_json::from_slice::<serde_json::Value>(body)
+        .ok()
+        .and_then(|response| response.get("id_token").cloned());
+    let payload = id_token
+        .as_ref()
+        .and_then(serde_json::Value::as_str)
+        .and_then(|compact| payload_of(compact.as_bytes()));
+    match payload
+        .as_ref()
+        .and_then(|claims| claims.get("email_verified"))
+    {
+        Some(serde_json::Value::Bool(_) | serde_json::Value::Null) | None => {
+            LoginFailure::ExchangeFailed
+        }
+        Some(_) => LoginFailure::EmailVerifiedInvalid,
+    }
+}
+
 fn identity_from(claims: CoreIdTokenClaims) -> Result<VerifiedIdentity, LoginFailure> {
     let Some(email) = claims.email().map(|email| email.as_str().to_owned()) else {
         return Err(LoginFailure::MissingEmail);
@@ -305,6 +417,7 @@ fn identity_from(claims: CoreIdTokenClaims) -> Result<VerifiedIdentity, LoginFai
         issuer: claims.issuer().as_str().to_owned(),
         subject: claims.subject().as_str().to_owned(),
         email,
+        email_verified: claims.email_verified() == Some(true),
         display_name,
     })
 }
@@ -343,5 +456,71 @@ mod tests {
             candidates("https://sso.example/realms/main/"),
             ["https://sso.example/realms/main/"]
         );
+    }
+
+    #[test]
+    fn issue_and_not_before_times_may_lead_the_clock_only_by_the_leeway() {
+        let now = 1_000_000;
+        let leeway = leeway_seconds();
+        assert!(times_are_valid(now, None, now, leeway));
+        assert!(times_are_valid(now + leeway, None, now, leeway));
+        assert!(!times_are_valid(now + leeway + 1, None, now, leeway));
+        assert!(times_are_valid(now - 5, Some(now + leeway), now, leeway));
+        assert!(!times_are_valid(
+            now - 5,
+            Some(now + leeway + 1),
+            now,
+            leeway
+        ));
+        assert!(times_are_valid(now - 5, Some(now - 3600), now, leeway));
+    }
+
+    #[test]
+    fn a_multi_valued_audience_needs_this_client_as_authorized_party() {
+        assert!(audience_is_valid(&["me"], None, "me"));
+        assert!(audience_is_valid(&["me"], Some("me"), "me"));
+        assert!(!audience_is_valid(&["me"], Some("other"), "me"));
+        assert!(!audience_is_valid(&["me", "other"], None, "me"));
+        assert!(!audience_is_valid(&["me", "other"], Some("other"), "me"));
+        assert!(audience_is_valid(&["me", "other"], Some("me"), "me"));
+    }
+
+    #[test]
+    fn not_before_is_read_as_a_whole_number_or_flagged() {
+        use serde_json::json;
+        assert_eq!(not_before_of(&json!({})), NotBefore::Absent);
+        assert_eq!(not_before_of(&json!({ "nbf": null })), NotBefore::Absent);
+        assert_eq!(not_before_of(&json!({ "nbf": 12 })), NotBefore::At(12));
+        assert_eq!(not_before_of(&json!({ "nbf": "12" })), NotBefore::Malformed);
+        assert_eq!(not_before_of(&json!({ "nbf": 12.5 })), NotBefore::Malformed);
+    }
+
+    fn response_with(claims: &serde_json::Value) -> Vec<u8> {
+        let payload = URL_SAFE_NO_PAD.encode(claims.to_string());
+        serde_json::json!({ "id_token": format!("e30.{payload}.c2ln") })
+            .to_string()
+            .into_bytes()
+    }
+
+    #[test]
+    fn an_unparseable_token_response_names_a_non_boolean_email_verified() {
+        use serde_json::json;
+        for claim in [json!("true"), json!("false"), json!(1), json!([true])] {
+            let body = response_with(&json!({ "email_verified": claim }));
+            assert_eq!(
+                classify_unparseable(&body),
+                LoginFailure::EmailVerifiedInvalid,
+                "{claim}"
+            );
+        }
+        for body in [
+            response_with(&json!({ "email_verified": true })),
+            response_with(&json!({ "email_verified": null })),
+            response_with(&json!({})),
+            b"not json".to_vec(),
+            b"{}".to_vec(),
+        ] {
+            assert_eq!(classify_unparseable(&body), LoginFailure::ExchangeFailed);
+        }
     }
 }

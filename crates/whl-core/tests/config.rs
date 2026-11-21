@@ -45,6 +45,7 @@ fn defaults_apply_when_only_required_keys_are_set() {
     assert_eq!(config.auth.mode, AuthMode::Open);
     assert_eq!(config.auth.session_idle, Duration::from_secs(12 * 3600));
     assert_eq!(config.auth.session_max, Duration::from_secs(7 * 86_400));
+    assert_eq!(config.auth.max_pending_logins, 50_000);
     assert_eq!(config.auth.oidc.scopes, ["openid", "email", "profile"]);
     assert_eq!(config.capture.retention, Duration::from_secs(7 * 86_400));
     assert_eq!(config.capture.max_captures, 500);
@@ -354,6 +355,17 @@ fn duration_values_parse_from_unit_strings_including_compound_ones() {
 
     assert_eq!(config.auth.session_idle, Duration::from_secs(90 * 60));
     assert_eq!(config.auth.session_max, Duration::from_secs(14 * 86_400));
+}
+
+#[test]
+fn the_pending_login_cap_is_read_from_the_environment() {
+    let config = load(&with_required(&[(
+        "WEBHOOKS_LIVE_AUTH_MAX_PENDING_LOGINS",
+        "1234",
+    )]))
+    .expect("the cap is a number");
+
+    assert_eq!(config.auth.max_pending_logins, 1234);
 }
 
 #[test]

@@ -2,9 +2,10 @@ use axum::Json;
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
+use whl_auth::AuthRejection;
 use whl_core::validation::{FieldPath, Violation, ViolationCode};
-use whl_store::EndpointError;
 use whl_store::forward::ForwardStoreError;
+use whl_store::{EndpointError, MembershipError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -33,6 +34,16 @@ impl FieldViolation {
             code,
             message: message.into(),
         }
+    }
+
+    #[cfg(test)]
+    pub fn field(&self) -> &str {
+        &self.field
+    }
+
+    #[cfg(test)]
+    pub fn code(&self) -> FieldCode {
+        self.code
     }
 
     pub fn from_core(violation: &Violation) -> Self {
@@ -97,6 +108,16 @@ pub enum ApiError {
     ForwardingDisabled,
     #[error("the cursor is malformed or does not match the order and filters")]
     InvalidCursor,
+    #[error("this route needs sso mode")]
+    NotAvailableInMode,
+    #[error("nobody with a verified email address has signed in with that email")]
+    UserNotFound,
+    #[error("the user is not a member of this endpoint")]
+    MemberNotFound,
+    #[error(transparent)]
+    Auth(AuthRejection),
+    #[error("membership storage failed: {0}")]
+    Membership(MembershipError),
     #[error("the database is unavailable")]
     StoreUnavailable,
     #[error("too many requests")]
@@ -116,6 +137,21 @@ impl From<ForwardStoreError> for ApiError {
         } else {
             Self::ForwardStorage(error)
         }
+    }
+}
+
+impl From<MembershipError> for ApiError {
+    fn from(error: MembershipError) -> Self {
+        match error {
+            MembershipError::Unavailable(_) => Self::StoreUnavailable,
+            other => Self::Membership(other),
+        }
+    }
+}
+
+impl From<AuthRejection> for ApiError {
+    fn from(rejection: AuthRejection) -> Self {
+        Self::Auth(rejection)
     }
 }
 
@@ -143,6 +179,9 @@ struct ErrorDetail {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
+        if let Self::Auth(rejection) = self {
+            return rejection.into_response();
+        }
         let retry_after = match &self {
             Self::RateLimited { retry_after_secs } => Some(*retry_after_secs),
             _ => None,
@@ -230,6 +269,39 @@ impl IntoResponse for ApiError {
             ),
             Self::ClientUnknown => {
                 tracing::error!("a request reached the rate limiter without a client address");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal_error",
+                    "the request could not be completed".to_owned(),
+                    None,
+                )
+            }
+            Self::NotAvailableInMode => (
+                StatusCode::FORBIDDEN,
+                "not_available_in_mode",
+                self.to_string(),
+                None,
+            ),
+            Self::UserNotFound => (
+                StatusCode::NOT_FOUND,
+                "user_not_found",
+                self.to_string(),
+                None,
+            ),
+            Self::MemberNotFound => (
+                StatusCode::NOT_FOUND,
+                "member_not_found",
+                self.to_string(),
+                None,
+            ),
+            Self::Auth(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal_error",
+                "the request could not be completed".to_owned(),
+                None,
+            ),
+            Self::Membership(error) => {
+                tracing::error!(%error, "membership storage failed");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "internal_error",

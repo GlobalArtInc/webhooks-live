@@ -3,8 +3,8 @@ mod common;
 use axum::http::StatusCode;
 use common::mock_issuer::{CLIENT_ID, CLIENT_SECRET};
 use common::{
-    Harness, Jar, LOGIN_COOKIE, Options, PUBLIC_URL, SESSION_COOKIE, assert_login_error, harness,
-    harness_with,
+    Harness, Jar, LOGIN_COOKIE_PREFIX, Options, PUBLIC_URL, SESSION_COOKIE, assert_login_error,
+    harness, harness_with,
 };
 use url::Url;
 
@@ -25,7 +25,7 @@ async fn happy_path_creates_the_user_a_session_and_redirects() {
     assert_eq!(reply.location(), "/e/abcdefghjkmnpqrstvwxyz01");
     assert!(jar.get(SESSION_COOKIE).is_some());
     assert!(
-        jar.get(LOGIN_COOKIE).is_none(),
+        jar.names_starting(LOGIN_COOKIE_PREFIX).is_empty(),
         "the login cookie is cleared"
     );
     assert_eq!(harness.count("users").await, 1);
@@ -338,7 +338,7 @@ async fn session_and_login_cookies_have_exactly_the_specified_attributes() {
     let begun = harness.begin(None).await;
     let login = begun
         .reply
-        .set_cookie(LOGIN_COOKIE)
+        .set_cookie_starting(LOGIN_COOKIE_PREFIX)
         .expect("a login cookie");
     let mut parts: Vec<&str> = login.split("; ").skip(1).collect();
     parts.sort_unstable();
@@ -361,9 +361,10 @@ async fn session_and_login_cookies_have_exactly_the_specified_attributes() {
     assert_eq!(parts, ["HttpOnly", "Path=/", "SameSite=Lax", "Secure"]);
 
     let cleared = reply
-        .set_cookie(LOGIN_COOKIE)
+        .set_cookie_starting(LOGIN_COOKIE_PREFIX)
         .expect("the login cookie is cleared");
-    assert!(cleared.starts_with(&format!("{LOGIN_COOKIE}=; ")));
+    let cleared_name = begun.jar.names_starting(LOGIN_COOKIE_PREFIX).remove(0);
+    assert!(cleared.starts_with(&format!("{cleared_name}=; ")));
     assert!(cleared.contains("Max-Age=0"));
     assert_eq!(
         reply.headers.get("cache-control").expect("cache-control"),

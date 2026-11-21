@@ -1,3 +1,4 @@
+use std::fmt;
 use std::net::IpAddr;
 use std::time::Duration;
 
@@ -10,13 +11,26 @@ use crate::error::AuthError;
 const LOGIN_TTL: Duration = Duration::from_secs(600);
 const MAX_TOUCH_INTERVAL: Duration = Duration::from_secs(60);
 const CALLBACK_PATH: &str = "/auth/callback";
+const MAX_SESSION_LIFETIME: Duration = Duration::from_secs(90 * 24 * 3600);
+pub const DEFAULT_MAX_PENDING_LOGINS: u32 = 50_000;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct OidcClient<'a> {
     pub issuer: &'a Url,
     pub client_id: &'a str,
     pub client_secret: &'a str,
     pub scopes: &'a [String],
+}
+
+impl fmt::Debug for OidcClient<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OidcClient")
+            .field("issuer", &self.issuer.as_str())
+            .field("client_id", &self.client_id)
+            .field("client_secret", &"<redacted>")
+            .field("scopes", &self.scopes)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,6 +50,8 @@ pub struct AuthSettings {
     pub(crate) secure_cookies: bool,
     pub(crate) limits: SessionLimits,
     pub(crate) touch_after: Duration,
+    pub(crate) provider_name: Option<String>,
+    pub(crate) max_pending_logins: u32,
 }
 
 impl AuthSettings {
@@ -68,7 +84,16 @@ impl AuthSettings {
                 idle: config.auth.session_idle,
                 max: config.auth.session_max,
             },
-        )?;
+        )?
+        .with_max_pending_logins(config.auth.max_pending_logins)?;
+        let settings = match oidc
+            .provider_name
+            .as_deref()
+            .filter(|name| !name.is_empty())
+        {
+            Some(name) => settings.with_provider_name(name),
+            None => settings,
+        };
         Ok(Some(settings))
     }
 
@@ -98,6 +123,21 @@ impl AuthSettings {
             return Err(AuthError::InvalidConfig {
                 key: "WEBHOOKS_LIVE_SESSION_IDLE and WEBHOOKS_LIVE_SESSION_MAX",
                 reason: "both must be longer than zero".to_owned(),
+            });
+        }
+        if limits.max > MAX_SESSION_LIFETIME {
+            return Err(AuthError::InvalidConfig {
+                key: "WEBHOOKS_LIVE_SESSION_MAX",
+                reason: format!(
+                    "it must be at most {} days",
+                    MAX_SESSION_LIFETIME.as_secs() / 86_400
+                ),
+            });
+        }
+        if limits.idle > limits.max {
+            return Err(AuthError::InvalidConfig {
+                key: "WEBHOOKS_LIVE_SESSION_IDLE",
+                reason: "it must not be longer than WEBHOOKS_LIVE_SESSION_MAX".to_owned(),
             });
         }
         let secure_cookies = match public_url.scheme() {
@@ -135,7 +175,33 @@ impl AuthSettings {
             secure_cookies,
             limits,
             touch_after: (limits.idle / 4).min(MAX_TOUCH_INTERVAL),
+            provider_name: None,
+            max_pending_logins: DEFAULT_MAX_PENDING_LOGINS,
         })
+    }
+
+    pub fn with_provider_name(mut self, name: &str) -> Self {
+        self.provider_name = Some(name.to_owned());
+        self
+    }
+
+    pub fn with_max_pending_logins(mut self, maximum: u32) -> Result<Self, AuthError> {
+        if maximum == 0 {
+            return Err(AuthError::InvalidConfig {
+                key: "WEBHOOKS_LIVE_AUTH_MAX_PENDING_LOGINS",
+                reason: "it must be at least 1".to_owned(),
+            });
+        }
+        self.max_pending_logins = maximum;
+        Ok(self)
+    }
+
+    pub fn provider_name(&self) -> Option<&str> {
+        self.provider_name.as_deref()
+    }
+
+    pub fn max_pending_logins(&self) -> u32 {
+        self.max_pending_logins
     }
 
     pub fn login_ttl(&self) -> Duration {
@@ -261,5 +327,91 @@ mod tests {
         )
         .expect("valid");
         assert_eq!(short.touch_after, Duration::from_secs(2));
+    }
+
+    fn with_limits(idle_secs: u64, max_secs: u64) -> Result<AuthSettings, AuthError> {
+        let issuer = url("https://sso.example");
+        AuthSettings::new(
+            OidcClient {
+                issuer: &issuer,
+                client_id: "client",
+                client_secret: "secret",
+                scopes: &[],
+            },
+            &url("https://whl.example"),
+            SessionLimits {
+                idle: Duration::from_secs(idle_secs),
+                max: Duration::from_secs(max_secs),
+            },
+        )
+    }
+
+    #[test]
+    fn debug_output_never_carries_the_client_secret() {
+        let issuer = url("https://sso.example");
+        let secret = "s3cr3t-do-not-print";
+        let client = OidcClient {
+            issuer: &issuer,
+            client_id: "client",
+            client_secret: secret,
+            scopes: &["email".to_owned()],
+        };
+        let rendered = format!("{client:?} {client:#?}");
+        assert!(!rendered.contains(secret), "{rendered}");
+        assert!(rendered.contains("client"));
+        let settings = AuthSettings::new(
+            client,
+            &url("https://whl.example"),
+            SessionLimits {
+                idle: Duration::from_secs(60),
+                max: Duration::from_secs(120),
+            },
+        )
+        .expect("valid");
+        let rendered = format!("{settings:?} {settings:#?}");
+        assert!(!rendered.contains(secret), "{rendered}");
+    }
+
+    #[test]
+    fn the_absolute_session_lifetime_is_capped_at_ninety_days() {
+        let day = 86_400;
+        assert!(with_limits(3600, 90 * day).is_ok());
+        assert!(matches!(
+            with_limits(3600, 90 * day + 1),
+            Err(AuthError::InvalidConfig {
+                key: "WEBHOOKS_LIVE_SESSION_MAX",
+                ..
+            })
+        ));
+        assert!(matches!(
+            with_limits(3600, 3650 * day),
+            Err(AuthError::InvalidConfig { .. })
+        ));
+    }
+
+    #[test]
+    fn the_idle_timeout_may_not_exceed_the_absolute_lifetime() {
+        assert!(with_limits(7200, 7200).is_ok());
+        let error = with_limits(7201, 7200).expect_err("idle is longer than max");
+        assert!(matches!(
+            error,
+            AuthError::InvalidConfig {
+                key: "WEBHOOKS_LIVE_SESSION_IDLE",
+                ..
+            }
+        ));
+        assert!(error.to_string().contains("WEBHOOKS_LIVE_SESSION_MAX"));
+    }
+
+    #[test]
+    fn the_pending_login_cap_defaults_and_rejects_zero() {
+        let settings = settings("https://sso.example", "https://whl.example").expect("valid");
+        assert_eq!(settings.max_pending_logins(), DEFAULT_MAX_PENDING_LOGINS);
+        assert_eq!(DEFAULT_MAX_PENDING_LOGINS, 50_000);
+        assert!(settings.clone().with_max_pending_logins(1).is_ok());
+        assert!(matches!(
+            settings.with_max_pending_logins(0),
+            Err(AuthError::InvalidConfig { .. })
+        ));
     }
 }

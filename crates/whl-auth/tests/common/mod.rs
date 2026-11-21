@@ -19,12 +19,14 @@ use whl_testkit::TestDb;
 
 pub const PUBLIC_URL: &str = "https://whl.test";
 pub const SESSION_COOKIE: &str = "__Host-whl_session";
-pub const LOGIN_COOKIE: &str = "__Host-whl_login";
+pub const LOGIN_COOKIE_PREFIX: &str = "__Host-whl_login_";
 
 pub struct Options {
     pub public_url: &'static str,
     pub idle: Duration,
     pub max: Duration,
+    pub establish: bool,
+    pub max_pending_logins: Option<u32>,
 }
 
 impl Default for Options {
@@ -33,6 +35,8 @@ impl Default for Options {
             public_url: PUBLIC_URL,
             idle: Duration::from_secs(3600),
             max: Duration::from_secs(7200),
+            establish: true,
+            max_pending_logins: None,
         }
     }
 }
@@ -70,9 +74,19 @@ pub async fn harness_with(options: Options) -> Harness {
         },
     )
     .expect("the settings are valid");
-    let auth = AuthState::discover(store.clone(), settings)
-        .await
-        .expect("discovery against the mock issuer succeeds");
+    let settings = match options.max_pending_logins {
+        Some(maximum) => settings
+            .with_max_pending_logins(maximum)
+            .expect("the maximum is valid"),
+        None => settings,
+    };
+    let auth = if options.establish {
+        AuthState::discover(store.clone(), settings)
+            .await
+            .expect("discovery against the mock issuer succeeds")
+    } else {
+        AuthState::new(store.clone(), settings).expect("the auth state builds")
+    };
     let app = whl_auth::router(auth.clone()).merge(probe_routes(&auth));
     let http = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
@@ -140,6 +154,12 @@ impl Reply {
             .collect()
     }
 
+    pub fn set_cookie_starting(&self, prefix: &str) -> Option<String> {
+        self.set_cookies()
+            .into_iter()
+            .find(|cookie| cookie.starts_with(prefix))
+    }
+
     pub fn set_cookie(&self, name: &str) -> Option<String> {
         let prefix = format!("{name}=");
         self.set_cookies()
@@ -176,6 +196,18 @@ impl Jar {
             .iter()
             .find(|(existing, _)| existing == name)
             .map(|(_, value)| value.as_str())
+    }
+
+    pub fn names_starting(&self, prefix: &str) -> Vec<String> {
+        self.0
+            .iter()
+            .filter(|(name, _)| name.starts_with(prefix))
+            .map(|(name, _)| name.clone())
+            .collect()
+    }
+
+    pub fn remove(&mut self, name: &str) {
+        self.0.retain(|(existing, _)| existing != name);
     }
 
     pub fn header(&self) -> Option<String> {

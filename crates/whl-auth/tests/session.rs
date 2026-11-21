@@ -149,7 +149,7 @@ async fn idle_timeout_expires_an_unused_session_and_activity_extends_it() {
 #[tokio::test]
 async fn absolute_lifetime_ends_a_session_that_is_still_active() {
     let harness = harness_with(Options {
-        idle: Duration::from_secs(3600),
+        idle: Duration::from_secs(2),
         max: Duration::from_secs(2),
         ..Options::default()
     })

@@ -3,6 +3,7 @@ mod cookies;
 mod current_user;
 mod error;
 mod flow;
+mod gate;
 mod origin;
 mod provider;
 mod return_to;
@@ -18,13 +19,15 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, post};
 
 pub use access::{Decision, decide_access};
-pub use cookies::CookiePolicy;
+pub use cookies::{CookiePolicy, LoginCookie};
 pub use current_user::CurrentUser;
 pub use error::{AccessDenied, AuthError, AuthRejection, LoginFailure};
+pub use gate::{Access, AccessControl, Caller, Requirement};
 pub use origin::{OriginCheck, OriginCheckService};
+pub use provider::CLOCK_LEEWAY;
 pub use return_to::sanitize as sanitize_return_to;
-pub use settings::{AuthSettings, OidcClient, SessionLimits};
-pub use state::AuthState;
+pub use settings::{AuthSettings, DEFAULT_MAX_PENDING_LOGINS, OidcClient, SessionLimits};
+pub use state::{AuthState, DiscoveryBackoff};
 pub use whl_store::EndpointRole;
 
 pub fn router(state: AuthState) -> Router {

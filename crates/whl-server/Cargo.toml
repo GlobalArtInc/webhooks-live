@@ -34,5 +34,6 @@ whl-web.workspace = true
 [dev-dependencies]
 figment = { workspace = true, features = ["test"] }
 serde_json.workspace = true
+sha2.workspace = true
 sqlx.workspace = true
 whl-testkit.workspace = true

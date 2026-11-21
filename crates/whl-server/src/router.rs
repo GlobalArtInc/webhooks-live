@@ -25,12 +25,13 @@ pub fn public(
     limits: ApiLimits,
 ) -> Router {
     let ingest = whl_capture::router_with_fallback(capture, whl_web::router());
-    let stream = whl_live::router(live).layer(from_fn_with_state(limits, enforce_rate_limit));
+    let stream = whl_api::guard_routes(whl_live::router(live), api.access())
+        .layer(from_fn_with_state(limits.clone(), enforce_rate_limit));
     let routes = Router::new().merge(stream);
     let routes = match auth {
         Some(auth) => routes
             .merge(whl_api::router(api).layer(auth.origin_check()))
-            .merge(whl_auth::router(auth)),
+            .merge(whl_auth::router(auth).layer(from_fn_with_state(limits, enforce_rate_limit))),
         None => routes
             .merge(whl_api::router(api))
             .merge(whl_auth::unavailable_router()),
@@ -76,7 +77,11 @@ async fn healthz() -> &'static str {
 
 async fn readyz(State(readiness): State<Arc<Readiness>>) -> (StatusCode, &'static str) {
     if readiness.is_ready() {
-        (StatusCode::OK, "ok")
+        if readiness.auth_unavailable() {
+            (StatusCode::OK, "ok, sign-in unavailable")
+        } else {
+            (StatusCode::OK, "ok")
+        }
     } else {
         (StatusCode::SERVICE_UNAVAILABLE, "not ready")
     }

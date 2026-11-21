@@ -7,6 +7,7 @@ mod error;
 pub mod forward;
 mod kind;
 pub mod maintenance;
+mod members;
 mod store;
 pub mod stream;
 
@@ -20,5 +21,9 @@ pub use capture_queries::{
 pub use endpoints::{EndpointError, EndpointRecord, EndpointSettings, Overflow};
 pub use error::StoreError;
 pub use kind::CaptureKind;
+pub use members::{
+    GrantedRole, ListPosition, MemberRecord, MembershipError, RemoveMemberOutcome, RoleFilter,
+    SetMemberOutcome, UserEndpoint, UserEndpointPage,
+};
 pub use sqlx::types::Uuid;
 pub use store::{MigrationState, Status, Store};

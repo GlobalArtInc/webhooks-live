@@ -37,6 +37,7 @@ pub struct Behaviour {
     pub tamper_state: bool,
     pub omit_id_token: bool,
     pub reject_token_request: bool,
+    pub claim_overrides: Vec<(String, Value)>,
 }
 
 impl Default for Behaviour {
@@ -54,6 +55,7 @@ impl Default for Behaviour {
             tamper_state: false,
             omit_id_token: false,
             reject_token_request: false,
+            claim_overrides: Vec::new(),
         }
     }
 }
@@ -325,6 +327,15 @@ fn id_token(shared: &Shared, behaviour: &Behaviour, request: &AuthorizeRequest) 
     }
     if let Some(name) = &behaviour.name {
         claims["name"] = json!(name);
+    }
+    for (name, value) in &behaviour.claim_overrides {
+        if value.is_null() {
+            if let Some(object) = claims.as_object_mut() {
+                object.remove(name);
+            }
+        } else {
+            claims[name] = value.clone();
+        }
     }
     let header = json!({ "alg": "ES256", "kid": KEY_ID, "typ": "JWT" });
     let signing_input = format!("{}.{}", b64(header.to_string()), b64(claims.to_string()));

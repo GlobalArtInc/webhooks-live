@@ -3,10 +3,11 @@ use base64::engine::general_purpose::STANDARD;
 use serde::Serialize;
 use time::macros::format_description;
 use time::{OffsetDateTime, UtcOffset};
+use whl_auth::AccessControl;
 use whl_core::header::MAX_HEADERS;
 use whl_core::response::{MAX_BODY_BYTES as RESPONSE_BODY_BYTES, MAX_DELAY_MS};
-use whl_store::EndpointRecord;
 use whl_store::forward::ForwardRule;
+use whl_store::{EndpointRecord, EndpointRole, UserRecord};
 
 use crate::forward::RuleDto;
 use crate::settings::ApiSettings;
@@ -17,11 +18,28 @@ const MAX_FORWARD_RULES: u32 = 5;
 pub struct InstanceDto {
     version: &'static str,
     auth_mode: &'static str,
-    user: Option<serde_json::Value>,
+    user: Option<UserDto>,
     public_url: String,
     auth: AuthDto,
     limits: LimitsDto,
     features: FeaturesDto,
+}
+
+#[derive(Serialize)]
+pub struct UserDto {
+    id: String,
+    email: String,
+    name: Option<String>,
+}
+
+impl From<&UserRecord> for UserDto {
+    fn from(user: &UserRecord) -> Self {
+        Self {
+            id: user.id.hyphenated().to_string(),
+            email: user.email.clone(),
+            name: user.display_name.clone(),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -48,14 +66,14 @@ struct FeaturesDto {
 }
 
 impl InstanceDto {
-    pub fn new(settings: &ApiSettings) -> Self {
+    pub fn new(settings: &ApiSettings, access: &AccessControl, user: Option<&UserRecord>) -> Self {
         Self {
             version: env!("CARGO_PKG_VERSION"),
-            auth_mode: "open",
-            user: None,
+            auth_mode: if access.is_sso() { "sso" } else { "open" },
+            user: user.map(UserDto::from),
             public_url: settings.public_url.clone(),
             auth: AuthDto {
-                provider_name: None,
+                provider_name: access.provider_name().map(str::to_owned),
             },
             limits: LimitsDto {
                 max_captures: settings.max_captures,
@@ -91,8 +109,8 @@ pub struct EndpointDto {
     created_at: String,
     last_active_at: String,
     expires_at: String,
-    owner: Option<serde_json::Value>,
-    my_role: Option<String>,
+    owner: Option<UserDto>,
+    my_role: Option<&'static str>,
 }
 
 #[derive(Serialize)]
@@ -178,12 +196,18 @@ impl EndpointDto {
             my_role: None,
         }
     }
+
+    pub fn with_identity(mut self, role: Option<EndpointRole>, owner: Option<&UserRecord>) -> Self {
+        self.my_role = role.map(EndpointRole::as_str);
+        self.owner = owner.map(UserDto::from);
+        self
+    }
 }
 
 const TIMESTAMP: &[time::format_description::FormatItem<'static>] =
     format_description!("[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:3]Z");
 
-fn timestamp(value: OffsetDateTime) -> String {
+pub(crate) fn timestamp(value: OffsetDateTime) -> String {
     let millis = value.nanosecond() / 1_000_000 * 1_000_000;
     let truncated = value.replace_nanosecond(millis).unwrap_or(value);
     truncated

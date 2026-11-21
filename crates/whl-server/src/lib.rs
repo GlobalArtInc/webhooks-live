@@ -16,7 +16,7 @@ use tokio::net::TcpListener;
 use tokio::sync::{oneshot, watch};
 use tokio::task::JoinHandle;
 use whl_api::{ApiLimits, ApiSettings, ApiState, ForwardSettings};
-use whl_auth::{AuthSettings, AuthState};
+use whl_auth::{AccessControl, AuthSettings, AuthState, DiscoveryBackoff};
 use whl_capture::{CaptureSettings, CaptureState};
 use whl_core::client_ip::TrustedProxies;
 use whl_core::config::Config;
@@ -24,6 +24,7 @@ use whl_core::limiter::{LimiterSettings, Limiters};
 use whl_forward::WorkerHandle;
 use whl_live::{HUB_CAPACITY, Hub, ListenerHandle, LiveState, StreamSettings};
 use whl_store::Store;
+use whl_telemetry::series;
 
 pub use background::{BackgroundSettings, LIMITER_CLEANUP_INTERVAL, STORAGE_REFRESH_INTERVAL};
 pub use error::ServerError;
@@ -80,7 +81,20 @@ impl Bound {
     ) -> Result<(), ServerError> {
         let readiness = Arc::new(Readiness::default());
         let worker = self.forward.worker(&store)?;
+        let auth = match self.auth.clone() {
+            Some(settings) => Some(AuthState::new(store.clone(), settings)?),
+            None => None,
+        };
+        let access = match &auth {
+            Some(auth) => {
+                readiness.set_auth_unavailable(true);
+                metrics::gauge!(series::AUTH_AVAILABLE).set(0.0);
+                AccessControl::sso(auth.clone(), self.retention)
+            }
+            None => AccessControl::open(),
+        };
         let state = ApiState::new(store.clone(), self.api.clone())
+            .with_access(access)
             .with_limits(self.api_limits.clone())
             .with_forward(ForwardSettings::with_system_lookup(self.forward.guard()));
         tracing::info!(public = %self.public_addr, admin = %self.admin_addr, "listening");
@@ -109,8 +123,8 @@ impl Bound {
             live: live.clone(),
             api: state,
             capture,
-            store: store.clone(),
-            auth: self.auth.clone(),
+            auth,
+            readiness: Arc::clone(&readiness),
             limits: self.api_limits,
             http: self.http,
             stop: stop_rx.clone(),
@@ -289,8 +303,8 @@ struct PublicParts {
     live: LiveState,
     api: ApiState,
     capture: CaptureState,
-    store: Store,
-    auth: Option<AuthSettings>,
+    auth: Option<AuthState>,
+    readiness: Arc<Readiness>,
     limits: ApiLimits,
     http: HttpLimits,
     stop: watch::Receiver<bool>,
@@ -298,17 +312,20 @@ struct PublicParts {
 }
 
 async fn serve_public(parts: PublicParts) -> Result<(), ServerError> {
-    let auth = match parts.auth {
-        Some(settings) => {
-            let discovery = AuthState::discover(parts.store, settings);
-            tokio::select! {
-                state = discovery => Some(state?),
-                () = until_stopped(parts.stop.clone()) => return Ok(()),
-            }
-        }
-        None => None,
-    };
-    let router = router::public(parts.live, parts.api, parts.capture, auth, parts.limits);
+    let discovery = parts.auth.clone().map(|auth| {
+        tokio::spawn(discover_auth(
+            auth,
+            parts.stop.clone(),
+            Arc::clone(&parts.readiness),
+        ))
+    });
+    let router = router::public(
+        parts.live,
+        parts.api,
+        parts.capture,
+        parts.auth,
+        parts.limits,
+    );
     let _ = parts.ready.send(());
     let server = public::serve(
         parts.listener,
@@ -316,7 +333,42 @@ async fn serve_public(parts: PublicParts) -> Result<(), ServerError> {
         parts.http,
         until_stopped(parts.stop),
     );
-    serve_listener("public", server).await
+    let served = serve_listener("public", server).await;
+    if let Some(discovery) = discovery {
+        discovery.abort();
+        if let Err(error) = discovery.await
+            && !error.is_cancelled()
+        {
+            tracing::error!(%error, "the OIDC discovery task ended abnormally");
+        }
+    }
+    served
+}
+
+async fn discover_auth(auth: AuthState, stop: watch::Receiver<bool>, readiness: Arc<Readiness>) {
+    let mut backoff = DiscoveryBackoff::new();
+    loop {
+        let attempt = tokio::select! {
+            () = until_stopped(stop.clone()) => return,
+            attempt = auth.establish() => attempt,
+        };
+        match attempt {
+            Ok(()) => {
+                readiness.set_auth_unavailable(false);
+                metrics::gauge!(series::AUTH_AVAILABLE).set(1.0);
+                tracing::info!("sign-in is available");
+                return;
+            }
+            Err(error) => {
+                let delay = backoff.next_delay();
+                tracing::warn!(%error, retry_in = ?delay, "sign-in is unavailable, the identity provider could not be reached");
+                tokio::select! {
+                    () = until_stopped(stop.clone()) => return,
+                    () = tokio::time::sleep(delay) => {}
+                }
+            }
+        }
+    }
 }
 
 async fn serve_listener(

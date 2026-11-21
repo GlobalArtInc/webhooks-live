@@ -9,6 +9,10 @@ use crate::state::AuthState;
 pub struct CurrentUser(UserRecord);
 
 impl CurrentUser {
+    pub(crate) fn new(user: UserRecord) -> Self {
+        Self(user)
+    }
+
     pub fn unpack(&self) -> &UserRecord {
         &self.0
     }

@@ -3,6 +3,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::{PgArguments, PgRow};
 use sqlx::query::Query;
+use sqlx::types::Uuid;
 use sqlx::{Postgres, Row};
 use time::OffsetDateTime;
 use whl_core::endpoint_id::EndpointId;
@@ -12,7 +13,7 @@ use whl_core::response::{ResponseConfig, ResponseConfigInput};
 
 use crate::store::Store;
 
-const COLUMNS: &str = "id, title, response_status, response_content_type, \
+pub(crate) const COLUMNS: &str = "id, title, response_status, response_content_type, \
     response_headers::text AS response_headers, response_body, response_delay_ms, cors, overflow, \
     capture_count, bytes_used, last_seq, created_at, last_active_at";
 
@@ -105,13 +106,23 @@ impl Store {
         settings: &EndpointSettings,
         retention: Duration,
     ) -> Result<EndpointRecord, EndpointError> {
+        self.create_endpoint_owned(None, settings, retention).await
+    }
+
+    pub async fn create_endpoint_owned(
+        &self,
+        owner: Option<Uuid>,
+        settings: &EndpointSettings,
+        retention: Duration,
+    ) -> Result<EndpointRecord, EndpointError> {
         let id = EndpointId::generate()?;
         let sql = format!(
             "INSERT INTO endpoints (id, title, response_status, response_content_type, \
-             response_headers, response_body, response_delay_ms, cors, overflow) \
-             VALUES ($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9) RETURNING {COLUMNS}"
+             response_headers, response_body, response_delay_ms, cors, overflow, owner_id) \
+             VALUES ($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9, $10) RETURNING {COLUMNS}"
         );
         let row = bind_settings(sqlx::query(&sql).bind(id.unpack()), settings)?
+            .bind(owner)
             .fetch_one(self.pool())
             .await
             .map_err(classify)?;
@@ -226,7 +237,10 @@ fn bind_settings<'q>(
         .bind(settings.overflow.as_str()))
 }
 
-fn record_from_row(row: &PgRow, retention: Duration) -> Result<EndpointRecord, EndpointError> {
+pub(crate) fn record_from_row(
+    row: &PgRow,
+    retention: Duration,
+) -> Result<EndpointRecord, EndpointError> {
     let id_text: String = row.try_get("id").map_err(EndpointError::Query)?;
     let invalid = |reason: String| EndpointError::Invalid {
         id: id_text.clone(),
@@ -306,7 +320,7 @@ fn expiry(
         .ok_or(EndpointError::Retention(retention))
 }
 
-fn classify(error: sqlx::Error) -> EndpointError {
+pub(crate) fn classify(error: sqlx::Error) -> EndpointError {
     if matches!(
         error,
         sqlx::Error::PoolTimedOut | sqlx::Error::PoolClosed | sqlx::Error::Io(_)

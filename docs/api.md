@@ -75,6 +75,8 @@ Field `code` is a closed list:
 | 429 | `rate_limited` | Limiter hit |
 | 500 | `internal_error` | Unexpected server failure; details only in server logs |
 | 503 | `store_unavailable` | Database timeout or outage; `Retry-After: 5` |
+| 503 | `auth_unavailable` | `sso`: the identity provider was unreachable at start and discovery is still being retried; only `/auth/login` and `/auth/callback` answer it; `Retry-After: 30` |
+| 503 | `login_busy` | `sso`: too many sign-ins are pending (`WEBHOOKS_LIVE_AUTH_MAX_PENDING_LOGINS`); `/auth/login` only; `Retry-After: 30` |
 
 ### 1.2 Pagination
 
@@ -392,11 +394,11 @@ by `id`. Live delivery is best-effort: `resync` means "list again from `after_se
 
 | Method, path | Behaviour |
 |---|---|
-| `GET /auth/login?return_to=/e/{id}` | 302 to the issuer. `return_to` must start with `/` and not `//`; else `/`. |
-| `GET /auth/callback?code&state` | Validates, creates the session, sets `__Host-whl_session`, 302 to `return_to`. Failure: 302 to `/?login_error=<code>`. |
+| `GET /auth/login?return_to=/e/{id}` | 302 to the issuer. `return_to` must start with `/` and not `//`; else `/`. Sets a short-lived cookie `__Host-whl_login_<12 characters of the state>`, so several sign-ins can be in flight in one browser. 503 `auth_unavailable` or `login_busy`. |
+| `GET /auth/callback?code&state` | Validates, creates the session, sets `__Host-whl_session`, 302 to `return_to`. Failure: 302 to `/?login_error=<code>` and only the cookie of that attempt is cleared. Codes include `invalid_state`, `provider_denied`, `invalid_request`, `exchange_failed`, `invalid_token`, `missing_email`, `email_not_verified`, `email_verified_invalid` (a non-boolean claim), `unavailable`. |
 | `POST /auth/logout` | Origin-checked; deletes the session, clears the cookie, 204. |
 
-In `open` mode these answer 404.
+In `open` mode these answer 404. `/auth/login` and `/auth/callback` share the per-IP management limiter. A request carrying the same cookie name twice, or a cookie name that only decodes to the session or login name, is treated as carrying no such cookie.
 
 ## 8. Examples
 

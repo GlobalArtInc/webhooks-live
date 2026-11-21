@@ -300,7 +300,7 @@ capture path public while also knowing users for ownership and sharing).
 | `open` | No users. Possessing the endpoint id grants full access to it. `GET /api/v1/endpoints` (listing) is refused; "my endpoints" live in browser storage (E6). |
 | Login | `/auth/login?return_to=` stores `state`, PKCE verifier and nonce in `login_states` (10 min), redirects to the issuer. `/auth/callback` validates state, exchanges the code, validates the ID token (issuer, audience, nonce, signature via discovery JWKS), upserts `users` by `(issuer, subject)`. `return_to` must be a relative path starting with `/` and not `//`. |
 | Session | 32 random bytes in cookie `__Host-whl_session` (`Secure; HttpOnly; SameSite=Lax; Path=/`); the database stores SHA-256 of it. Idle timeout 12 h, absolute 7 d, `last_seen_at` refreshed at most once a minute. IdP tokens are discarded after login. Logout deletes the row. |
-| Ownership | `endpoints.owner_id` = creator. Shares in `endpoint_members` with `viewer` or `editor`. Shared by email of a user who has signed in at least once. |
+| Ownership | `endpoints.owner_id` = creator. Shares in `endpoint_members` with `viewer` or `editor`. Shared by email of a user who has signed in at least once and whose email the IdP marked verified (`users.email_verified`); the match ignores case, and when two subjects carry one verified email the most recent login wins. Endpoints with no owner (`owner_id` null) have no role for anyone in `sso`. |
 | Roles | Owner: everything. Editor: update response and forwarding, delete captures, resend. Viewer: read and stream. Endpoint delete and member management: owner only. Non-members get the same 410 `endpoint_gone` as an unknown id, never 403, so ids do not leak. |
 | Who may sign in | Decided by the IdP client (GlobalArt SSO group enforcement); webhooks.live trusts any valid ID token from the issuer. |
 | Machine clients | Personal API tokens with `Authorization: Bearer` (§19). Mode `mixed` and the `Caller` model: §17. |
@@ -399,6 +399,7 @@ URLs are visible to senders. The release image build fails when `web/dist/index.
 | `webhooks_live_store_bytes`, `webhooks_live_endpoints` | gauge | |
 | `webhooks_live_evictions_total` | counter | `reason` = expired, cap, deleted |
 | `webhooks_live_db_pool_connections` | gauge | `state` = idle, busy |
+| `webhooks_live_auth_available` | gauge | `sso` only: 1 once OIDC discovery has succeeded, 0 while the identity provider is unreachable (`/auth/login` and `/auth/callback` answer 503 `auth_unavailable`) |
 
 | Env | Default |
 |---|---|
@@ -409,7 +410,8 @@ URLs are visible to senders. The release image build fails when `web/dist/index.
 | `WEBHOOKS_LIVE_OIDC_ISSUER`, `WEBHOOKS_LIVE_OIDC_CLIENT_ID`, `WEBHOOKS_LIVE_OIDC_CLIENT_SECRET`, `WEBHOOKS_LIVE_OIDC_SCOPES` | required in `sso`; scopes `openid email profile` |
 | `WEBHOOKS_LIVE_OIDC_PROVIDER_NAME` | unset; shown on the sign-in button, the UI uses a neutral label when unset |
 | `WEBHOOKS_LIVE_RING_MODE_ALLOWED` | true; false rejects `overflow: ring` |
-| `WEBHOOKS_LIVE_SESSION_IDLE`, `WEBHOOKS_LIVE_SESSION_MAX` | `12h`, `7d` |
+| `WEBHOOKS_LIVE_SESSION_IDLE`, `WEBHOOKS_LIVE_SESSION_MAX` | `12h`, `7d`; the maximum is capped at 90 days and the idle timeout must not exceed it |
+| `WEBHOOKS_LIVE_AUTH_MAX_PENDING_LOGINS` | 50000; `/auth/login` answers 503 `login_busy` while that many unexpired sign-ins are pending |
 | `WEBHOOKS_LIVE_TRUSTED_PROXIES` | empty |
 | `WEBHOOKS_LIVE_RETENTION`, `WEBHOOKS_LIVE_MAX_CAPTURES`, `WEBHOOKS_LIVE_MAX_BODY_BYTES` | `7d`, 500, 10 MiB |
 | `WEBHOOKS_LIVE_BODY_MEMORY_BUDGET`, `WEBHOOKS_LIVE_MAX_DELAYED` | 256 MiB, 2000 |

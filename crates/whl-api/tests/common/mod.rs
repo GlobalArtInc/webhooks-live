@@ -6,9 +6,12 @@ use axum::Router;
 use axum::body::Body;
 use axum::http::{HeaderMap, Method, Request, StatusCode, header};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use tower::ServiceExt;
+use url::Url;
 use whl_api::{ApiLimits, ApiSettings, ApiState};
-use whl_store::Store;
+use whl_auth::{AccessControl, AuthSettings, AuthState, OidcClient, SessionLimits};
+use whl_store::{Store, Uuid, VerifiedIdentity};
 use whl_testkit::TestDb;
 
 pub const UNKNOWN_ID: &str = "000000000000000000000000";
@@ -29,16 +32,7 @@ pub async fn harness_with_limits(limits: ApiLimits) -> Harness {
 async fn build(limits: Option<ApiLimits>) -> Harness {
     let db = TestDb::new().await;
     let store = Store::from_pool(db.pool().clone());
-    let settings = ApiSettings {
-        public_url: "https://whl.test".to_owned(),
-        retention: Duration::from_secs(7 * 24 * 3600),
-        max_captures: 500,
-        max_body_bytes: 10 * 1024 * 1024,
-        forwarding: true,
-        private_forward_targets_allowed: false,
-        ring_mode_allowed: true,
-    };
-    let state = ApiState::new(store, settings);
+    let state = ApiState::new(store, api_settings());
     let state = match limits {
         Some(limits) => state.with_limits(limits),
         None => state,
@@ -111,4 +105,133 @@ pub fn field_codes(error: &Value) -> Vec<(String, String)> {
             )
         })
         .collect()
+}
+
+pub const SESSION_COOKIE: &str = "__Host-whl_session";
+pub const RETENTION: Duration = Duration::from_secs(7 * 24 * 3600);
+
+pub fn api_settings() -> ApiSettings {
+    ApiSettings {
+        public_url: "https://whl.test".to_owned(),
+        retention: RETENTION,
+        max_captures: 500,
+        max_body_bytes: 10 * 1024 * 1024,
+        forwarding: true,
+        private_forward_targets_allowed: false,
+        ring_mode_allowed: true,
+    }
+}
+
+#[derive(Clone)]
+pub struct Actor {
+    pub id: Uuid,
+    pub email: String,
+    pub cookie: String,
+}
+
+pub struct SsoHarness {
+    pub db: TestDb,
+    pub app: Router,
+    pub store: Store,
+}
+
+pub async fn sso_harness() -> SsoHarness {
+    let db = TestDb::new().await;
+    let store = Store::from_pool(db.pool().clone());
+    let issuer = Url::parse("https://sso.test").expect("the issuer URL parses");
+    let public = Url::parse("https://whl.test").expect("the public URL parses");
+    let settings = AuthSettings::new(
+        OidcClient {
+            issuer: &issuer,
+            client_id: "client",
+            client_secret: "secret",
+            scopes: &[],
+        },
+        &public,
+        SessionLimits {
+            idle: Duration::from_secs(3600),
+            max: Duration::from_secs(7200),
+        },
+    )
+    .expect("the settings are valid")
+    .with_provider_name("Test SSO");
+    let auth = AuthState::new(store.clone(), settings).expect("the auth state builds");
+    let state = ApiState::new(store.clone(), api_settings())
+        .with_access(AccessControl::sso(auth, RETENTION));
+    SsoHarness {
+        db,
+        app: whl_api::router(state),
+        store,
+    }
+}
+
+impl SsoHarness {
+    pub async fn actor(&self, tag: &str, email: &str, verified: bool) -> Actor {
+        let user = self
+            .store
+            .upsert_user(&VerifiedIdentity {
+                issuer: "https://sso.test".to_owned(),
+                subject: format!("subject-{tag}"),
+                email: email.to_owned(),
+                email_verified: verified,
+                display_name: Some(format!("User {tag}")),
+            })
+            .await
+            .expect("the user is stored");
+        let token = format!("{tag:0<43}");
+        self.store
+            .create_session(
+                Sha256::digest(token.as_bytes()).as_slice(),
+                user.id,
+                Duration::from_secs(3600),
+            )
+            .await
+            .expect("the session is stored");
+        Actor {
+            id: user.id,
+            email: email.to_owned(),
+            cookie: format!("{SESSION_COOKIE}={token}"),
+        }
+    }
+
+    pub async fn send_as(
+        &self,
+        actor: Option<&Actor>,
+        method: Method,
+        uri: &str,
+        body: &str,
+    ) -> Reply {
+        let mut builder = Request::builder().method(method).uri(uri);
+        if let Some(actor) = actor {
+            builder = builder.header(header::COOKIE, &actor.cookie);
+        }
+        let request = if body.is_empty() {
+            builder.body(Body::empty())
+        } else {
+            builder
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(body.to_owned()))
+        }
+        .expect("the request is valid");
+        send(&self.app, request).await
+    }
+
+    pub async fn endpoint_for(&self, owner: &Actor) -> String {
+        self.store
+            .create_endpoint_owned(Some(owner.id), &resolve_defaults(), RETENTION)
+            .await
+            .expect("the endpoint is stored")
+            .id
+            .unpack()
+            .to_owned()
+    }
+}
+
+fn resolve_defaults() -> whl_store::EndpointSettings {
+    whl_store::EndpointSettings {
+        title: None,
+        response: whl_core::response::ResponseConfig::default(),
+        cors: false,
+        overflow: whl_store::Overflow::Refuse,
+    }
 }

@@ -213,13 +213,16 @@ async fn insert_endpoint_with_captures(pool: &PgPool, count: i64) {
 async fn existing_captures_read_as_http_with_an_empty_meta_after_a_round_trip() {
     let db = TestDb::new().await;
     let store = Store::from_pool(db.pool().clone());
-    assert_eq!(
-        store
+    loop {
+        let reverted = store
             .migrate_down()
             .await
-            .expect("the kinds migration takes back"),
-        Some(KIND_MIGRATION.to_owned())
-    );
+            .expect("a migration takes back")
+            .expect("the kinds migration is among the applied ones");
+        if reverted == KIND_MIGRATION {
+            break;
+        }
+    }
     insert_endpoint_with_captures(db.pool(), 2).await;
 
     store

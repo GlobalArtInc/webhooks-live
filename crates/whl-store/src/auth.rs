@@ -7,10 +7,11 @@ use whl_core::endpoint_id::EndpointId;
 
 use crate::store::Store;
 
-const UPSERT_USER_SQL: &str = "INSERT INTO users (id, issuer, subject, email, display_name) \
-    VALUES (gen_random_uuid(), $1, $2, $3, $4) \
+const UPSERT_USER_SQL: &str = "INSERT INTO users (id, issuer, subject, email, email_verified, display_name) \
+    VALUES (gen_random_uuid(), $1, $2, $3, $4, $5) \
     ON CONFLICT (issuer, subject) DO UPDATE \
-    SET email = EXCLUDED.email, display_name = EXCLUDED.display_name, last_login_at = now() \
+    SET email = EXCLUDED.email, email_verified = EXCLUDED.email_verified, \
+        display_name = EXCLUDED.display_name, last_login_at = now() \
     RETURNING id, email, display_name";
 
 const CREATE_SESSION_SQL: &str = "INSERT INTO sessions (token_hash, user_id, expires_at) \
@@ -35,7 +36,8 @@ const DELETE_EXPIRED_SESSIONS_SQL: &str = "DELETE FROM sessions \
 
 const CREATE_LOGIN_STATE_SQL: &str = "INSERT INTO login_states \
     (state, pkce_verifier, nonce, return_to, expires_at) \
-    VALUES ($1, $2, $3, $4, now() + make_interval(secs => $5))";
+    SELECT $1::text, $2::text, $3::text, $4::text, now() + make_interval(secs => $5) \
+    WHERE (SELECT count(*) FROM login_states WHERE expires_at > now()) < $6::bigint";
 
 const TAKE_LOGIN_STATE_SQL: &str = "DELETE FROM login_states \
     WHERE state = $1 AND expires_at > now() RETURNING pkce_verifier, nonce, return_to";
@@ -65,7 +67,7 @@ impl EndpointRole {
         }
     }
 
-    fn parse(text: &str) -> Option<Self> {
+    pub(crate) fn parse(text: &str) -> Option<Self> {
         match text {
             "viewer" => Some(Self::Viewer),
             "editor" => Some(Self::Editor),
@@ -80,6 +82,7 @@ pub struct VerifiedIdentity {
     pub issuer: String,
     pub subject: String,
     pub email: String,
+    pub email_verified: bool,
     pub display_name: Option<String>,
 }
 
@@ -89,6 +92,7 @@ impl fmt::Debug for VerifiedIdentity {
             .field("issuer", &self.issuer)
             .field("subject", &"<redacted>")
             .field("email", &"<redacted>")
+            .field("email_verified", &self.email_verified)
             .finish_non_exhaustive()
     }
 }
@@ -137,9 +141,11 @@ pub enum AuthStoreError {
     Query(#[source] sqlx::Error),
     #[error("stored auth data is invalid: {0}")]
     Invalid(String),
+    #[error("too many sign-ins are pending")]
+    LoginsFull,
 }
 
-fn classify(error: sqlx::Error) -> AuthStoreError {
+pub(crate) fn classify(error: sqlx::Error) -> AuthStoreError {
     if matches!(
         error,
         sqlx::Error::PoolTimedOut | sqlx::Error::PoolClosed | sqlx::Error::Io(_)
@@ -150,7 +156,7 @@ fn classify(error: sqlx::Error) -> AuthStoreError {
     }
 }
 
-fn user_from_row(row: &PgRow) -> Result<UserRecord, AuthStoreError> {
+pub(crate) fn user_from_row(row: &PgRow) -> Result<UserRecord, AuthStoreError> {
     Ok(UserRecord {
         id: row.try_get("id").map_err(classify)?,
         email: row.try_get("email").map_err(classify)?,
@@ -167,6 +173,7 @@ impl Store {
             .bind(&identity.issuer)
             .bind(&identity.subject)
             .bind(&identity.email)
+            .bind(identity.email_verified)
             .bind(identity.display_name.as_deref())
             .fetch_one(self.pool())
             .await
@@ -228,16 +235,21 @@ impl Store {
         key: &str,
         login: &LoginRecord,
         ttl: Duration,
+        max_pending: u32,
     ) -> Result<(), AuthStoreError> {
-        sqlx::query(CREATE_LOGIN_STATE_SQL)
+        let outcome = sqlx::query(CREATE_LOGIN_STATE_SQL)
             .bind(key)
             .bind(&login.pkce_verifier)
             .bind(&login.nonce)
             .bind(&login.return_to)
             .bind(ttl.as_secs_f64())
+            .bind(i64::from(max_pending))
             .execute(self.pool())
             .await
             .map_err(classify)?;
+        if outcome.rows_affected() == 0 {
+            return Err(AuthStoreError::LoginsFull);
+        }
         Ok(())
     }
 

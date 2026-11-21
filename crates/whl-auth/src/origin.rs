@@ -37,8 +37,11 @@ impl OriginCheck {
     }
 
     pub fn permits(&self, method: &Method, path: &str, headers: &HeaderMap) -> bool {
-        if !is_mutating(method) || !is_guarded(path) {
+        if is_safe(method) || !is_guarded(path) {
             return true;
+        }
+        if headers.get_all(header::ORIGIN).iter().count() > 1 {
+            return false;
         }
         if !self.policy.cookies.has_session_cookie(headers) {
             return true;
@@ -47,11 +50,8 @@ impl OriginCheck {
     }
 }
 
-fn is_mutating(method: &Method) -> bool {
-    matches!(
-        *method,
-        Method::POST | Method::PUT | Method::PATCH | Method::DELETE
-    )
+fn is_safe(method: &Method) -> bool {
+    matches!(*method, Method::GET | Method::HEAD | Method::OPTIONS)
 }
 
 fn is_guarded(path: &str) -> bool {
@@ -219,6 +219,45 @@ mod tests {
         for method in [Method::GET, Method::HEAD, Method::OPTIONS] {
             assert!(check.permits(&method, "/api/v1/endpoints/x", &foreign));
         }
+    }
+
+    #[test]
+    fn every_method_that_is_not_known_safe_is_checked() {
+        let check = check();
+        let foreign = with_cookie(&[(header::ORIGIN, "https://evil.example")]);
+        let same = with_cookie(&[(header::ORIGIN, ORIGIN)]);
+        for name in [
+            "post", "get", "delete", "PROPFIND", "PURGE", "X-CUSTOM", "TRACE",
+        ] {
+            let method = Method::from_bytes(name.as_bytes()).expect("a valid method token");
+            assert!(
+                !check.permits(&method, "/api/v1/endpoints/x", &foreign),
+                "{name}"
+            );
+            assert!(
+                check.permits(&method, "/api/v1/endpoints/x", &same),
+                "{name}"
+            );
+        }
+        for method in [Method::CONNECT, Method::TRACE] {
+            assert!(!check.permits(&method, "/api/v1/endpoints/x", &foreign));
+        }
+    }
+
+    #[test]
+    fn more_than_one_origin_header_is_refused_even_when_each_value_is_right() {
+        let check = check();
+        let mut doubled = with_cookie(&[(header::ORIGIN, ORIGIN)]);
+        doubled.append(header::ORIGIN, HeaderValue::from_static(ORIGIN));
+        assert!(!check.permits(&Method::POST, "/api/v1/endpoints", &doubled));
+        let mut without_session = HeaderMap::new();
+        without_session.append(header::ORIGIN, HeaderValue::from_static(ORIGIN));
+        without_session.append(
+            header::ORIGIN,
+            HeaderValue::from_static("https://evil.example"),
+        );
+        assert!(!check.permits(&Method::POST, "/api/v1/endpoints", &without_session));
+        assert!(check.permits(&Method::GET, "/api/v1/endpoints", &doubled));
     }
 
     #[test]

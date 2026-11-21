@@ -4,8 +4,9 @@ use axum::response::{IntoResponse, Response};
 use url::form_urlencoded;
 use whl_store::LoginRecord;
 
-use crate::cookies::{self, CookieError};
+use crate::cookies::{self, CookieError, LoginCookie};
 use crate::error::{AuthRejection, LoginFailure};
+use crate::provider::Provider;
 use crate::return_to;
 use crate::state::AuthState;
 use crate::token::{RandomToken, login_key};
@@ -62,10 +63,11 @@ enum FlowError {
     Cookie(#[from] CookieError),
 }
 
-fn failed_login(auth: &AuthState, failure: LoginFailure) -> Response {
+fn failed_login(auth: &AuthState, failure: LoginFailure, cookie: Option<&LoginCookie>) -> Response {
     tracing::warn!(code = failure.code(), "sign-in failed");
     let location = format!("/?login_error={}", failure.code());
-    match found(&location, [auth.cookies().clear_login()]) {
+    let cleared = cookie.map(|cookie| auth.cookies().clear_login(cookie));
+    match found(&location, cleared) {
         Ok(response) => response,
         Err(error) => {
             tracing::error!(%error, "cannot build the sign-in failure redirect");
@@ -74,20 +76,36 @@ fn failed_login(auth: &AuthState, failure: LoginFailure) -> Response {
     }
 }
 
-pub(crate) async fn login(State(auth): State<AuthState>, RawQuery(query): RawQuery) -> Response {
-    match start_login(&auth, query.as_deref()).await {
+pub(crate) async fn login(
+    State(auth): State<AuthState>,
+    headers: HeaderMap,
+    RawQuery(query): RawQuery,
+) -> Response {
+    let provider = match auth.provider() {
+        Ok(provider) => provider,
+        Err(rejection) => return rejection.into_response(),
+    };
+    match start_login(&auth, provider, &headers, query.as_deref()).await {
         Ok(response) => response,
-        Err(failure) => failed_login(&auth, failure),
+        Err(LoginFailure::Busy) => {
+            tracing::warn!("refused a sign-in because too many are pending");
+            AuthRejection::LoginBusy.into_response()
+        }
+        Err(failure) => failed_login(&auth, failure, None),
     }
 }
 
-async fn start_login(auth: &AuthState, query: Option<&str>) -> Result<Response, LoginFailure> {
+async fn start_login(
+    auth: &AuthState,
+    provider: &Provider,
+    headers: &HeaderMap,
+    query: Option<&str>,
+) -> Result<Response, LoginFailure> {
     let destination = return_to::sanitize(query_value(query, "return_to").as_deref());
     let state = random()?;
     let nonce = random()?;
     let binding = random()?;
-    let request = auth
-        .provider()
+    let request = provider
         .authorization_request(state.unpack(), nonce.unpack())
         .await;
     let record = LoginRecord {
@@ -100,12 +118,17 @@ async fn start_login(auth: &AuthState, query: Option<&str>) -> Result<Response, 
             &login_key(state.unpack(), &binding),
             &record,
             auth.settings().login_ttl(),
+            auth.settings().max_pending_logins(),
         )
         .await?;
-    let cookie = auth
-        .cookies()
-        .set_login(&binding, auth.settings().login_ttl());
-    found(request.url.as_str(), [cookie]).map_err(|error| {
+    let login_cookie = auth.cookies().login_cookie(&state);
+    let mut cookie_values = auth.cookies().clear_stale_logins(headers);
+    cookie_values.push(auth.cookies().set_login(
+        &login_cookie,
+        &binding,
+        auth.settings().login_ttl(),
+    ));
+    found(request.url.as_str(), cookie_values).map_err(|error| {
         tracing::error!(%error, "cannot build the authorization redirect");
         LoginFailure::Internal
     })
@@ -116,26 +139,35 @@ pub(crate) async fn callback(
     headers: HeaderMap,
     RawQuery(query): RawQuery,
 ) -> Response {
-    match finish_login(&auth, &headers, query.as_deref()).await {
+    let provider = match auth.provider() {
+        Ok(provider) => provider,
+        Err(rejection) => return rejection.into_response(),
+    };
+    let query = CallbackQuery::parse(query.as_deref());
+    let state = query.state.as_deref().and_then(RandomToken::parse);
+    let cookie = state
+        .as_ref()
+        .map(|state| auth.cookies().login_cookie(state));
+    match finish_login(&auth, provider, &headers, query, state, cookie.as_ref()).await {
         Ok(response) => response,
-        Err(failure) => failed_login(&auth, failure),
+        Err(failure) => failed_login(&auth, failure, cookie.as_ref()),
     }
 }
 
 async fn finish_login(
     auth: &AuthState,
+    provider: &Provider,
     headers: &HeaderMap,
-    raw_query: Option<&str>,
+    query: CallbackQuery,
+    state: Option<RandomToken>,
+    cookie: Option<&LoginCookie>,
 ) -> Result<Response, LoginFailure> {
-    let query = CallbackQuery::parse(raw_query);
+    let (Some(state), Some(cookie)) = (state, cookie) else {
+        return Err(LoginFailure::InvalidState);
+    };
     let binding = auth
         .cookies()
-        .read_login(headers)
-        .ok_or(LoginFailure::InvalidState)?;
-    let state = query
-        .state
-        .as_deref()
-        .and_then(RandomToken::parse)
+        .read_login(headers, cookie)
         .ok_or(LoginFailure::InvalidState)?;
     let record = auth
         .store()
@@ -149,8 +181,7 @@ async fn finish_login(
         .code
         .filter(|code| !code.is_empty() && code.len() <= MAX_CODE_LENGTH)
         .ok_or(LoginFailure::InvalidRequest)?;
-    let identity = auth
-        .provider()
+    let identity = provider
         .complete(&code, &record.pkce_verifier, &record.nonce)
         .await?;
     let user = auth.store().upsert_user(&identity).await?;
@@ -173,7 +204,7 @@ async fn finish_login(
         &destination,
         [
             auth.cookies().set_session(&token),
-            auth.cookies().clear_login(),
+            auth.cookies().clear_login(cookie),
         ],
     )
     .map_err(|error| {
