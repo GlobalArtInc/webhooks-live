@@ -1,0 +1,281 @@
+use std::alloc::System;
+use std::sync::mpsc::channel;
+use std::sync::{Arc, Barrier};
+use std::time::Duration;
+
+use rhai::Engine;
+use time::OffsetDateTime;
+
+use crate::pool::submit_extended;
+use crate::{
+    CountingAlloc, EngineLimits, MemoryWindow, PoolConfig, RandomSeed, RunLimits, ScriptCompiler,
+    ScriptError, ScriptJob, ScriptPool, SeededRandom, SystemClock, allocator_installed,
+    memory_exceeded,
+};
+
+#[global_allocator]
+static ALLOCATOR: CountingAlloc<System> = CountingAlloc::new(System);
+
+const MIB: usize = 1024 * 1024;
+
+fn allocate(bytes: usize) -> Vec<u8> {
+    std::hint::black_box(Vec::<u8>::with_capacity(bytes))
+}
+
+fn hog_extension(engine: &mut Engine) {
+    engine.register_fn("hog", |bytes: i64| {
+        let block = vec![1u8; usize::try_from(bytes).unwrap_or(0)];
+        std::hint::black_box(&block);
+        i64::try_from(block.len()).unwrap_or(0)
+    });
+    engine.register_fn("boom", || -> i64 { panic!("host function failure") });
+    engine.register_fn("thread_name", || {
+        std::thread::current().name().unwrap_or("").to_owned()
+    });
+}
+
+fn job(source: &str, limits: RunLimits) -> ScriptJob {
+    let compiler = ScriptCompiler::new(EngineLimits::default()).expect("limits are valid");
+    ScriptJob {
+        script: compiler.compile(source).expect("script compiles"),
+        request: serde_json::json!({}),
+        vars: serde_json::Map::new(),
+        now: OffsetDateTime::UNIX_EPOCH,
+        limits,
+        clock: Arc::new(SystemClock::new()),
+        random: Box::new(SeededRandom::from_seed(&RandomSeed::from_bytes(b"unit"))),
+    }
+}
+
+fn pool(threads: usize) -> ScriptPool {
+    ScriptPool::new(PoolConfig {
+        threads,
+        ..PoolConfig::default()
+    })
+    .expect("pool starts")
+}
+
+#[test]
+fn the_allocator_is_detected_as_installed() {
+    assert!(allocator_installed());
+}
+
+#[test]
+fn live_and_peak_bytes_follow_allocations_exactly() {
+    let window = MemoryWindow::enter(usize::MAX);
+    let before = window.live_bytes();
+    let block = allocate(MIB);
+    assert_eq!(window.live_bytes() - before, MIB);
+    drop(block);
+    assert_eq!(window.live_bytes(), before);
+    assert!(window.peak_bytes() >= before + MIB);
+}
+
+#[test]
+fn growing_a_buffer_is_counted_by_its_final_capacity() {
+    let window = MemoryWindow::enter(usize::MAX);
+    let mut buffer: Vec<u8> = Vec::new();
+    buffer.reserve_exact(1000);
+    let first = window.live_bytes();
+    buffer.reserve_exact(5000);
+    assert_eq!(window.live_bytes() - first, buffer.capacity() - 1000);
+    drop(buffer);
+    assert_eq!(window.live_bytes(), 0);
+}
+
+#[test]
+fn allocation_outside_a_window_is_not_counted() {
+    let block = allocate(MIB);
+    let window = MemoryWindow::enter(usize::MAX);
+    assert_eq!(window.live_bytes(), 0);
+    drop(block);
+    assert_eq!(window.live_bytes(), 0);
+}
+
+#[test]
+fn exceeding_the_limit_sets_the_flag_and_a_new_window_starts_clean() {
+    {
+        let window = MemoryWindow::enter(64 * 1024);
+        assert!(!window.exceeded());
+        let block = allocate(128 * 1024);
+        assert!(window.exceeded());
+        assert!(memory_exceeded());
+        drop(block);
+        assert!(window.exceeded());
+    }
+    assert!(!memory_exceeded());
+    let window = MemoryWindow::enter(64 * 1024);
+    assert!(!window.exceeded());
+    assert_eq!(window.live_bytes(), 0);
+}
+
+#[test]
+fn nested_windows_restore_the_outer_account() {
+    let outer = MemoryWindow::enter(usize::MAX);
+    let kept = allocate(MIB);
+    let outer_live = outer.live_bytes();
+    {
+        let inner = MemoryWindow::enter(usize::MAX);
+        let block = allocate(2 * MIB);
+        assert_eq!(inner.live_bytes(), 2 * MIB);
+        drop(block);
+    }
+    assert_eq!(outer.live_bytes(), outer_live);
+    drop(kept);
+}
+
+#[test]
+fn memory_allocated_in_one_thread_and_freed_in_another_does_not_corrupt_either_account() {
+    let (to_other, from_first) = channel::<Vec<u8>>();
+    let (done_tx, done_rx) = channel::<usize>();
+    let freeing = std::thread::spawn(move || {
+        let window = MemoryWindow::enter(usize::MAX);
+        let block = from_first.recv().expect("block arrives");
+        drop(block);
+        done_tx.send(window.live_bytes()).expect("report");
+        window.live_bytes()
+    });
+    let allocating = std::thread::spawn(move || {
+        let window = MemoryWindow::enter(usize::MAX);
+        let base = window.live_bytes();
+        let block = allocate(MIB);
+        assert_eq!(window.live_bytes() - base, MIB);
+        to_other.send(block).expect("send block");
+        done_rx.recv().expect("other side finished");
+        let still_counted = window.live_bytes();
+        assert!(still_counted >= base + MIB);
+        assert!(still_counted - base - MIB < 8192);
+        let more = allocate(MIB);
+        assert_eq!(window.live_bytes() - still_counted, MIB);
+        drop(more);
+        assert_eq!(window.live_bytes(), still_counted);
+    });
+    assert!(freeing.join().expect("freeing thread") < 8192);
+    allocating.join().expect("allocating thread");
+}
+
+#[test]
+fn concurrent_threads_keep_independent_exact_accounts() {
+    let threads = 8;
+    let barrier = Arc::new(Barrier::new(threads));
+    let handles: Vec<_> = (1..=threads)
+        .map(|index| {
+            let barrier = Arc::clone(&barrier);
+            std::thread::spawn(move || {
+                let window = MemoryWindow::enter(usize::MAX);
+                barrier.wait();
+                let base = window.live_bytes();
+                let size = index * 4096;
+                for _ in 0..200 {
+                    let first = allocate(size);
+                    let second = allocate(size);
+                    assert_eq!(window.live_bytes() - base, 2 * size);
+                    drop(first);
+                    drop(second);
+                    assert_eq!(window.live_bytes(), base);
+                }
+                assert!(window.peak_bytes() >= base + 2 * size);
+                assert!(window.peak_bytes() < base + 2 * size + 4096);
+            })
+        })
+        .collect();
+    for handle in handles {
+        handle.join().expect("thread finishes");
+    }
+}
+
+#[test]
+fn a_host_function_that_allocates_past_the_budget_fails_the_run_without_taking_down_the_process() {
+    let pool = pool(1);
+    let limits = RunLimits {
+        memory_bytes: MIB,
+        ..RunLimits::default()
+    };
+    let result = submit_extended(
+        &pool,
+        job("hog(8 * 1024 * 1024); ()", limits),
+        &hog_extension,
+    )
+    .expect("submitted")
+    .wait();
+    assert_eq!(result.expect_err("over budget"), ScriptError::Memory);
+
+    let huge = submit_extended(
+        &pool,
+        job("hog(64 * 1024 * 1024); ()", RunLimits::default()),
+        &hog_extension,
+    )
+    .expect("submitted")
+    .wait();
+    assert_eq!(
+        huge.expect_err("over the default budget"),
+        ScriptError::Memory
+    );
+
+    let follow_up = pool.run(job("#{ vars: #{ ok: true } }", RunLimits::default()));
+    assert!(follow_up.is_ok());
+}
+
+#[test]
+fn a_host_function_within_the_budget_succeeds() {
+    let pool = pool(1);
+    let result = submit_extended(
+        &pool,
+        job("#{ vars: #{ n: hog(1024 * 1024) } }", RunLimits::default()),
+        &hog_extension,
+    )
+    .expect("submitted")
+    .wait()
+    .expect("run succeeds");
+    assert_eq!(result.vars.get("n"), Some(&serde_json::json!(1024 * 1024)));
+    assert!(result.stats.peak_memory_bytes >= MIB);
+}
+
+#[test]
+fn a_panic_inside_a_script_run_is_reported_and_the_worker_survives() {
+    let pool = pool(1);
+    let result = submit_extended(
+        &pool,
+        job("boom(); ()", RunLimits::default()),
+        &hog_extension,
+    )
+    .expect("submitted")
+    .wait();
+    let error = result.expect_err("the host function panicked");
+    assert_eq!(error, ScriptError::Panic);
+    assert_eq!(error.code(), "script_panic");
+    assert_eq!(error.outcome(), "panic");
+    assert!(!memory_exceeded());
+
+    let follow_up = pool.run(job("#{ vars: #{ alive: true } }", RunLimits::default()));
+    assert!(follow_up.is_ok());
+}
+
+#[test]
+fn scripts_run_on_the_dedicated_pool_threads_with_the_configured_stack() {
+    let pool = pool(2);
+    let output = submit_extended(
+        &pool,
+        job("#{ vars: #{ name: thread_name() } }", RunLimits::default()),
+        &hog_extension,
+    )
+    .expect("submitted")
+    .wait()
+    .expect("run succeeds");
+    let name = output.vars["name"].as_str().expect("thread name");
+    assert!(name.starts_with("whl-script-"), "{name}");
+    assert_ne!(std::thread::current().name(), Some(name));
+}
+
+#[test]
+fn a_panic_outside_the_script_run_is_caught_by_the_worker() {
+    let pool = pool(1);
+    let pending = pool
+        .submit_task(Duration::from_secs(5), |_, _| -> Result<(), ScriptError> {
+            panic!("task failure")
+        })
+        .expect("submitted");
+    assert_eq!(pending.wait().expect_err("panicked"), ScriptError::Panic);
+    let follow_up = pool.run(job("()", RunLimits::default()));
+    assert!(follow_up.is_ok());
+}
