@@ -1,6 +1,7 @@
 import access from './en/access.json';
 import common from './en/common.json';
 import composer from './en/composer.json';
+import conditions from './en/conditions.json';
 import detail from './en/detail.json';
 import diff from './en/diff.json';
 import editor from './en/editor.json';
@@ -25,6 +26,7 @@ import workspace from './en/workspace.json';
 export type SourceMessages = typeof access &
   typeof common &
   typeof composer &
+  typeof conditions &
   typeof detail &
   typeof diff &
   typeof editor &

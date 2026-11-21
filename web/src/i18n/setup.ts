@@ -3,6 +3,7 @@ import type { BundleLoader, BundleLoaders, Dictionary } from './bundles';
 import access from './en/access.json';
 import common from './en/common.json';
 import composer from './en/composer.json';
+import conditions from './en/conditions.json';
 import detail from './en/detail.json';
 import diff from './en/diff.json';
 import editor from './en/editor.json';
@@ -39,6 +40,7 @@ export function createI18nInstance(): I18nInstance {
           ...access,
           ...common,
           ...composer,
+          ...conditions,
           ...detail,
           ...diff,
           ...editor,
