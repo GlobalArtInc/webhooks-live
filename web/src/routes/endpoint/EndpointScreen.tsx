@@ -5,6 +5,7 @@ import { useClearCaptures, useEndpoint } from '../../api/queries';
 import { CaptureList, type ListNavigation } from '../../components/CaptureList/CaptureList';
 import { ConfirmDialog } from '../../components/ConfirmDialog/ConfirmDialog';
 import { Announcer } from '../../components/Announcer/Announcer';
+import { copyText } from '../../components/CopyButton/clipboard';
 import { ConnectionIndicator } from '../../components/ConnectionIndicator/ConnectionIndicator';
 import { EmptyState } from '../../components/EmptyState/EmptyState';
 import { EndpointHeader } from '../../components/EndpointHeader/EndpointHeader';
@@ -41,6 +42,7 @@ import {
   useDeleteWithUndo,
   useVisibleMinuteNow,
 } from '../../features/list';
+import { useShortcutHandlers, useShortcutScope } from '../../features/shortcuts';
 import styles from './EndpointScreen.module.css';
 
 const ENDPOINT_ROUTE_ID = '/shell/e/$id';
@@ -112,6 +114,41 @@ export function EndpointScreen() {
     }
   }, [selection.captureId]);
 
+  const paneId = selection.paneId;
+  const paneHidden = layout === 'medium' && closedFor !== null && closedFor === paneId;
+  const paneTarget = narrow ? selection.captureId : paneHidden ? null : paneId;
+  const shortcutsActive = endpoint !== undefined && live.endReason === null;
+
+  useShortcutScope('endpoint', shortcutsActive);
+  useShortcutScope('capture', shortcutsActive && paneTarget !== null);
+  useShortcutHandlers({
+    next: selection.next,
+    previous: selection.previous,
+    newest: goNewest,
+    oldest: selection.last,
+    toggleFollow: () => {
+      applyFollow({ kind: 'toggle' });
+    },
+    copyUrl: copyCaptureUrl,
+    settings: () => {
+      void navigate({ to: '/e/$id/settings', params: { id: endpointId } });
+    },
+    forwarding: () => {
+      void navigate({ to: '/e/$id/forwarding', params: { id: endpointId } });
+    },
+    compare: () => {
+      if (paneTarget !== null) {
+        compare(paneTarget);
+      }
+    },
+    delete: () => {
+      if (paneTarget !== null) {
+        requestDelete(paneTarget);
+      }
+    },
+    close: narrow && paneTarget !== null ? goBack : undefined,
+  });
+
   if (endpoint === undefined) {
     return null;
   }
@@ -120,9 +157,6 @@ export function EndpointScreen() {
     return <StatePage kind={live.endReason === 'missing' ? 'not-found' : 'gone'} />;
   }
 
-  const paneId = selection.paneId;
-  const paneHidden = layout === 'medium' && closedFor !== null && closedFor === paneId;
-  const paneTarget = narrow ? selection.captureId : paneHidden ? null : paneId;
   const showEmpty = list.hasData && list.total === 0 && list.items.length === 0;
   const curl = sampleCurl(endpoint.url);
 
@@ -143,10 +177,23 @@ export function EndpointScreen() {
     }
   }
 
+  function goNewest(): void {
+    if (!follow.following) {
+      follow.dispatch({ kind: 'toggle' });
+    }
+    selection.first();
+  }
+
+  function copyCaptureUrl(): void {
+    if (endpoint !== undefined) {
+      void copyText(endpoint.url);
+    }
+  }
+
   function navigateList(navigation: ListNavigation): void {
     switch (navigation) {
       case 'first':
-        selection.first();
+        goNewest();
         return;
       case 'previous':
         selection.previous();

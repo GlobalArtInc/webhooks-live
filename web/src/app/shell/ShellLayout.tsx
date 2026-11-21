@@ -1,7 +1,8 @@
-import { Outlet, useLocation } from '@tanstack/react-router';
+import { Outlet, useLocation, useNavigate } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
 import { useInstance } from '../../api/queries';
 import { EndpointRail } from '../../features/endpoints';
+import { useShortcutHandlers } from '../../features/shortcuts';
 import { StatePage } from '../../components/StatePage/StatePage';
 import { requiresSignIn, signInHref } from '../signIn';
 import { AppShell } from './AppShell';
@@ -10,6 +11,13 @@ import { showsEndpointRail } from './rail';
 export function ShellLayout() {
   const instance = useInstance();
   const location = useLocation();
+  const navigate = useNavigate();
+
+  useShortcutHandlers({
+    newEndpoint: () => {
+      void navigate({ to: '/' });
+    },
+  });
 
   let content: ReactNode;
   let rail: ReactNode;

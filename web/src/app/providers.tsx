@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
 import { useEffect } from 'react';
 import { shouldRetryRequest } from '../api/queries';
+import { ShortcutProvider } from '../features/shortcuts';
 import { I18nProvider, useLanguage } from '../i18n/provider';
 import type { AppRouter } from './router';
 
@@ -33,7 +34,9 @@ export function AppProviders({ queryClient, router }: AppProvidersProps) {
     <QueryClientProvider client={queryClient}>
       <I18nProvider>
         <LanguageDocumentSync />
-        <RouterProvider router={router} />
+        <ShortcutProvider>
+          <RouterProvider router={router} />
+        </ShortcutProvider>
       </I18nProvider>
     </QueryClientProvider>
   );
