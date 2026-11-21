@@ -5,7 +5,8 @@ use axum::http::Method;
 use axum::middleware::{Next, from_fn_with_state};
 use axum::response::Response;
 use whl_auth::{
-    AccessControl, AccessMode, EndpointParam, EndpointRole, Requirement, TokenPolicy, TokenScope,
+    AccessControl, AccessMode, EndpointParam, EndpointRole, GrantRule, Requirement, RoutePolicy,
+    TokenPolicy, TokenScope,
 };
 
 const API_PREFIX: &str = "/api/v1";
@@ -15,6 +16,9 @@ const MEMBERS_TAIL: &str = "/members";
 const CLAIM_TAIL: &str = "/claim";
 const IMPORT_TAIL: &str = "/import";
 const IMPORT_PATH: &str = "/endpoints/import";
+const UNLOCK_TAIL: &str = "/unlock";
+const STREAM_TAIL: &str = "/stream";
+const FOLDER_ENDPOINT_PATH: &str = "/folders/{folder_id}/endpoints/{id}";
 const TOKENS_PATH: &str = "/tokens";
 const TOKEN_PATH: &str = "/tokens/{token_id}";
 const SCHEDULES_TAIL: &str = "/schedules";
@@ -44,6 +48,7 @@ pub fn requirement(mode: AccessMode, method: &Method, pattern: &str) -> Requirem
             Some(IMPORT_TAIL) if *method == Method::POST => {
                 Requirement::OwnedRole(EndpointRole::Editor)
             }
+            Some(UNLOCK_TAIL) if *method == Method::POST => Requirement::Anyone,
             Some(tail) if is_members_route(tail) => Requirement::OwnedRole(EndpointRole::Owner),
             Some(SCHEDULES_TAIL) if *method == Method::POST => {
                 Requirement::OwnedRole(EndpointRole::Owner)
@@ -75,6 +80,19 @@ pub fn token_policy(method: &Method, pattern: &str) -> TokenPolicy {
     scope.map_or(TokenPolicy::SessionOnly, TokenPolicy::Scope)
 }
 
+pub fn grant_rule(method: &Method, pattern: &str) -> GrantRule {
+    let rest = pattern.strip_prefix(API_PREFIX).unwrap_or(pattern);
+    let read = matches!(*method, Method::GET | Method::HEAD);
+    if rest == FOLDER_ENDPOINT_PATH && *method == Method::DELETE {
+        return GrantRule::NotRequired;
+    }
+    match rest.strip_prefix(ENDPOINT_PREFIX) {
+        Some(UNLOCK_TAIL) if *method == Method::POST => GrantRule::NotRequired,
+        Some(STREAM_TAIL) if read => GrantRule::HeaderOrQuery,
+        _ => GrantRule::Header,
+    }
+}
+
 fn endpoint_scope(method: &Method, tail: &str) -> Option<TokenScope> {
     let read = matches!(*method, Method::GET | Method::HEAD);
     let write = |scope: TokenScope, methods: &[Method]| methods.contains(method).then_some(scope);
@@ -94,6 +112,7 @@ fn endpoint_scope(method: &Method, tail: &str) -> Option<TokenScope> {
             Some(TokenScope::Read)
         }
         "" => write(TokenScope::EndpointsWrite, &[Method::PATCH, Method::DELETE]),
+        UNLOCK_TAIL => write(TokenScope::Read, &[Method::POST]),
         "/secrets/{name}" => write(TokenScope::EndpointsWrite, &[Method::PUT, Method::DELETE]),
         "/captures" | "/captures/{capture_id}" => {
             write(TokenScope::CapturesWrite, &[Method::DELETE])
@@ -182,10 +201,14 @@ async fn guard(
     let pattern = matched.as_ref().map_or("", MatchedPath::as_str);
     let requirement = requirement(access.mode(), request.method(), pattern);
     let token = token_policy(request.method(), pattern);
+    let grant = grant_rule(request.method(), pattern);
     let endpoint = EndpointParam::from_path(&params, ENDPOINT_PARAM);
-    access
-        .enforce_for(requirement, token, endpoint, request, next)
-        .await
+    let route = RoutePolicy {
+        requirement,
+        token,
+        grant,
+    };
+    access.enforce_route(route, endpoint, request, next).await
 }
 
 pub fn guard_routes<S>(routes: Router<S>, access: &AccessControl) -> Router<S>
@@ -576,6 +599,63 @@ mod tests {
                 Requirement::SignedIn
             );
         }
+    }
+
+    #[test]
+    fn unlock_is_open_to_anyone_with_the_read_scope_and_needs_no_grant() {
+        let pattern = "/api/v1/endpoints/{id}/unlock";
+        for mode in MODES {
+            assert_eq!(requirement(mode, &POST, pattern), Requirement::Anyone);
+        }
+        assert_eq!(
+            token_policy(&POST, pattern),
+            TokenPolicy::Scope(TokenScope::Read)
+        );
+        assert_eq!(grant_rule(&POST, pattern), GrantRule::NotRequired);
+        assert_eq!(token_policy(&GET, pattern), TokenPolicy::SessionOnly);
+        assert_eq!(grant_rule(&GET, pattern), GrantRule::Header);
+        assert_eq!(
+            role(&GET, "/unlock"),
+            Requirement::Role(EndpointRole::Owner)
+        );
+    }
+
+    #[test]
+    fn only_the_stream_takes_the_grant_in_the_query_and_every_other_route_needs_the_header() {
+        let stream = "/api/v1/endpoints/{id}/stream";
+        assert_eq!(grant_rule(&GET, stream), GrantRule::HeaderOrQuery);
+        assert_eq!(grant_rule(&Method::HEAD, stream), GrantRule::HeaderOrQuery);
+        assert_eq!(grant_rule(&POST, stream), GrantRule::Header);
+        for (method, tail) in [
+            (&GET, ""),
+            (&PATCH, ""),
+            (&DELETE, ""),
+            (&GET, "/captures"),
+            (&GET, "/captures/latest"),
+            (&GET, "/captures/{capture_id}/body"),
+            (&POST, "/captures/{capture_id}/resend"),
+            (&POST, "/claim"),
+            (&PUT, "/members"),
+            (&GET, "/secrets"),
+            (&GET, "/stream-extra"),
+            (&GET, "/something-new"),
+        ] {
+            let pattern = format!("/api/v1/endpoints/{{id}}{tail}");
+            assert_eq!(
+                grant_rule(method, &pattern),
+                GrantRule::Header,
+                "{method} {tail}"
+            );
+        }
+        assert_eq!(
+            grant_rule(&PUT, "/api/v1/folders/{folder_id}/endpoints/{id}"),
+            GrantRule::Header
+        );
+        assert_eq!(
+            grant_rule(&DELETE, "/api/v1/folders/{folder_id}/endpoints/{id}"),
+            GrantRule::NotRequired
+        );
+        assert_eq!(grant_rule(&GET, ""), GrantRule::Header);
     }
 
     #[test]

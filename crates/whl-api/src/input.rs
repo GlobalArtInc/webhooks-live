@@ -1,6 +1,7 @@
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use serde_json::{Map, Value};
+use whl_auth::{MAX_PASSWORD_CHARS, MIN_PASSWORD_CHARS, PasswordShape, ViewPassword};
 use whl_core::capture_auth::{
     AuthHeaderName, AuthHeaderNameError, AuthUsername, CredentialError, check_basic_password,
     check_header_value,
@@ -27,6 +28,7 @@ const ENDPOINT_KEYS: &[&str] = &[
     "verifier",
     "sender_allow_cidrs",
     "capture_auth",
+    "view_password",
 ];
 const BASIC_AUTH_KEYS: &[&str] = &["kind", "username", "password"];
 const HEADER_AUTH_KEYS: &[&str] = &["kind", "name", "value"];
@@ -63,6 +65,7 @@ pub struct EndpointPatch {
     pub lifecycle: LifecyclePatch,
     pub verifier: Option<Option<VerifierInput>>,
     pub access: AccessPatch,
+    pub view_password: Option<Option<ViewPassword>>,
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -211,6 +214,9 @@ impl Walk {
         if let Some(value) = object.get("capture_auth") {
             patch.access.capture_auth = self.capture_auth(value);
         }
+        if let Some(value) = object.get("view_password") {
+            patch.view_password = self.view_password(value);
+        }
         patch
     }
 
@@ -273,6 +279,41 @@ impl Walk {
                     "capture_auth.kind",
                     FieldCode::InvalidFormat,
                     "must be basic or header",
+                );
+                None
+            }
+        }
+    }
+
+    fn view_password(&mut self, value: &Value) -> Option<Option<ViewPassword>> {
+        match value {
+            Value::Null => Some(None),
+            Value::String(text) => match ViewPassword::parse(text) {
+                Ok(password) => Some(Some(password)),
+                Err(PasswordShape::TooShort) => {
+                    self.push(
+                        "view_password",
+                        FieldCode::OutOfRange,
+                        format!(
+                            "must be between {MIN_PASSWORD_CHARS} and {MAX_PASSWORD_CHARS} characters"
+                        ),
+                    );
+                    None
+                }
+                Err(PasswordShape::TooLong) => {
+                    self.push(
+                        "view_password",
+                        FieldCode::TooLong,
+                        format!("must be at most {MAX_PASSWORD_CHARS} characters"),
+                    );
+                    None
+                }
+            },
+            _ => {
+                self.push(
+                    "view_password",
+                    FieldCode::InvalidFormat,
+                    "must be a string or null",
                 );
                 None
             }

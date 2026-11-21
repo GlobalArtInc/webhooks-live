@@ -144,8 +144,6 @@ impl Bound {
         }
         .with_proxies(self.proxies.clone())
         .with_token_limits(self.limiters.clone());
-        let authorizer = whl_api::stream_authorizer(&access);
-        let inbox = whl_api::inbox_selector(&access, store.clone(), self.retention);
         let capture =
             CaptureState::new(store.clone(), self.capture)?.with_limiters(self.limiters.clone());
         let capture = match &self.secrets {
@@ -165,6 +163,8 @@ impl Bound {
             Some(keyring) => state.with_secrets(Arc::clone(keyring)),
             None => state,
         };
+        let authorizer = whl_api::stream_authorizer(state.access());
+        let inbox = whl_api::inbox_selector(state.access(), store.clone(), self.retention);
         tracing::info!(public = %self.public_addr, admin = %self.admin_addr, "listening");
 
         let storage_full = capture.storage_full().clone();

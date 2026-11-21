@@ -11,6 +11,7 @@ use whl_store::{CaptureAuthRecord, EndpointRecord, EndpointRole, StoredVerifier,
 
 use crate::forward::RuleDto;
 use crate::settings::{ApiSettings, MEMBER_ALIASES};
+use crate::view_password::GrantDto;
 
 const MAX_FORWARD_RULES: u32 = 5;
 
@@ -135,6 +136,9 @@ pub struct EndpointDto {
     capture_auth: Option<CaptureAuthDto>,
     owner: Option<UserDto>,
     my_role: Option<&'static str>,
+    view_protected: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    view_grant: Option<GrantDto>,
 }
 
 #[derive(Serialize)]
@@ -277,7 +281,19 @@ impl EndpointDto {
                 .map(CaptureAuthDto::from),
             owner: None,
             my_role: None,
+            view_protected: false,
+            view_grant: None,
         }
+    }
+
+    pub fn with_view_grant(mut self, grant: Option<GrantDto>) -> Self {
+        self.view_grant = grant;
+        self
+    }
+
+    pub fn with_view_protected(mut self, protected: bool) -> Self {
+        self.view_protected = protected;
+        self
     }
 
     pub fn with_identity(mut self, role: Option<EndpointRole>, owner: Option<&UserRecord>) -> Self {

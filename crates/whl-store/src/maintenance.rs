@@ -606,6 +606,11 @@ async fn expire_logins(store: &Store, settings: &MaintenanceSettings) {
         Ok(deleted) => tracing::info!(deleted, "deleted expired and revoked API tokens"),
         Err(error) => tracing::warn!(%error, "deleting stale API tokens failed"),
     }
+    match store.delete_expired_view_grants().await {
+        Ok(0) => {}
+        Ok(deleted) => tracing::info!(deleted, "deleted expired view grants"),
+        Err(error) => tracing::warn!(%error, "deleting expired view grants failed"),
+    }
 }
 
 async fn expire_usage(store: &Store) {

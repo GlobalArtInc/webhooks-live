@@ -18,6 +18,7 @@ use crate::access::{AccessDataError, AccessSettings, access_from_columns, ranges
 use crate::captures::EVENT_CHANNEL;
 use crate::lifecycle::{Lifecycle, LifecycleError, LifecycleLimits, admit_never_expires};
 use crate::store::Store;
+use crate::view::{ViewPasswordChange, ViewPasswordHash, apply_view_password};
 
 pub(crate) const COLUMNS: &str = "id, title, response_status, response_content_type, \
     response_headers::text AS response_headers, response_body, response_delay_ms, cors, overflow, \
@@ -191,7 +192,18 @@ impl Store {
         new: NewEndpoint<'_>,
         retention: Duration,
     ) -> Result<EndpointRecord, LifecycleError> {
-        self.insert_endpoint(&new, retention).await
+        self.insert_endpoint(&new, ViewPasswordChange::Keep, retention)
+            .await
+    }
+
+    pub async fn create_endpoint_with_view_password(
+        &self,
+        new: NewEndpoint<'_>,
+        view_password: &ViewPasswordHash,
+        retention: Duration,
+    ) -> Result<EndpointRecord, LifecycleError> {
+        self.insert_endpoint(&new, ViewPasswordChange::Set(view_password), retention)
+            .await
     }
 
     async fn insert_default_lifecycle(
@@ -212,7 +224,7 @@ impl Store {
             access: &access,
             limits: LifecycleLimits::NONE,
         };
-        self.insert_endpoint(&new, retention)
+        self.insert_endpoint(&new, ViewPasswordChange::Keep, retention)
             .await
             .map_err(|error| match error {
                 LifecycleError::Endpoint(error) => error,
@@ -226,6 +238,7 @@ impl Store {
     async fn insert_endpoint(
         &self,
         new: &NewEndpoint<'_>,
+        view_password: ViewPasswordChange<'_>,
         retention: Duration,
     ) -> Result<EndpointRecord, LifecycleError> {
         if new.settings.verifier.is_some() {
@@ -260,6 +273,12 @@ impl Store {
             .await
             .map_err(classify)?;
         let record = record_from_row(&row, retention)?;
+        if view_password.is_requested() && new.owner.is_some() {
+            return Err(owned_view_password(&record.id).into());
+        }
+        apply_view_password(&mut transaction, &record.id, view_password)
+            .await
+            .map_err(EndpointError::from)?;
         transaction.commit().await.map_err(classify)?;
         Ok(record)
     }
@@ -285,6 +304,28 @@ impl Store {
         id: &EndpointId,
         retention: Duration,
         limits: LifecycleLimits,
+        merge: F,
+    ) -> Result<Option<EndpointRecord>, E>
+    where
+        F: FnOnce(&EndpointRecord, Option<Uuid>) -> Result<EndpointChange, E>,
+        E: From<EndpointError> + From<LifecycleError>,
+    {
+        self.update_endpoint_with_view_password(
+            id,
+            retention,
+            limits,
+            ViewPasswordChange::Keep,
+            merge,
+        )
+        .await
+    }
+
+    pub async fn update_endpoint_with_view_password<E, F>(
+        &self,
+        id: &EndpointId,
+        retention: Duration,
+        limits: LifecycleLimits,
+        view_password: ViewPasswordChange<'_>,
         merge: F,
     ) -> Result<Option<EndpointRecord>, E>
     where
@@ -361,6 +402,14 @@ impl Store {
             .await
             .map_err(|error| E::from(classify(error)))?;
         let record = record_from_row(&row, retention).map_err(E::from)?;
+        if view_password.is_requested() {
+            if owner.is_some() {
+                return Err(E::from(owned_view_password(id)));
+            }
+            apply_view_password(&mut transaction, id, view_password)
+                .await
+                .map_err(|error| E::from(EndpointError::from(error)))?;
+        }
         let payload = serde_json::json!({ "t": "endpoint_updated", "e": id.unpack() });
         sqlx::query("SELECT pg_notify($1, $2)")
             .bind(EVENT_CHANNEL)
@@ -415,6 +464,13 @@ impl AccessColumns {
                 .map(|record| record.to_document())
                 .transpose()?,
         })
+    }
+}
+
+fn owned_view_password(id: &EndpointId) -> EndpointError {
+    EndpointError::Invalid {
+        id: id.unpack().to_owned(),
+        reason: "an endpoint with an owner cannot have a view password".to_owned(),
     }
 }
 

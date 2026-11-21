@@ -28,6 +28,7 @@ pub mod stats;
 mod store;
 pub mod stream;
 pub mod vars;
+mod view;
 
 pub use access::{
     AccessDataError, AccessSettings, CaptureAuthKeyUse, CaptureAuthRecord, StoredMac,
@@ -68,3 +69,7 @@ pub use members::{
 pub use sqlx::types::Uuid;
 pub use stats::{EndpointStats, StatsBucket, StatsPoint};
 pub use store::{MigrationState, Status, Store};
+pub use view::{
+    EndpointSnapshot, GRANT_PURGE_BATCH, MAX_GRANTS_PER_ENDPOINT, ViewPasswordChange,
+    ViewPasswordHash, ViewStanding, ViewStoreError,
+};

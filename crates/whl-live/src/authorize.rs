@@ -10,11 +10,25 @@ use whl_core::endpoint_id::EndpointId;
 pub struct StreamRequest {
     headers: HeaderMap,
     peer: Option<IpAddr>,
+    query: Option<String>,
 }
 
 impl StreamRequest {
     pub fn new(headers: HeaderMap, peer: Option<IpAddr>) -> Self {
-        Self { headers, peer }
+        Self {
+            headers,
+            peer,
+            query: None,
+        }
+    }
+
+    pub fn with_query(mut self, query: Option<String>) -> Self {
+        self.query = query;
+        self
+    }
+
+    pub fn query(&self) -> Option<&str> {
+        self.query.as_deref()
     }
 
     pub fn headers(&self) -> &HeaderMap {

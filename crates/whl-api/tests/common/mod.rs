@@ -539,3 +539,26 @@ impl Sse {
         assert!(after.is_none(), "an event arrived after bye: {after:?}");
     }
 }
+
+impl LiveApp {
+    pub async fn open_with_headers(&self, uri: &str, headers: &[(&str, &str)]) -> Sse {
+        let mut builder = Request::builder().uri(uri);
+        for (name, value) in headers {
+            builder = builder.header(*name, *value);
+        }
+        let request = builder.body(Body::empty()).expect("the request is valid");
+        let response = self
+            .app
+            .clone()
+            .oneshot(request)
+            .await
+            .expect("the router does not fail");
+        let (parts, body) = response.into_parts();
+        Sse {
+            status: parts.status,
+            body: body.into_data_stream(),
+            buffer: String::new(),
+            last_id: None,
+        }
+    }
+}

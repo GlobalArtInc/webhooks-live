@@ -102,3 +102,73 @@ async fn metrics() -> impl IntoResponse {
         whl_telemetry::metrics::render(),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use std::io;
+    use std::sync::{Arc, Mutex};
+
+    use tower::ServiceExt;
+    use tracing_subscriber::fmt::MakeWriter;
+
+    use super::*;
+
+    const GRANT: &str = "sentinel-grant-for-the-log-test";
+
+    #[derive(Clone, Default)]
+    struct Captured(Arc<Mutex<Vec<u8>>>);
+
+    impl io::Write for Captured {
+        fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+            self.0
+                .lock()
+                .map_err(|_| io::Error::other("the log buffer is poisoned"))?
+                .extend_from_slice(buffer);
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> MakeWriter<'a> for Captured {
+        type Writer = Captured;
+
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    #[tokio::test]
+    async fn request_logs_never_carry_the_query_string_of_a_stream_request() {
+        let captured = Captured::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::TRACE)
+            .with_ansi(false)
+            .with_writer(captured.clone())
+            .finish();
+        let _installed = tracing::subscriber::set_default(subscriber);
+        let app = with_tracing(
+            Router::new().route("/api/v1/endpoints/{id}/stream", get(|| async { "ok" })),
+        );
+        let request = Request::builder()
+            .uri(format!(
+                "/api/v1/endpoints/abc/stream?grant={GRANT}&last_event_id=4"
+            ))
+            .body(Body::empty())
+            .expect("the request is valid");
+
+        let response = app
+            .oneshot(request)
+            .await
+            .expect("the router does not fail");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let logs = String::from_utf8_lossy(&captured.0.lock().expect("the buffer is readable"))
+            .into_owned();
+        assert!(logs.contains("request finished"), "{logs}");
+        assert!(!logs.contains(GRANT), "{logs}");
+        assert!(!logs.contains("last_event_id"), "{logs}");
+    }
+}

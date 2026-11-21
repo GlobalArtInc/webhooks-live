@@ -20,7 +20,9 @@ use crate::access::decide_access;
 use crate::api_token::{self, BearerHeader, TokenGrant};
 use crate::current_user::CurrentUser;
 use crate::error::{AccessDenied, AuthRejection};
+use crate::grant::{GrantRule, presented};
 use crate::state::AuthState;
+use crate::view::ViewAccess;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AccessMode {
@@ -124,6 +126,7 @@ struct Inner {
     mode: Mode,
     proxies: TrustedProxies,
     limiters: Option<Limiters>,
+    views: Option<ViewAccess>,
 }
 
 #[derive(Clone)]
@@ -153,11 +156,18 @@ impl AccessControl {
     }
 
     fn build(mode: Mode) -> Self {
+        let views = match &mode {
+            Mode::Open => None,
+            Mode::Sso { auth, retention } | Mode::Mixed { auth, retention } => {
+                Some(ViewAccess::new(auth.store().clone(), *retention))
+            }
+        };
         Self {
             inner: Arc::new(Inner {
                 mode,
                 proxies: TrustedProxies::default(),
                 limiters: None,
+                views,
             }),
         }
     }
@@ -168,6 +178,7 @@ impl AccessControl {
                 mode: self.inner.mode.clone(),
                 proxies,
                 limiters: self.inner.limiters.clone(),
+                views: self.inner.views.clone(),
             }),
         }
     }
@@ -178,7 +189,44 @@ impl AccessControl {
                 mode: self.inner.mode.clone(),
                 proxies: self.inner.proxies.clone(),
                 limiters: Some(limiters),
+                views: self.inner.views.clone(),
             }),
+        }
+    }
+
+    pub fn with_views(self, views: ViewAccess) -> Self {
+        Self {
+            inner: Arc::new(Inner {
+                mode: self.inner.mode.clone(),
+                proxies: self.inner.proxies.clone(),
+                limiters: self.inner.limiters.clone(),
+                views: Some(views),
+            }),
+        }
+    }
+
+    pub fn views(&self) -> Option<&ViewAccess> {
+        self.inner.views.as_ref()
+    }
+
+    pub fn view_access(&self) -> Result<&ViewAccess, AuthRejection> {
+        self.inner.views.as_ref().ok_or_else(|| {
+            tracing::error!("view passwords are not wired into this access control");
+            AuthRejection::Internal
+        })
+    }
+
+    pub async fn view_grant_valid(
+        &self,
+        endpoint: &EndpointId,
+        headers: &HeaderMap,
+        query: Option<&str>,
+    ) -> Result<bool, AuthRejection> {
+        let grant = presented(headers, query);
+        match self.view_access()?.require(endpoint, grant.as_ref()).await {
+            Ok(()) => Ok(true),
+            Err(AuthRejection::GrantRequired) => Ok(false),
+            Err(other) => Err(other),
         }
     }
 
@@ -351,6 +399,13 @@ pub enum TokenPolicy {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RoutePolicy {
+    pub requirement: Requirement,
+    pub token: TokenPolicy,
+    pub grant: GrantRule,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Requirement {
     Anyone,
     SignedIn,
@@ -419,9 +474,30 @@ impl AccessControl {
         requirement: Requirement,
         token_policy: TokenPolicy,
         endpoint_param: EndpointParam,
+        request: Request,
+        next: Next,
+    ) -> Response {
+        let route = RoutePolicy {
+            requirement,
+            token: token_policy,
+            grant: GrantRule::Header,
+        };
+        self.enforce_route(route, endpoint_param, request, next)
+            .await
+    }
+
+    pub async fn enforce_route(
+        &self,
+        route: RoutePolicy,
+        endpoint_param: EndpointParam,
         mut request: Request,
         next: Next,
     ) -> Response {
+        let RoutePolicy {
+            requirement,
+            token: token_policy,
+            ..
+        } = route;
         let peer = request
             .extensions()
             .get::<ConnectInfo<SocketAddr>>()
@@ -431,6 +507,18 @@ impl AccessControl {
             Err(rejection) => return rejection.into_response(),
         };
         if self.mode() == AccessMode::Open {
+            if let Err(refusal) = self
+                .require_grant(
+                    &route,
+                    &endpoint_param,
+                    request.headers(),
+                    request.uri().query(),
+                    false,
+                )
+                .await
+            {
+                return refusal.into_response();
+            }
             request.extensions_mut().insert(Access {
                 caller: caller.clone(),
                 role: None,
@@ -447,6 +535,18 @@ impl AccessControl {
                 if caller.user().is_none() {
                     return self.sign_in_rejection().into_response();
                 }
+                if let Err(refusal) = self
+                    .require_grant(
+                        &route,
+                        &endpoint_param,
+                        request.headers(),
+                        request.uri().query(),
+                        false,
+                    )
+                    .await
+                {
+                    return refusal.into_response();
+                }
                 None
             }
             Requirement::Role(needed) | Requirement::OwnedRole(needed) => {
@@ -455,10 +555,24 @@ impl AccessControl {
                     .decide_on_endpoint(&caller, needed, owned_only, &endpoint_param)
                     .await
                 {
-                    Ok(role) => Some(Access {
-                        caller: caller.clone(),
-                        role,
-                    }),
+                    Ok(decided) => {
+                        if let Err(refusal) = self
+                            .require_grant(
+                                &route,
+                                &endpoint_param,
+                                request.headers(),
+                                request.uri().query(),
+                                decided.owned,
+                            )
+                            .await
+                        {
+                            return refusal.into_response();
+                        }
+                        Some(Access {
+                            caller: caller.clone(),
+                            role: decided.role,
+                        })
+                    }
                     Err(refusal) => return refusal.into_response(),
                 }
             }
@@ -473,13 +587,42 @@ impl AccessControl {
         next.run(request).await
     }
 
+    async fn require_grant(
+        &self,
+        route: &RoutePolicy,
+        endpoint_param: &EndpointParam,
+        headers: &HeaderMap,
+        uri_query: Option<&str>,
+        owned: bool,
+    ) -> Result<(), AuthRejection> {
+        if owned
+            || route.grant == GrantRule::NotRequired
+            || route.requirement == Requirement::Anyone
+        {
+            return Ok(());
+        }
+        let EndpointParam::Present(raw) = endpoint_param else {
+            return Ok(());
+        };
+        let Ok(endpoint) = EndpointId::parse(raw) else {
+            return Ok(());
+        };
+        let query = if route.grant == GrantRule::HeaderOrQuery {
+            uri_query
+        } else {
+            None
+        };
+        let grant = presented(headers, query);
+        self.view_access()?.require(&endpoint, grant.as_ref()).await
+    }
+
     async fn decide_on_endpoint(
         &self,
         caller: &Caller,
         needed: EndpointRole,
         owned_only: bool,
         endpoint_param: &EndpointParam,
-    ) -> Result<Option<EndpointRole>, Refusal> {
+    ) -> Result<Decided, Refusal> {
         if *endpoint_param == EndpointParam::Absent {
             tracing::error!("a role-gated route has no endpoint id parameter");
             return Err(AuthRejection::Internal.into());
@@ -505,8 +648,16 @@ impl AccessControl {
         if person_only && standing.is_some_and(|standing| !standing.owned) {
             return Err(AuthRejection::ClaimRequired.into());
         }
-        Ok(role)
+        Ok(Decided {
+            role,
+            owned: standing.is_some_and(|standing| standing.owned),
+        })
     }
+}
+
+struct Decided {
+    role: Option<EndpointRole>,
+    owned: bool,
 }
 
 enum Refusal {
