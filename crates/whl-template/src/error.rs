@@ -31,6 +31,8 @@ pub enum ErrorCode {
     StepUnknown,
     ForbiddenCharacter,
     OutputTooLarge,
+    UnknownName,
+    JsonFilterInJsonString,
 }
 
 impl ErrorCode {
@@ -63,6 +65,8 @@ impl ErrorCode {
             Self::StepUnknown => "step_unknown",
             Self::ForbiddenCharacter => "forbidden_character",
             Self::OutputTooLarge => "output_too_large",
+            Self::UnknownName => "unknown_name",
+            Self::JsonFilterInJsonString => "json_filter_in_json_string",
         }
     }
 
@@ -104,6 +108,9 @@ pub enum RenderErrorCode {
     InvalidBase64,
     ForbiddenCharacter,
     InvalidStatus,
+    BudgetExhausted,
+    JsonNodeLimitExceeded,
+    JsonBodyTooLarge,
 }
 
 impl RenderErrorCode {
@@ -121,6 +128,9 @@ impl RenderErrorCode {
             Self::InvalidBase64 => "invalid_base64",
             Self::ForbiddenCharacter => "forbidden_character",
             Self::InvalidStatus => "invalid_status",
+            Self::BudgetExhausted => "budget_exhausted",
+            Self::JsonNodeLimitExceeded => "json_node_limit_exceeded",
+            Self::JsonBodyTooLarge => "json_body_too_large",
         }
     }
 }

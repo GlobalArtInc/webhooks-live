@@ -120,5 +120,5 @@ fn secrets_render_only_when_the_policy_allowed_them() {
     assert_eq!(outcome.output(), "s3cret");
     let debug = format!("{:?}", fixture());
     assert!(!debug.contains("s3cret"));
-    assert!(debug.contains("TOKEN"));
+    assert!(!debug.contains("TOKEN"));
 }

@@ -65,7 +65,7 @@ metrics = "0.24"
 hmac = "0.13"
 proptest = "1"
 rand_chacha = "0.9"
-serde_json_path = "0.7"
+serde_json_path = { version = "0.7", default-features = false, features = ["functions"] }
 
 [profile.dev]
 debug = 0

@@ -3,6 +3,12 @@ use std::collections::BTreeSet;
 use crate::limits::ParseLimits;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ForbiddenCharacter {
+    pub index: usize,
+    pub character: char,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RenderTarget {
     Body,
     HeaderValue,
@@ -27,9 +33,10 @@ impl RenderTarget {
         }
     }
 
-    pub(crate) fn first_forbidden(self, text: &str) -> Option<(usize, char)> {
+    pub(crate) fn first_forbidden(self, text: &str) -> Option<ForbiddenCharacter> {
         text.char_indices()
             .find(|(_, character)| !self.accepts(*character))
+            .map(|(index, character)| ForbiddenCharacter { index, character })
     }
 }
 

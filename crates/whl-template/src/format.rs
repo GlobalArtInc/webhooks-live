@@ -27,7 +27,9 @@ const WEEKDAYS: [&str; 7] = [
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum FormatProblem {
-    Invalid(String),
+    LoneEscape,
+    UnknownSpecifier(char),
+    OutOfRange,
     TooLarge,
 }
 
@@ -78,9 +80,7 @@ fn push_specifier(
         ),
         '%' => "%".to_owned(),
         other => {
-            return Err(FormatProblem::Invalid(format!(
-                "unknown date specifier %{other}"
-            )));
+            return Err(FormatProblem::UnknownSpecifier(other));
         }
     };
     out.push_str(&text);
@@ -92,15 +92,15 @@ pub(crate) fn render(
     instant: OffsetDateTime,
     max_bytes: usize,
 ) -> Result<String, FormatProblem> {
-    let utc = instant.to_offset(UtcOffset::UTC);
+    let utc = instant
+        .checked_to_offset(UtcOffset::UTC)
+        .ok_or(FormatProblem::OutOfRange)?;
     let mut out = String::new();
     let mut characters = format.chars();
     while let Some(character) = characters.next() {
         if character == '%' {
             let Some(specifier) = characters.next() else {
-                return Err(FormatProblem::Invalid(
-                    "date format ends with a lone %".to_owned(),
-                ));
+                return Err(FormatProblem::LoneEscape);
             };
             push_specifier(&mut out, specifier, utc)?;
         } else {
@@ -116,7 +116,11 @@ pub(crate) fn render(
 pub(crate) fn validate(format: &str) -> Result<(), String> {
     match render(format, OffsetDateTime::UNIX_EPOCH, usize::MAX) {
         Ok(_) => Ok(()),
-        Err(FormatProblem::Invalid(message)) => Err(message),
+        Err(FormatProblem::LoneEscape) => Err("date format ends with a lone %".to_owned()),
+        Err(FormatProblem::UnknownSpecifier(specifier)) => {
+            Err(format!("unknown date specifier %{specifier}"))
+        }
+        Err(FormatProblem::OutOfRange) => Err("date is out of range".to_owned()),
         Err(FormatProblem::TooLarge) => Err("date format output is too large".to_owned()),
     }
 }

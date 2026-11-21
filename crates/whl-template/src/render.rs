@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
+use std::fmt;
 use std::time::Duration;
 
 use serde_json::Value as JsonValue;
@@ -10,7 +11,8 @@ use crate::ast::{
     Arg, Expression, FilterKind, Function, JsonSource, Key, Part, Primary, Reference, Segment,
     StepField, Template,
 };
-use crate::context::{Context, parse_json_document};
+use crate::budget::ResponseBudget;
+use crate::context::{Context, JsonBody, NameValue, json_body_fits, parse_json_document};
 use crate::env::RenderEnv;
 use crate::error::{RenderError, RenderErrorCode};
 use crate::filters::{self, FilterFailure};
@@ -23,6 +25,7 @@ use crate::writer::{BoundedWriter, WriteFailure};
 
 const MAX_RANDOM_HEX: i64 = 64;
 const MAX_NOTE_BYTES: usize = 128;
+const MAX_REJECTION_ATTEMPTS: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MissingVariable {
@@ -30,19 +33,42 @@ pub struct MissingVariable {
     pub position: crate::span::Position,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Rendered {
     pub output: String,
     pub missing: Vec<MissingVariable>,
     pub evaluations: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+impl fmt::Debug for Rendered {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("Rendered")
+            .field("output_bytes", &self.output.len())
+            .field("missing", &self.missing)
+            .field("evaluations", &self.evaluations)
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
 pub struct PartialRender {
     pub output: String,
     pub errors: Vec<RenderError>,
     pub missing: Vec<MissingVariable>,
     pub evaluations: usize,
+}
+
+impl fmt::Debug for PartialRender {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PartialRender")
+            .field("output_bytes", &self.output.len())
+            .field("errors", &self.errors)
+            .field("missing", &self.missing)
+            .field("evaluations", &self.evaluations)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -138,19 +164,46 @@ impl From<FilterFailure> for Failure {
 
 type Eval<T> = Result<T, Failure>;
 
+fn budget_exhausted(template: &Template) -> RenderOutcome {
+    RenderOutcome::Partial(PartialRender {
+        output: String::new(),
+        errors: vec![RenderError {
+            code: RenderErrorCode::BudgetExhausted,
+            message: "the response time budget is exhausted".to_owned(),
+            position: locate(template.source(), ByteRange::new(0, 0)),
+        }],
+        missing: Vec::new(),
+        evaluations: 0,
+    })
+}
+
 pub(crate) fn render(
     template: &Template,
     context: &Context,
     limits: &RenderLimits,
     env: &mut RenderEnv<'_>,
+    budget: Option<&ResponseBudget>,
 ) -> RenderOutcome {
-    let started = env.clock.elapsed();
+    let remaining = budget.map(|allowance| allowance.remaining(env.clock));
+    if remaining.is_some_and(|left| left.is_zero()) {
+        return budget_exhausted(template);
+    }
+    let (deadline, budget_bound) = match remaining {
+        Some(left) if left < limits.deadline => (left, true),
+        _ => (limits.deadline, false),
+    };
+    let previous = env.clock.elapsed();
     let mut run = Run {
         template,
         context,
         limits,
         env,
-        started,
+        previous,
+        elapsed: Duration::ZERO,
+        deadline,
+        budget_bound,
+        deferred: Vec::new(),
+        unset_counters: Vec::new(),
         evaluations: 0,
         lookups: 0,
         writer: BoundedWriter::new(
@@ -171,7 +224,12 @@ struct Run<'a, 'r, 'e> {
     context: &'a Context,
     limits: &'a RenderLimits,
     env: &'r mut RenderEnv<'e>,
-    started: Duration,
+    previous: Duration,
+    elapsed: Duration,
+    deadline: Duration,
+    budget_bound: bool,
+    deferred: Vec<Failure>,
+    unset_counters: Vec<String>,
     evaluations: usize,
     lookups: usize,
     writer: BoundedWriter,
@@ -199,7 +257,9 @@ impl<'a> Run<'a, '_, '_> {
                     }
                 }
                 Part::Expression(expression) => {
-                    if let Err(failure) = self.run_expression(expression) {
+                    let outcome = self.run_expression(expression);
+                    self.flush_notes(expression.primary_range);
+                    if let Err(failure) = outcome {
                         let fatal = failure.fatal;
                         self.push_error(failure.at(expression.range));
                         if fatal || self.error_limit_hit() {
@@ -210,6 +270,20 @@ impl<'a> Run<'a, '_, '_> {
             }
         }
         self.check_status();
+    }
+
+    fn flush_notes(&mut self, range: ByteRange) {
+        for failure in std::mem::take(&mut self.deferred) {
+            self.push_error(failure.at(range));
+        }
+        for reference in std::mem::take(&mut self.unset_counters) {
+            if self.missing.len() < self.limits.max_errors {
+                self.missing.push(MissingVariable {
+                    reference,
+                    position: locate(self.template.source(), range),
+                });
+            }
+        }
     }
 
     fn output_limit(&self) -> Failure {
@@ -285,12 +359,23 @@ impl<'a> Run<'a, '_, '_> {
     }
 
     fn tick(&mut self) -> Eval<()> {
-        let elapsed = self.env.clock.elapsed().saturating_sub(self.started);
-        if elapsed >= self.limits.deadline {
-            return Err(Failure::fatal(
-                RenderErrorCode::DeadlineExceeded,
-                "render deadline exceeded",
-            ));
+        let reading = self.env.clock.elapsed();
+        self.elapsed = self
+            .elapsed
+            .saturating_add(reading.saturating_sub(self.previous));
+        self.previous = reading;
+        if self.elapsed >= self.deadline {
+            return Err(if self.budget_bound {
+                Failure::fatal(
+                    RenderErrorCode::BudgetExhausted,
+                    "the response time budget is exhausted",
+                )
+            } else {
+                Failure::fatal(
+                    RenderErrorCode::DeadlineExceeded,
+                    "render deadline exceeded",
+                )
+            });
         }
         if self.evaluations >= self.limits.max_evaluations {
             return Err(Failure::fatal(
@@ -382,17 +467,17 @@ impl<'a> Run<'a, '_, '_> {
         )
     }
 
-    fn pairs_first<'p>(pairs: &'p [(String, String)], name: &str, fold: bool) -> Value<'p> {
+    fn pairs_first<'p>(pairs: &'p [NameValue], name: &str, fold: bool) -> Value<'p> {
         pairs
             .iter()
-            .find(|(candidate, _)| {
+            .find(|pair| {
                 if fold {
-                    candidate.eq_ignore_ascii_case(name)
+                    pair.name.eq_ignore_ascii_case(name)
                 } else {
-                    candidate == name
+                    pair.name == name
                 }
             })
-            .map_or(Value::Missing, |(_, value)| Value::borrowed(value))
+            .map_or(Value::Missing, |pair| Value::borrowed(&pair.value))
     }
 
     fn navigate(
@@ -434,12 +519,12 @@ impl<'a> Run<'a, '_, '_> {
 
     fn headers_json(&self) -> Eval<Value<'a>> {
         let mut merged: BTreeMap<String, String> = BTreeMap::new();
-        for (name, value) in &self.context.request.headers {
-            let entry = merged.entry(name.to_ascii_lowercase()).or_default();
+        for pair in &self.context.request.headers {
+            let entry = merged.entry(pair.name.to_ascii_lowercase()).or_default();
             if !entry.is_empty() {
                 entry.push_str(", ");
             }
-            entry.push_str(value);
+            entry.push_str(&pair.value);
         }
         compact_json(&merged, self.value_limit())
             .map(Value::owned)
@@ -476,10 +561,14 @@ impl<'a> Run<'a, '_, '_> {
             Reference::EndpointTitle => Value::borrowed(&context.endpoint.title),
             Reference::Var(name, tail) => self.named_json(&context.vars, name, tail)?,
             Reference::Store(name, tail) => self.named_json(&context.store, name, tail)?,
-            Reference::Counter(name) => context
-                .counters
-                .get(name.unpack())
-                .map_or(Value::Missing, |count| Value::Int(*count)),
+            Reference::Counter(name) => match context.counters.get(name.unpack()) {
+                Some(count) => Value::Int(*count),
+                None => {
+                    self.unset_counters
+                        .push(format!("counter.{}", name.unpack()));
+                    Value::Int(0)
+                }
+            },
             Reference::Step(name, field) => self.step_field(name, field),
             Reference::Secret(name) => context
                 .secrets
@@ -559,8 +648,8 @@ impl<'a> Run<'a, '_, '_> {
         }
         let span = u64::try_from(span).unwrap_or(1);
         let zone = u64::MAX - (u64::MAX % span);
-        let mut draw;
-        loop {
+        let mut draw = 0u64;
+        for _ in 0..MAX_REJECTION_ATTEMPTS {
             let mut bytes = [0u8; 8];
             self.env.random.fill_bytes(&mut bytes);
             draw = u64::from_le_bytes(bytes);
@@ -572,47 +661,82 @@ impl<'a> Run<'a, '_, '_> {
         i64::try_from(i128::from(low) + offset).unwrap_or(low)
     }
 
+    fn first_node<'d>(
+        &self,
+        path: &serde_json_path::JsonPath,
+        document: &'d JsonValue,
+    ) -> Eval<Value<'d>> {
+        let nodes = path.query(document);
+        if nodes.len() > self.limits.max_json_nodes {
+            return Err(Failure::recoverable(
+                RenderErrorCode::JsonNodeLimitExceeded,
+                format!(
+                    "the JSON path matched more than {} nodes",
+                    self.limits.max_json_nodes
+                ),
+            ));
+        }
+        match nodes.first() {
+            Some(value) => json_to_value(value, self.value_limit()).map_err(Self::json_failure),
+            None => Ok(Value::Missing),
+        }
+    }
+
+    fn json_body_too_large(&self) -> Failure {
+        Failure::recoverable(
+            RenderErrorCode::JsonBodyTooLarge,
+            format!(
+                "the JSON body is larger than {} bytes",
+                self.limits.max_json_body_bytes
+            ),
+        )
+    }
+
     fn json_query(
         &mut self,
         source: &'a JsonSource,
         path: &serde_json_path::JsonPath,
     ) -> Eval<Value<'a>> {
         self.lookup_step()?;
-        let max = self.value_limit();
+        let context = self.context;
         match source {
             JsonSource::Request => {
-                let found = self
-                    .context
+                match context
                     .request
                     .body
-                    .json()
-                    .and_then(|document| path.query(document).first());
-                match found {
-                    Some(value) => json_to_value(value, max).map_err(Self::json_failure),
-                    None => Ok(Value::Missing),
+                    .json_within(self.limits.max_json_body_bytes)
+                {
+                    JsonBody::Parsed(document) => self.first_node(path, document),
+                    JsonBody::Unusable => Ok(Value::Missing),
+                    JsonBody::TooLarge => {
+                        let failure = self.json_body_too_large();
+                        self.deferred.push(failure);
+                        Ok(Value::Missing)
+                    }
                 }
             }
             JsonSource::Step(name) => {
+                let Some(step) = context.steps.get(name.unpack()) else {
+                    return Ok(Value::Missing);
+                };
+                if !json_body_fits(step.body.len(), self.limits.max_json_body_bytes) {
+                    let failure = self.json_body_too_large();
+                    self.deferred.push(failure);
+                    return Ok(Value::Missing);
+                }
                 if !self.step_documents.contains_key(name.unpack()) {
-                    let document = self
-                        .context
-                        .steps
-                        .get(name.unpack())
-                        .and_then(|step| parse_json_document(step.body.as_bytes()));
+                    let document = parse_json_document(step.body.as_bytes());
                     self.step_documents
                         .insert(name.unpack().to_owned(), document);
                 }
-                let found = self
+                let Some(document) = self
                     .step_documents
                     .get(name.unpack())
                     .and_then(Option::as_ref)
-                    .and_then(|document| path.query(document).first());
-                match found {
-                    Some(value) => json_to_value(value, max)
-                        .map(Value::into_owned)
-                        .map_err(Self::json_failure),
-                    None => Ok(Value::Missing),
-                }
+                else {
+                    return Ok(Value::Missing);
+                };
+                self.first_node(path, document).map(Value::into_owned)
             }
         }
     }
@@ -677,9 +801,18 @@ impl<'a> Run<'a, '_, '_> {
                 format::render(&pattern, instant, max)
                     .map(Value::owned)
                     .map_err(|problem| match problem {
-                        FormatProblem::Invalid(message) => {
-                            Failure::recoverable(RenderErrorCode::InvalidArgument, message)
-                        }
+                        FormatProblem::LoneEscape => Failure::recoverable(
+                            RenderErrorCode::InvalidArgument,
+                            "date format ends with a lone %",
+                        ),
+                        FormatProblem::UnknownSpecifier(_) => Failure::recoverable(
+                            RenderErrorCode::InvalidArgument,
+                            "date format contains an unknown specifier",
+                        ),
+                        FormatProblem::OutOfRange => Failure::recoverable(
+                            RenderErrorCode::InvalidArgument,
+                            "time is out of range",
+                        ),
                         FormatProblem::TooLarge => Failure::recoverable(
                             RenderErrorCode::ValueTooLarge,
                             "formatted date exceeds the size limit",
@@ -743,7 +876,7 @@ impl<'a> Run<'a, '_, '_> {
             FilterKind::Url => Value::owned(filters::url_encode(&text, max)?),
             FilterKind::Html => Value::owned(filters::html_escape(&text, max)?),
             FilterKind::Base64 => Value::owned(filters::base64_encode(&text, max)?),
-            FilterKind::Base64Decode => Value::owned(filters::base64_decode(&text)?),
+            FilterKind::Base64Decode => Value::owned(filters::base64_decode(&text, max)?),
             FilterKind::Hex => Value::owned(filters::hex_text(&text, max)?),
             FilterKind::Sha256 => Value::owned(filters::sha256_hex(&text)),
             FilterKind::HmacSha256(key) => {

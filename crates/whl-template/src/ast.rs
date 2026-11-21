@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use serde_json_path::JsonPath;
 
 use crate::span::ByteRange;
@@ -175,5 +177,88 @@ impl Template {
 
     pub(crate) fn slice(&self, range: ByteRange) -> &str {
         self.source.get(range.start..range.end).unwrap_or("")
+    }
+}
+
+fn arg_reference(arg: &Arg) -> Option<&Reference> {
+    match arg {
+        Arg::Reference(reference) => Some(reference),
+        Arg::Text(_) | Arg::Int(_) => None,
+    }
+}
+
+fn expression_references(expression: &Expression) -> Vec<&Reference> {
+    let mut found = Vec::new();
+    match &expression.primary {
+        Primary::Reference(reference) => found.push(reference),
+        Primary::Function(Function::RandomHex(arg)) => found.extend(arg_reference(arg)),
+        Primary::Function(Function::RandomInt(low, high)) => {
+            found.extend(arg_reference(low));
+            found.extend(arg_reference(high));
+        }
+        Primary::Function(Function::Json(..) | Function::Uuid)
+        | Primary::Text(_)
+        | Primary::Int(_) => {}
+    }
+    for filter in &expression.filters {
+        match &filter.kind {
+            FilterKind::Default(arg)
+            | FilterKind::Truncate(arg)
+            | FilterKind::HmacSha256(arg)
+            | FilterKind::Date(arg) => found.extend(arg_reference(arg)),
+            FilterKind::Replace(from, to) => {
+                found.extend(arg_reference(from));
+                found.extend(arg_reference(to));
+            }
+            FilterKind::Upper
+            | FilterKind::Lower
+            | FilterKind::Trim
+            | FilterKind::Length
+            | FilterKind::Json
+            | FilterKind::Url
+            | FilterKind::Html
+            | FilterKind::Base64
+            | FilterKind::Base64Decode
+            | FilterKind::Hex
+            | FilterKind::Sha256 => {}
+        }
+    }
+    found
+}
+
+impl Template {
+    fn referenced_names(&self, select: fn(&Reference) -> Option<&Key>) -> BTreeSet<String> {
+        let mut names = BTreeSet::new();
+        for part in &self.parts {
+            if let Part::Expression(expression) = part {
+                for reference in expression_references(expression) {
+                    if let Some(key) = select(reference) {
+                        names.insert(key.unpack().to_owned());
+                    }
+                }
+            }
+        }
+        names
+    }
+
+    pub fn referenced_counters(&self) -> BTreeSet<String> {
+        self.referenced_names(|reference| match reference {
+            Reference::Counter(name) => Some(name),
+            _ => None,
+        })
+    }
+
+    pub fn referenced_vars(&self) -> BTreeSet<String> {
+        self.referenced_names(|reference| match reference {
+            Reference::Var(name, _) => Some(name),
+            _ => None,
+        })
+    }
+
+    pub fn referenced_secrets(&self) -> BTreeSet<String> {
+        self.referenced_names(|reference| match reference {
+            Reference::Secret(name) => Some(name),
+            _ => None,
+        })
     }
 }

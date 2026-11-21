@@ -44,9 +44,8 @@ impl<'a> Value<'a> {
             Self::Text(text) => Some(text),
             Self::Int(number) => Some(Cow::Owned(number.to_string())),
             Self::Time(instant) => instant
-                .to_offset(time::UtcOffset::UTC)
-                .format(&Rfc3339)
-                .ok()
+                .checked_to_offset(time::UtcOffset::UTC)
+                .and_then(|utc| utc.format(&Rfc3339).ok())
                 .map(Cow::Owned),
         }
     }

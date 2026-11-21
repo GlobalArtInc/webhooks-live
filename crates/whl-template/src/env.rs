@@ -1,8 +1,10 @@
 use std::time::{Duration, Instant};
 
+use hmac::{Hmac, KeyInit, Mac};
 use rand_chacha::ChaCha20Rng;
 use rand_chacha::rand_core::{RngCore, SeedableRng};
 use sha2::{Digest, Sha256};
+use thiserror::Error;
 
 pub trait MonotonicClock {
     fn elapsed(&self) -> Duration;
@@ -37,10 +39,28 @@ impl MonotonicClock for SystemClock {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum RandomSeedError {
+    #[error("the server key for random seeds is empty")]
+    EmptyKey,
+    #[error("the server key for random seeds was rejected by HMAC")]
+    InvalidKey,
+}
+
 #[derive(Clone, PartialEq, Eq)]
 pub struct RandomSeed([u8; 32]);
 
 impl RandomSeed {
+    pub fn derive(key: &[u8], run_id: &[u8]) -> Result<Self, RandomSeedError> {
+        if key.is_empty() {
+            return Err(RandomSeedError::EmptyKey);
+        }
+        let mut mac = <Hmac<Sha256> as KeyInit>::new_from_slice(key)
+            .map_err(|_| RandomSeedError::InvalidKey)?;
+        mac.update(run_id);
+        Ok(Self(mac.finalize().into_bytes().into()))
+    }
+
     pub fn from_bytes(material: &[u8]) -> Self {
         let digest = Sha256::digest(material);
         Self(digest.into())

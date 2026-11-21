@@ -5,8 +5,8 @@ use std::time::Duration;
 use serde_json::json;
 use time::OffsetDateTime;
 use whl_template::{
-    BodyData, Context, Diagnostic, MonotonicClock, Policy, RandomSource, RenderEnv, RenderLimits,
-    RenderOutcome, RenderTarget, SignatureState, StepData, Template,
+    BodyData, Context, Diagnostic, MonotonicClock, NameValue, Policy, RandomSource, RenderEnv,
+    RenderLimits, RenderOutcome, RenderTarget, SignatureState, StepData, Template,
 };
 
 pub struct FixedClock;
@@ -35,6 +35,49 @@ impl MonotonicClock for SteppingClock {
     fn elapsed(&self) -> Duration {
         self.calls.set(self.calls.get() + 1);
         self.step * self.calls.get()
+    }
+}
+
+#[derive(Default)]
+pub struct SettableClock {
+    now: Cell<Duration>,
+}
+
+impl SettableClock {
+    pub fn advance(&self, by: Duration) {
+        self.now.set(self.now.get() + by);
+    }
+}
+
+impl MonotonicClock for SettableClock {
+    fn elapsed(&self) -> Duration {
+        self.now.get()
+    }
+}
+
+pub struct ScriptedClock {
+    readings: Vec<Duration>,
+    calls: Cell<usize>,
+}
+
+impl ScriptedClock {
+    pub fn new(readings: Vec<Duration>) -> Self {
+        Self {
+            readings,
+            calls: Cell::new(0),
+        }
+    }
+}
+
+impl MonotonicClock for ScriptedClock {
+    fn elapsed(&self) -> Duration {
+        let index = self.calls.get();
+        self.calls.set(index + 1);
+        self.readings
+            .get(index)
+            .or(self.readings.last())
+            .copied()
+            .unwrap_or(Duration::ZERO)
     }
 }
 
@@ -122,10 +165,10 @@ pub fn fixture() -> Context {
     context
 }
 
-pub fn pairs(items: &[(&str, &str)]) -> Vec<(String, String)> {
+pub fn pairs(items: &[(&str, &str)]) -> Vec<NameValue> {
     items
         .iter()
-        .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+        .map(|(name, value)| NameValue::new(*name, *value))
         .collect()
 }
 

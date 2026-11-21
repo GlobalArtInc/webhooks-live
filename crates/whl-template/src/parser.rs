@@ -7,7 +7,7 @@ use crate::format;
 use crate::jsonpath;
 use crate::limits::{MAX_ARGUMENTS, MAX_IDENTIFIER_BYTES, MAX_KEY_BYTES};
 use crate::span::{ByteRange, locate};
-use crate::target::{Policy, SecretPolicy, StepPolicy};
+use crate::target::{Policy, RenderTarget, SecretPolicy, StepPolicy};
 
 const OPEN: &str = "{{";
 const CLOSE: &str = "}}";
@@ -90,6 +90,18 @@ fn is_ident_start(character: char) -> bool {
 
 fn is_ident_continue(character: char) -> bool {
     character.is_ascii_alphanumeric() || character == '_'
+}
+
+fn is_valid_name(name: &str) -> bool {
+    let mut characters = name.chars();
+    let Some(first) = characters.next() else {
+        return false;
+    };
+    name.len() <= MAX_IDENTIFIER_BYTES
+        && (first.is_ascii_lowercase() || first == '_')
+        && characters.all(|character| {
+            character.is_ascii_lowercase() || character.is_ascii_digit() || character == '_'
+        })
 }
 
 fn is_key_character(character: char) -> bool {
@@ -211,12 +223,15 @@ impl<'a> Parser<'a> {
         let Some(text) = self.source.get(from..to) else {
             return;
         };
-        if let Some((index, character)) = self.policy.target.first_forbidden(text) {
-            let start = from + index;
+        if let Some(forbidden) = self.policy.target.first_forbidden(text) {
+            let start = from + forbidden.index;
             self.report(
                 ErrorCode::ForbiddenCharacter,
-                format!("character {character:?} is not allowed in this output"),
-                ByteRange::new(start, start + character.len_utf8()),
+                format!(
+                    "character {:?} is not allowed in this output",
+                    forbidden.character
+                ),
+                ByteRange::new(start, start + forbidden.character.len_utf8()),
             );
         }
         self.add_literal_bytes(text.len(), ByteRange::new(from, to));
@@ -302,10 +317,13 @@ impl<'a> Parser<'a> {
             Primary::Int(number) => number.to_string(),
             _ => return,
         };
-        if let Some((_, character)) = self.policy.target.first_forbidden(&text) {
+        if let Some(forbidden) = self.policy.target.first_forbidden(&text) {
             self.report(
                 ErrorCode::ForbiddenCharacter,
-                format!("character {character:?} is not allowed in this output"),
+                format!(
+                    "character {:?} is not allowed in this output",
+                    forbidden.character
+                ),
                 range,
             );
         }
@@ -729,7 +747,16 @@ impl<'a> Parser<'a> {
             ("lower", ..) => FilterKind::Lower,
             ("trim", ..) => FilterKind::Trim,
             ("length", ..) => FilterKind::Length,
-            ("json", ..) => FilterKind::Json,
+            ("json", ..) => {
+                if self.policy.target == RenderTarget::JsonString {
+                    self.report(
+                        ErrorCode::JsonFilterInJsonString,
+                        "the json filter cannot be used in a JSON string target: values are already escaped there",
+                        range,
+                    );
+                }
+                FilterKind::Json
+            }
             ("url", ..) => FilterKind::Url,
             ("html", ..) => FilterKind::Html,
             ("base64", ..) => FilterKind::Base64,
@@ -903,8 +930,8 @@ impl<'a> Parser<'a> {
             }
             "var" | "store" => self.resolve_named_value(path).unwrap_or(fallback),
             "counter" => self
-                .named_key(path, "counter")
-                .map(Reference::Counter)
+                .checked_name(path)
+                .map(|name| Reference::Counter(Key::new(name)))
                 .unwrap_or(fallback),
             "step" => self.resolve_step(path).unwrap_or(fallback),
             "secret" => self.resolve_secret(path).unwrap_or(fallback),
@@ -1028,8 +1055,13 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn checked_name(&mut self, path: &RawPath) -> Option<String> {
+        let name = self.name_only(path)?;
+        self.no_more_segments(path, 1).then_some(name)
+    }
+
     fn resolve_named_value(&mut self, path: &RawPath) -> Option<Reference> {
-        let name = Key::new(self.field_name(path, 0, &path.root)?);
+        let name = Key::new(self.name_only(path)?);
         let tail = path
             .segments
             .iter()
@@ -1044,6 +1076,20 @@ impl<'a> Parser<'a> {
         } else {
             Some(Reference::Store(name, tail))
         }
+    }
+
+    fn name_only(&mut self, path: &RawPath) -> Option<String> {
+        let name = self.field_name(path, 0, &path.root)?.to_owned();
+        if is_valid_name(&name) {
+            return Some(name);
+        }
+        let range = path.segments.first().map_or(path.range, |s| s.range);
+        self.report(
+            ErrorCode::UnknownName,
+            format!("a {} name must match [a-z_][a-z0-9_]{{0,63}}", path.root),
+            range,
+        );
+        None
     }
 
     fn resolve_step(&mut self, path: &RawPath) -> Option<Reference> {

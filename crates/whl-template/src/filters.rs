@@ -161,11 +161,18 @@ pub(crate) fn base64_encode(text: &str, max: usize) -> Result<String, FilterFail
     Ok(base64::engine::general_purpose::STANDARD.encode(text.as_bytes()))
 }
 
-pub(crate) fn base64_decode(text: &str) -> Result<String, FilterFailure> {
+pub(crate) fn base64_decode(text: &str, max: usize) -> Result<String, FilterFailure> {
+    let trimmed = text.trim();
+    if trimmed.len().div_ceil(4).saturating_mul(3) > max.saturating_add(2) {
+        return Err(FilterFailure::TooLarge);
+    }
     let bytes = LENIENT_PADDING
-        .decode(text.trim().as_bytes())
+        .decode(trimmed.as_bytes())
         .map_err(|_| FilterFailure::InvalidBase64)?;
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
+    if bytes.len() > max {
+        return Err(FilterFailure::TooLarge);
+    }
+    bounded(String::from_utf8_lossy(&bytes).into_owned(), max)
 }
 
 pub(crate) fn hex_encode(bytes: &[u8]) -> String {

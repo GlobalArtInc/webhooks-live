@@ -15,6 +15,8 @@ pub const MAX_KEY_BYTES: usize = 128;
 pub const BODY_TEXT_BYTES: usize = 64 * 1024;
 pub const JSON_BODY_BYTES: usize = 1024 * 1024;
 pub const JSON_BODY_DEPTH: usize = 64;
+pub const JSON_BODY_DEFAULT_BYTES: usize = 256 * 1024;
+pub const JSON_NODES_DEFAULT: usize = 1000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseLimits {
@@ -47,6 +49,8 @@ pub struct RenderLimits {
     pub max_value_bytes: usize,
     pub max_json_depth: usize,
     pub max_json_lookups: usize,
+    pub max_json_nodes: usize,
+    pub max_json_body_bytes: usize,
     pub max_errors: usize,
 }
 
@@ -59,6 +63,8 @@ impl RenderLimits {
             max_value_bytes: 1024 * 1024,
             max_json_depth: MAX_PATH_SEGMENTS,
             max_json_lookups: 500,
+            max_json_nodes: JSON_NODES_DEFAULT,
+            max_json_body_bytes: JSON_BODY_DEFAULT_BYTES,
             max_errors: MAX_DIAGNOSTICS,
         }
     }
