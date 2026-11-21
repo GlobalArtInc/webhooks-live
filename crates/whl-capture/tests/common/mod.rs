@@ -81,6 +81,19 @@ impl Harness {
         self
     }
 
+    pub fn with_rules(
+        mut self,
+        settings: whl_capture::RulesSettings,
+        pool: Option<Arc<whl_script::ScriptPool>>,
+    ) -> Self {
+        self.state = self
+            .state
+            .with_rules(settings, pool)
+            .expect("the rules settings are valid");
+        self.router = router(self.state.clone());
+        self
+    }
+
     pub fn with_templates(mut self, settings: TemplateSettings) -> Self {
         self.state = self.state.with_templates(settings);
         self.router = router(self.state.clone());

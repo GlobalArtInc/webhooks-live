@@ -1,6 +1,5 @@
 use std::collections::BTreeSet;
 
-use regex::{Regex, RegexBuilder};
 use serde_json::{Map, Value};
 use uuid::Uuid;
 use whl_script::ScriptCompiler;
@@ -9,23 +8,19 @@ use whl_template::{
 };
 
 use crate::error::{MAX_DIAGNOSTICS, RuleDiagnostic, RuleError, RuleErrorCode};
-use crate::limits::{MAX_PATH_BYTES, MAX_REGEX_SIZE_BYTES, MAX_VARIABLE_NAME_BYTES};
+use crate::limits::{MAX_PATH_BYTES, MAX_VARIABLE_NAME_BYTES};
+use crate::pattern::{Pattern, PatternError};
 use crate::set::References;
 
 pub(crate) struct Checker<'a> {
     pub(crate) references: &'a References,
     pub(crate) scripts: &'a ScriptCompiler,
+    lenient: bool,
     diagnostics: Vec<RuleDiagnostic>,
 }
 
 pub(crate) fn join(path: &str, key: &str) -> String {
     format!("{path}.{key}")
-}
-
-pub(crate) fn compile_regex(pattern: &str) -> Result<Regex, regex::Error> {
-    RegexBuilder::new(pattern)
-        .size_limit(MAX_REGEX_SIZE_BYTES)
-        .build()
 }
 
 pub(crate) fn is_variable_name(text: &str) -> bool {
@@ -72,8 +67,26 @@ impl<'a> Checker<'a> {
         Self {
             references,
             scripts,
+            lenient: false,
             diagnostics: Vec::new(),
         }
+    }
+
+    pub(crate) fn stored(references: &'a References, scripts: &'a ScriptCompiler) -> Self {
+        Self {
+            references,
+            scripts,
+            lenient: true,
+            diagnostics: Vec::new(),
+        }
+    }
+
+    pub(crate) fn knows_secret(&self, name: &str) -> bool {
+        self.lenient || self.references.secrets.contains(name)
+    }
+
+    pub(crate) fn knows_forward_rule(&self, id: &Uuid) -> bool {
+        self.lenient || self.references.forward_rules.contains(id)
     }
 
     pub(crate) fn count(&self) -> usize {
@@ -251,6 +264,9 @@ impl<'a> Checker<'a> {
         secrets: SecretPolicy,
         steps: &BTreeSet<String>,
     ) -> bool {
+        if self.lenient {
+            return true;
+        }
         let before = self.count();
         let policy = Policy {
             target,
@@ -270,7 +286,7 @@ impl<'a> Checker<'a> {
             }
             Ok(template) => {
                 for name in template.referenced_secrets() {
-                    if !self.references.secrets.contains(&name) {
+                    if !self.knows_secret(&name) {
                         self.fail(
                             field,
                             RuleErrorCode::InvalidFormat,
@@ -283,7 +299,31 @@ impl<'a> Checker<'a> {
         self.count() == before
     }
 
+    pub(crate) fn pattern(&mut self, field: &str, pattern: &str) -> bool {
+        let outcome = if self.lenient {
+            crate::pattern::check(pattern)
+        } else {
+            Pattern::compile(pattern).map(|_| ())
+        };
+        match outcome {
+            Ok(()) => true,
+            Err(error) => {
+                let code = match error {
+                    PatternError::TooLong => RuleErrorCode::TooLong,
+                    PatternError::Repetition | PatternError::Invalid | PatternError::TooLarge => {
+                        RuleErrorCode::InvalidFormat
+                    }
+                };
+                self.fail(field, code, error.to_string());
+                false
+            }
+        }
+    }
+
     pub(crate) fn json_path(&mut self, field: &str, path: &str) {
+        if self.lenient {
+            return;
+        }
         let escaped = path.replace('\\', "\\\\").replace('"', "\\\"");
         let source = format!("{{{{ json(\"{escaped}\") }}}}");
         if let Err(error) = Template::parse(&source, &Policy::response(RenderTarget::Body)) {
@@ -321,6 +361,9 @@ impl<'a> Checker<'a> {
     }
 
     pub(crate) fn script(&mut self, field: &str, source: &str) {
+        if self.lenient {
+            return;
+        }
         if let Err(error) = self.scripts.compile(source) {
             for diagnostic in error.diagnostics {
                 let message = format!("{}: {}", diagnostic.code.as_str(), diagnostic.message);

@@ -241,6 +241,8 @@ pub enum ApiError {
     RuleStorage(RuleStoreError),
     #[error("the script engine cannot be configured: {0}")]
     RuleEngine(LimitsError),
+    #[error("rules are switched off on this instance")]
+    RulesDisabled,
     #[error("the schedule is not found in this endpoint")]
     ScheduleNotFound,
     #[error("the owner already has the maximum number of schedules")]
@@ -862,7 +864,7 @@ impl IntoResponse for ApiError {
                 self.to_string(),
                 None,
             ),
-            Self::SchedulesDisabled => (
+            Self::SchedulesDisabled | Self::RulesDisabled => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "feature_disabled",
                 self.to_string(),

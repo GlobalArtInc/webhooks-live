@@ -5267,6 +5267,7 @@ version = "0.1.0-dev"
 dependencies = [
  "axum",
  "base64 0.22.1",
+ "bytes",
  "futures-util",
  "ipnet",
  "metrics",
@@ -5349,6 +5350,8 @@ dependencies = [
  "tracing",
  "url",
  "whl-core",
+ "whl-rules",
+ "whl-script",
  "whl-secrets",
  "whl-store",
  "whl-telemetry",
@@ -5534,14 +5537,18 @@ name = "whl-rules"
 version = "0.1.0-dev"
 dependencies = [
  "ipnet",
+ "metrics",
  "regex",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+ "time",
+ "tokio",
  "uuid",
  "whl-core",
  "whl-script",
  "whl-secrets",
+ "whl-telemetry",
  "whl-template",
 ]
 
@@ -5634,6 +5641,7 @@ dependencies = [
  "whl-mail",
  "whl-notify",
  "whl-schedule",
+ "whl-script",
  "whl-secrets",
  "whl-store",
  "whl-telemetry",

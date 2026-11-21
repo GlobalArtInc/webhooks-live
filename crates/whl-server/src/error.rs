@@ -10,6 +10,7 @@ use whl_forward::{ForwardError, WorkerError};
 use whl_mail::MailSetupError;
 use whl_notify::{SendError, SettingsError};
 use whl_schedule::RunnerError;
+use whl_script::PoolError;
 use whl_store::StoreError;
 
 use crate::secrets::SecretsSetupError;
@@ -40,6 +41,8 @@ pub enum ServerError {
     Secrets(#[from] SecretsSetupError),
     #[error("cannot set up the mail receiver: {0}")]
     Mail(#[from] MailSetupError),
+    #[error("cannot start the script pool: {0}")]
+    ScriptPool(#[from] PoolError),
     #[error("cannot bind the {listener} listener on {addr}: {source}")]
     Bind {
         listener: &'static str,

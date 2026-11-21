@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use whl_auth::AccessControl;
+use whl_capture::RulesRuntime;
 use whl_secrets::Keyring;
 use whl_store::Store;
 
@@ -24,6 +25,7 @@ pub struct ApiState {
     pub(crate) composer: ComposerSettings,
     pub(crate) schedules: ScheduleSettings,
     pub(crate) notifications: NotifyApiSettings,
+    pub(crate) rules: Option<RulesRuntime>,
 }
 
 impl ApiState {
@@ -40,6 +42,7 @@ impl ApiState {
             composer: ComposerSettings::default(),
             schedules: ScheduleSettings::default(),
             notifications: NotifyApiSettings::default(),
+            rules: None,
         }
     }
 
@@ -55,6 +58,11 @@ impl ApiState {
 
     pub fn with_notifications(mut self, notifications: NotifyApiSettings) -> Self {
         self.notifications = notifications;
+        self
+    }
+
+    pub fn with_rules(mut self, rules: RulesRuntime) -> Self {
+        self.rules = Some(rules);
         self
     }
 

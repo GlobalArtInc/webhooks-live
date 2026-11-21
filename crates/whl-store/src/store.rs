@@ -10,6 +10,7 @@ static MIGRATIONS: migrator::Migrations = migrator::embed!("$CARGO_MANIFEST_DIR/
 #[derive(Clone, Debug)]
 pub struct Store {
     pool: PgPool,
+    rules_enabled: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -31,11 +32,26 @@ impl Store {
             .connect(config.url.unpack().as_str())
             .await
             .map_err(|source| StoreError::Connect { source })?;
-        Ok(Self { pool })
+        Ok(Self {
+            pool,
+            rules_enabled: true,
+        })
     }
 
     pub fn from_pool(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            rules_enabled: true,
+        }
+    }
+
+    pub fn with_rules_enabled(mut self, enabled: bool) -> Self {
+        self.rules_enabled = enabled;
+        self
+    }
+
+    pub fn rules_enabled(&self) -> bool {
+        self.rules_enabled
     }
 
     pub fn pool(&self) -> &PgPool {

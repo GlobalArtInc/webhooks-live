@@ -640,6 +640,42 @@ fn notification_limits_have_defaults_and_read_the_environment() {
 }
 
 #[test]
+fn the_rules_and_script_keys_have_defaults_and_read_the_environment() {
+    let defaults = load(&with_required(&[])).expect("the defaults load");
+    assert!(defaults.rules.enabled);
+    assert_eq!(defaults.rules.sync_budget, Duration::from_secs(3));
+    assert_eq!(defaults.rules.sync_concurrency, 256);
+    assert_eq!(defaults.script.threads, 2);
+    assert_eq!(defaults.script.memory, ByteSize::mib(32));
+
+    let set = load(&with_required(&[
+        ("WEBHOOKS_LIVE_RULES_SYNC_BUDGET", "500ms"),
+        ("WEBHOOKS_LIVE_RULES_SYNC_CONCURRENCY", "8"),
+        ("WEBHOOKS_LIVE_SCRIPT_THREADS", "4"),
+    ]))
+    .expect("the keys load");
+    assert_eq!(set.rules.sync_budget, Duration::from_millis(500));
+    assert_eq!(set.rules.sync_concurrency, 8);
+    assert_eq!(set.script.threads, 4);
+}
+
+#[test]
+fn a_rules_budget_above_ten_seconds_fails_validation() {
+    let error = load(&with_required(&[(
+        "WEBHOOKS_LIVE_RULES_SYNC_BUDGET",
+        "11s",
+    )]))
+    .expect_err("the budget is too long");
+
+    match error {
+        ConfigError::Invalid { problems } => {
+            assert!(problems.contains(&Problem::RulesSyncBudgetOutOfRange));
+        }
+        other => panic!("unexpected error {other:?}"),
+    }
+}
+
+#[test]
 fn mail_is_off_by_default() {
     let config = load(&with_required(&[])).expect("defaults are valid");
 

@@ -21,6 +21,10 @@ const ENV_PREFIX: &str = "WEBHOOKS_LIVE_";
 
 pub const MIN_DB_POOL_SIZE: u32 = 2;
 pub const MIN_SCHEDULE_INTERVAL: Duration = Duration::from_secs(60);
+pub const MAX_RULES_SYNC_BUDGET: Duration = Duration::from_secs(10);
+pub const MAX_SCRIPT_THREADS: u32 = 64;
+pub const MIN_SCRIPT_MEMORY: ByteSize = ByteSize::mib(1);
+pub const MAX_SCRIPT_MEMORY: ByteSize = ByteSize::gib(1);
 
 const DEFAULTS: &str = r#"
 listen_addr = "0.0.0.0:8080"
@@ -84,6 +88,15 @@ network_per_day = 1000
 user_per_hour = 2000
 max_in_flight = 32
 
+[rules]
+enabled = true
+sync_budget = "3s"
+sync_concurrency = 256
+
+[script]
+threads = 2
+memory = "32MiB"
+
 [notify]
 enabled = true
 concurrency = 8
@@ -141,6 +154,11 @@ const ENV_KEYS: &[(&str, &str)] = &[
     ("SCHEDULES_MIN_INTERVAL", "schedules.min_interval"),
     ("SCHEDULES_RUNS_PER_HOUR", "schedules.runs_per_hour"),
     ("SCHEDULES_WORKERS", "schedules.workers"),
+    ("RULES_ENABLED", "rules.enabled"),
+    ("RULES_SYNC_BUDGET", "rules.sync_budget"),
+    ("RULES_SYNC_CONCURRENCY", "rules.sync_concurrency"),
+    ("SCRIPT_THREADS", "script.threads"),
+    ("SCRIPT_MEMORY", "script.memory"),
     ("SHUTDOWN_DRAIN", "shutdown.drain"),
     ("SHUTDOWN_GRACE", "shutdown.grace"),
     ("NOTIFY_ENABLED", "notify.enabled"),
@@ -188,6 +206,8 @@ pub struct Config {
     pub composer: ComposerConfig,
     pub schedules: SchedulesConfig,
     pub notify: NotifyConfig,
+    pub rules: RulesConfig,
+    pub script: ScriptConfig,
     #[serde(default)]
     pub secrets: SecretsConfig,
     pub dns: DnsConfig,
@@ -303,6 +323,21 @@ pub struct SchedulesConfig {
     pub min_interval: Duration,
     pub runs_per_hour: u32,
     pub workers: u32,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RulesConfig {
+    pub enabled: bool,
+    #[serde(deserialize_with = "de::duration")]
+    pub sync_budget: Duration,
+    pub sync_concurrency: u32,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ScriptConfig {
+    pub threads: u32,
+    #[serde(deserialize_with = "de::byte_size")]
+    pub memory: ByteSize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -493,6 +528,10 @@ pub enum Problem {
     MailNeedsDomain,
     MailInvalidDomain,
     MailTlsIncomplete,
+    RulesSyncBudgetOutOfRange,
+    RulesSyncConcurrencyZero,
+    ScriptThreadsOutOfRange,
+    ScriptMemoryOutOfRange,
 }
 
 impl fmt::Display for Problem {
@@ -534,6 +573,22 @@ impl fmt::Display for Problem {
             Self::MailTlsIncomplete => write!(
                 f,
                 "{ENV_PREFIX}MAIL_TLS_CERT and {ENV_PREFIX}MAIL_TLS_KEY must be set together"
+            ),
+            Self::RulesSyncBudgetOutOfRange => write!(
+                f,
+                "{ENV_PREFIX}RULES_SYNC_BUDGET must be above zero and at most {}s",
+                MAX_RULES_SYNC_BUDGET.as_secs()
+            ),
+            Self::RulesSyncConcurrencyZero => {
+                write!(f, "{ENV_PREFIX}RULES_SYNC_CONCURRENCY must be at least 1")
+            }
+            Self::ScriptThreadsOutOfRange => write!(
+                f,
+                "{ENV_PREFIX}SCRIPT_THREADS must be between 1 and {MAX_SCRIPT_THREADS}"
+            ),
+            Self::ScriptMemoryOutOfRange => write!(
+                f,
+                "{ENV_PREFIX}SCRIPT_MEMORY must be between {MIN_SCRIPT_MEMORY} and {MAX_SCRIPT_MEMORY}"
             ),
         }
     }
@@ -626,6 +681,23 @@ fn mail_problems(mail: &MailConfig) -> Vec<Problem> {
     problems
 }
 
+fn rules_problems(rules: &RulesConfig, script: &ScriptConfig) -> Vec<Problem> {
+    let mut problems = Vec::new();
+    if rules.sync_budget.is_zero() || rules.sync_budget > MAX_RULES_SYNC_BUDGET {
+        problems.push(Problem::RulesSyncBudgetOutOfRange);
+    }
+    if rules.sync_concurrency == 0 {
+        problems.push(Problem::RulesSyncConcurrencyZero);
+    }
+    if script.threads == 0 || script.threads > MAX_SCRIPT_THREADS {
+        problems.push(Problem::ScriptThreadsOutOfRange);
+    }
+    if script.memory < MIN_SCRIPT_MEMORY || script.memory > MAX_SCRIPT_MEMORY {
+        problems.push(Problem::ScriptMemoryOutOfRange);
+    }
+    problems
+}
+
 fn join_problems(problems: &[Problem]) -> String {
     problems
         .iter()
@@ -689,6 +761,7 @@ impl Config {
             problems.push(Problem::ScheduleRunsPerHourZero);
         }
         problems.extend(mail_problems(&self.mail));
+        problems.extend(rules_problems(&self.rules, &self.script));
 
         if problems.is_empty() {
             Ok(())
