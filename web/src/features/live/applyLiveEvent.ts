@@ -18,6 +18,7 @@ import type {
   ForwardState,
 } from '../../api/types';
 import { withCaptureCount } from '../list/cache';
+import { filtersOfKey, hasActiveFilters, NO_FILTERS, sameActiveFilters, type ActiveFilters } from '../list/listFilters';
 import { flattenCaptures, restoreCaptureInPages } from '../list/listModel';
 import type { LiveEvent, LiveReadyPayload } from './types';
 
@@ -26,6 +27,7 @@ export type CatchUpReason = 'ready' | 'resync' | 'invalid';
 export type LiveEffect =
   | { kind: 'inserted'; capture: CaptureSummary }
   | { kind: 'hidden'; capture: CaptureSummary }
+  | { kind: 'verify'; capture: CaptureSummary }
   | { kind: 'removed'; captureId: string }
   | { kind: 'cleared' }
   | { kind: 'catchUp'; reason: CatchUpReason; ready: LiveReadyPayload | null };
@@ -35,15 +37,39 @@ export interface LiveCacheState {
   order: CaptureOrder;
   endpoint: Endpoint | undefined;
   detail: Capture | undefined;
+  filters?: ActiveFilters;
 }
 
 export interface LiveOutcome extends LiveCacheState {
   effects: LiveEffect[];
 }
 
-export type ActiveFilter = (summary: CaptureSummary) => boolean;
+function matchesStatusClass(override: number | null, statusClass: string): boolean {
+  if (statusClass === 'none') {
+    return override === null;
+  }
+  return override !== null && statusClass === `${Math.floor(override / 100)}xx`;
+}
 
-export const matchesActiveFilter: ActiveFilter = () => true;
+export function matchesActiveFilter(filters: ActiveFilters, summary: CaptureSummary): boolean {
+  if (
+    filters.method !== undefined &&
+    !filters.method.split(',').some((method) => method.toUpperCase() === summary.method.toUpperCase())
+  ) {
+    return false;
+  }
+  if (
+    filters.status !== undefined &&
+    !filters.status.split(',').some((statusClass) => matchesStatusClass(summary.status_override, statusClass))
+  ) {
+    return false;
+  }
+  const receivedAt = Date.parse(summary.received_at);
+  if (filters.since !== undefined && receivedAt < Date.parse(filters.since)) {
+    return false;
+  }
+  return filters.until === undefined || receivedAt < Date.parse(filters.until);
+}
 
 type Placement = 'inserted' | 'counted' | 'duplicate';
 
@@ -180,25 +206,25 @@ function countedBytes(before: Endpoint, after: Endpoint, capture: CaptureSummary
 
 function applyCapture(state: LiveCacheState, capture: CaptureSummary): LiveOutcome {
   const { pages, endpoint, order } = state;
+  const filters = state.filters ?? NO_FILTERS;
   const capacity = endpoint?.max_captures;
+  const fresh = endpoint === undefined || capture.seq > endpoint.last_seq;
   let nextPages = pages;
-  let isNew: boolean;
-  if (!matchesActiveFilter(capture)) {
-    isNew = endpoint === undefined || capture.seq > endpoint.last_seq;
+  let effect: LiveEffect | null = null;
+  if (!matchesActiveFilter(filters, capture)) {
+    effect = fresh ? { kind: 'hidden', capture } : null;
+  } else if (filters.q !== undefined) {
+    effect = fresh ? { kind: 'verify', capture } : null;
   } else if (pages === undefined) {
-    isNew = endpoint === undefined || capture.seq > endpoint.last_seq;
+    effect = fresh ? { kind: 'inserted', capture } : null;
   } else {
     const placed = placeCapture(pages, capture, order, capacity);
     nextPages = placed.data;
-    isNew = placed.placement === 'inserted';
+    effect = placed.placement === 'inserted' ? { kind: 'inserted', capture } : null;
   }
   const nextEndpoint =
     endpoint === undefined ? undefined : countedBytes(endpoint, addCaptureToEndpoint(endpoint, capture), capture);
-  const effects: LiveEffect[] = [];
-  if (isNew) {
-    effects.push(matchesActiveFilter(capture) ? { kind: 'inserted', capture } : { kind: 'hidden', capture });
-  }
-  return { ...state, pages: nextPages, endpoint: nextEndpoint, effects };
+  return { ...state, pages: nextPages, endpoint: nextEndpoint, effects: effect === null ? [] : [effect] };
 }
 
 function applyDeleted(state: LiveCacheState, captureId: string, seq: number): LiveOutcome {
@@ -288,7 +314,12 @@ function dropDetails(queryClient: QueryClient, endpointId: string, captureId: st
   void queryClient.invalidateQueries({ queryKey, refetchType: 'active' });
 }
 
-export function applyLiveEventToCache(queryClient: QueryClient, endpointId: string, event: LiveEvent): LiveEffect[] {
+export function applyLiveEventToCache(
+  queryClient: QueryClient,
+  endpointId: string,
+  event: LiveEvent,
+  active: ActiveFilters = NO_FILTERS,
+): LiveEffect[] {
   if (!belongsToEndpoint(event, endpointId)) {
     return [];
   }
@@ -298,32 +329,30 @@ export function applyLiveEventToCache(queryClient: QueryClient, endpointId: stri
       ? queryClient.getQueryData<Capture>(queryKeys.capture(endpointId, event.data.capture_id))
       : undefined;
   const lists = queryClient.getQueryCache().findAll({ queryKey: queryKeys.captureLists(endpointId) });
-  let effects: LiveEffect[] = [];
-  let nextEndpoint = endpoint;
-  let nextDetail = detail;
-  if (lists.length === 0) {
-    const outcome = applyLiveEvent({ pages: undefined, order: 'desc', endpoint, detail }, event);
-    effects = outcome.effects;
-    nextEndpoint = outcome.endpoint;
-    nextDetail = outcome.detail;
-  }
-  for (const [position, query] of lists.entries()) {
+  let shown: LiveEffect[] | null = null;
+  let basis: LiveOutcome | null = null;
+  for (const query of lists) {
     const pages = queryClient.getQueryData<CaptureListData>(query.queryKey);
-    const outcome = applyLiveEvent({ pages, order: orderOfKey(query.queryKey), endpoint, detail }, event);
+    const filters = filtersOfKey(query.queryKey);
+    const outcome = applyLiveEvent({ pages, order: orderOfKey(query.queryKey), endpoint, detail, filters }, event);
     if (outcome.pages !== undefined && outcome.pages !== pages) {
       queryClient.setQueryData(query.queryKey, outcome.pages);
     }
-    if (position === 0) {
-      effects = outcome.effects;
-      nextEndpoint = outcome.endpoint;
-      nextDetail = outcome.detail;
+    if (sameActiveFilters(filters, active)) {
+      shown = outcome.effects;
+    }
+    if (basis === null || !hasActiveFilters(filters)) {
+      basis = outcome;
     }
   }
-  if (nextEndpoint !== undefined && nextEndpoint !== endpoint) {
-    queryClient.setQueryData(queryKeys.endpoint(endpointId), nextEndpoint);
+  const unbound = applyLiveEvent({ pages: undefined, order: 'desc', endpoint, detail, filters: active }, event);
+  const outcome = basis ?? unbound;
+  const effects = shown ?? unbound.effects;
+  if (outcome.endpoint !== undefined && outcome.endpoint !== endpoint) {
+    queryClient.setQueryData(queryKeys.endpoint(endpointId), outcome.endpoint);
   }
-  if (nextDetail !== undefined && nextDetail !== detail && event.name === 'forward_result') {
-    queryClient.setQueryData(queryKeys.capture(endpointId, event.data.capture_id), nextDetail);
+  if (outcome.detail !== undefined && outcome.detail !== detail && event.name === 'forward_result') {
+    queryClient.setQueryData(queryKeys.capture(endpointId, event.data.capture_id), outcome.detail);
   }
   if (event.name === 'endpoint_updated' || event.name === 'endpoint_deleted') {
     void queryClient.invalidateQueries({ queryKey: queryKeys.endpointLists() });

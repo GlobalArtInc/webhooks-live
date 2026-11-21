@@ -17,8 +17,8 @@ export interface CaptureListModel {
   retry: () => void;
 }
 
-export function useCaptureList(endpointId: string): CaptureListModel {
-  const query = useCaptures(endpointId, CAPTURE_LIST_FILTERS);
+export function useCaptureList(endpointId: string, filters: CaptureListFilters = {}): CaptureListModel {
+  const query = useCaptures(endpointId, { ...CAPTURE_LIST_FILTERS, ...filters });
   const items = useMemo(() => flattenCaptures(query.data), [query.data]);
 
   return {

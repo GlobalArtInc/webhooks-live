@@ -7,9 +7,9 @@ export function useCloseSheet(endpointId: string): () => void {
   return useCallback(() => {
     const captureId = rememberedSelection(endpointId);
     if (captureId !== null) {
-      void navigate({ to: '/e/$id/c/$captureId', params: { id: endpointId, captureId } });
+      void navigate({ to: '/e/$id/c/$captureId', params: { id: endpointId, captureId }, search: true });
       return;
     }
-    void navigate({ to: '/e/$id', params: { id: endpointId } });
+    void navigate({ to: '/e/$id', params: { id: endpointId }, search: true });
   }, [endpointId, navigate]);
 }

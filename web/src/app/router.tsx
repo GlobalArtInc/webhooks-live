@@ -17,6 +17,7 @@ import { NotFoundScreen } from '../routes/states/NotFoundScreen';
 import { SettingsScreen } from '../routes/settings/SettingsScreen';
 import { EndpointSettingsScreen } from '../routes/settings/EndpointSettingsScreen';
 import { SignInScreen } from '../routes/signin/SignInScreen';
+import { validateCaptureSearch } from '../features/filters/captureSearch';
 import { isCaptureId, isEndpointId } from './ids';
 import { ensureEndpoint } from './endpointQuery';
 import { RouteError } from './RouteError';
@@ -95,7 +96,7 @@ const settingsRoute = createRoute({
 const endpointRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/e/$id',
-  validateSearch: validateEndpointSearch,
+  validateSearch: validateCaptureSearch,
   beforeLoad: ({ params }) => assertEndpointId(params.id),
   loader: ({ context, params }) => ensureEndpoint(context.queryClient, params.id),
   errorComponent: RouteError,

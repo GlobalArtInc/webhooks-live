@@ -15,6 +15,11 @@ describe('findShortcut', () => {
     expect(findShortcut('j', ENDPOINT_ONLY)?.id).toBe('next');
   });
 
+  it('binds the slash key to the capture search in the endpoint scope', () => {
+    expect(findShortcut('/', ENDPOINT_ONLY)?.id).toBe('search');
+    expect(findShortcut('/', { singleKey: false, isActive: () => true })).toBeUndefined();
+  });
+
   it('drops character keys when single-key shortcuts are off, and keeps Escape', () => {
     const off: ShortcutFilter = { singleKey: false, isActive: () => true };
 

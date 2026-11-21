@@ -18,6 +18,7 @@ export const SHORTCUTS = [
   { id: 'copyUrl', scope: 'endpoint', keys: ['c'], label: 'wl.shortcuts.action.copyUrl' },
   { id: 'settings', scope: 'endpoint', keys: ['s'], label: 'wl.shortcuts.action.settings' },
   { id: 'forwarding', scope: 'endpoint', keys: ['F'], label: 'wl.shortcuts.action.forwarding' },
+  { id: 'search', scope: 'endpoint', keys: ['/'], label: 'wl.shortcuts.action.search' },
   { id: 'copyCurl', scope: 'capture', keys: ['y'], label: 'wl.shortcuts.action.copyCurl' },
   { id: 'prettyRaw', scope: 'capture', keys: ['r'], label: 'wl.shortcuts.action.prettyRaw' },
   { id: 'wrap', scope: 'capture', keys: ['w'], label: 'wl.shortcuts.action.wrap' },

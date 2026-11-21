@@ -27,6 +27,7 @@
   "wl.shortcuts.action.copyUrl": "Copy capture URL",
   "wl.shortcuts.action.settings": "Open settings",
   "wl.shortcuts.action.forwarding": "Open forwarding",
+  "wl.shortcuts.action.search": "Search captures",
   "wl.shortcuts.action.copyCurl": "Copy as curl",
   "wl.shortcuts.action.prettyRaw": "Pretty or raw body",
   "wl.shortcuts.action.wrap": "Wrap body",

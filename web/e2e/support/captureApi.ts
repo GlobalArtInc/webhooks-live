@@ -18,13 +18,23 @@ interface ListPage {
   total: number;
 }
 
+function matchesListFilters(capture: Capture, url: URL): boolean {
+  const methods = url.searchParams.get('method')?.split(',') ?? [];
+  if (methods.length > 0 && !methods.includes(capture.method.toUpperCase())) {
+    return false;
+  }
+  const text = url.searchParams.get('q');
+  return text === null || capture.path.toLowerCase().includes(text.toLowerCase());
+}
+
 function pageOf(state: CaptureApiState, url: URL, endpointId: string): ListPage {
   const limit = Number(url.searchParams.get('limit') ?? DEFAULT_LIMIT);
   const ascending = url.searchParams.get('order') === 'asc';
   const afterSeq = Number(url.searchParams.get('after_seq') ?? 0);
   const cursor = url.searchParams.get('cursor');
   const direction = ascending ? 1 : -1;
-  const ordered = [...state.captures]
+  const matching = state.captures.filter((capture) => matchesListFilters(capture, url));
+  const ordered = [...matching]
     .filter((capture) => capture.seq > afterSeq)
     .sort((left, right) => direction * (left.seq - right.seq));
   const rest = cursor === null ? ordered : ordered.filter((capture) => direction * (capture.seq - Number(cursor)) > 0);
@@ -32,7 +42,7 @@ function pageOf(state: CaptureApiState, url: URL, endpointId: string): ListPage 
   return {
     items: items.map((capture) => ({ ...summaryOf(capture), endpoint_id: endpointId })),
     next_cursor: rest.length > limit ? String(items.at(-1)?.seq ?? 0) : null,
-    total: state.captures.length,
+    total: matching.length,
   };
 }
 
