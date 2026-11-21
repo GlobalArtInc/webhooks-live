@@ -62,15 +62,12 @@ pub async fn create(
     } = parse_schedule(&body, true)?;
     let now = OffsetDateTime::now_utc();
     let timezone = timezone.unwrap_or_else(|| DEFAULT_TIMEZONE.to_owned());
-    let schedule = cron.as_deref().and_then(|cron| {
-        check_cron(
-            state.schedules.min_interval,
-            cron,
-            &timezone,
-            now,
-            &mut violations,
-        )
-    });
+    let tier = state.endpoint_tier(&endpoint).await?;
+    let min_interval = tier.limits().schedule_min_interval;
+    let max_per_user = usize::try_from(tier.limits().schedules).unwrap_or(usize::MAX);
+    let schedule = cron
+        .as_deref()
+        .and_then(|cron| check_cron(min_interval, cron, &timezone, now, &mut violations));
     if let Some(request) = &request {
         check_request(&state, &endpoint, request, &mut violations).await?;
     }
@@ -98,12 +95,7 @@ pub async fn create(
     };
     match state
         .store
-        .create_schedule(
-            &endpoint,
-            state.settings.retention,
-            &new,
-            state.schedules.max_per_user,
-        )
+        .create_schedule(&endpoint, state.settings.retention, &new, max_per_user)
         .await?
     {
         CreateScheduleOutcome::Created(created) => {
@@ -112,9 +104,7 @@ pub async fn create(
         }
         CreateScheduleOutcome::EndpointGone => Err(ApiError::EndpointGone),
         CreateScheduleOutcome::NoOwner => Err(ApiError::Auth(AuthRejection::ClaimRequired)),
-        CreateScheduleOutcome::LimitReached => {
-            Err(ApiError::ScheduleLimit(state.schedules.max_per_user))
-        }
+        CreateScheduleOutcome::LimitReached => Err(ApiError::ScheduleLimit(max_per_user)),
     }
 }
 
@@ -148,7 +138,11 @@ pub async fn update(
         request,
         enabled,
     };
-    let min_interval = state.schedules.min_interval;
+    let min_interval = state
+        .endpoint_tier(&endpoint)
+        .await?
+        .limits()
+        .schedule_min_interval;
     let now = OffsetDateTime::now_utc();
     match state
         .store

@@ -32,6 +32,22 @@ enum Command {
         #[command(subcommand)]
         command: SecretsCommand,
     },
+    #[command(about = "Manage the users of this instance")]
+    Users {
+        #[command(subcommand)]
+        command: UsersCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum UsersCommand {
+    #[command(about = "Assign a tier to a user")]
+    SetTier {
+        #[arg(help = "The email address of the user, or the user id when emails are shared")]
+        user: String,
+        #[arg(help = "The tier name from the configuration, for example member")]
+        tier: String,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -67,6 +83,7 @@ async fn main() -> ExitCode {
         Command::Serve => serve().await,
         Command::Migrate { command } => migrate(command).await,
         Command::Secrets { command } => secrets(command).await,
+        Command::Users { command } => users(command).await,
     }
 }
 
@@ -211,6 +228,54 @@ async fn secrets(command: SecretsCommand) -> ExitCode {
         return ExitCode::FAILURE;
     }
     ExitCode::SUCCESS
+}
+
+async fn users(command: UsersCommand) -> ExitCode {
+    let UsersCommand::SetTier { user, tier } = command;
+    let config = match Config::load() {
+        Ok(config) => config,
+        Err(error) => {
+            eprintln!("webhooks-live: {error}");
+            return ExitCode::from(2);
+        }
+    };
+    if let Err(error) = whl_telemetry::logs::init(&config.log) {
+        eprintln!("webhooks-live: {error}");
+        return ExitCode::from(2);
+    }
+    if !config.tiers.is_assignable(&tier) {
+        eprintln!(
+            "webhooks-live: {}",
+            whl_server::SetTierError::UnknownTier(tier)
+        );
+        return ExitCode::from(2);
+    }
+    let store = match Store::connect(&config.database).await {
+        Ok(store) => store,
+        Err(error) => {
+            tracing::error!(%error, "users set-tier failed");
+            return ExitCode::FAILURE;
+        }
+    };
+    if let Err(error) = store.check_schema_version().await {
+        tracing::error!(%error, "users set-tier failed");
+        return ExitCode::FAILURE;
+    }
+    match whl_server::set_user_tier(&store, &config.tiers, &user, &tier).await {
+        Ok(change) => {
+            println!(
+                "user {}: tier {} -> {}",
+                change.user.hyphenated(),
+                change.previous,
+                change.tier
+            );
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("webhooks-live: {error}");
+            ExitCode::FAILURE
+        }
+    }
 }
 
 async fn migrate_up(store: &Store) -> Result<(), StoreError> {

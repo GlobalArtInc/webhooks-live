@@ -7,9 +7,7 @@ use whl_script::ScriptCompiler;
 use crate::check::Checker;
 use crate::condition::validate_condition;
 use crate::error::{RuleError, RuleErrorCode};
-use crate::limits::{
-    MAX_RULE_NAME_CHARS, MAX_RULE_SET_BYTES, MAX_RULES_PER_ENDPOINT, MAX_STEPS_PER_RULE,
-};
+use crate::limits::{MAX_RULE_NAME_CHARS, MAX_RULE_SET_BYTES, RuleLimits};
 use crate::model::{Action, Condition, Rule};
 use crate::step::validate_step;
 
@@ -30,12 +28,21 @@ pub fn validate_set(
     references: &References,
     scripts: &ScriptCompiler,
 ) -> Result<Vec<Rule>, RuleError> {
+    validate_set_with(rules, references, scripts, RuleLimits::default())
+}
+
+pub fn validate_set_with(
+    rules: &[Value],
+    references: &References,
+    scripts: &ScriptCompiler,
+    limits: RuleLimits,
+) -> Result<Vec<Rule>, RuleError> {
     let mut checker = Checker::new(references, scripts);
-    if rules.len() > MAX_RULES_PER_ENDPOINT {
+    if rules.len() > limits.max_rules {
         checker.fail(
             "rules",
             RuleErrorCode::TooMany,
-            format!("must have at most {MAX_RULES_PER_ENDPOINT} rules"),
+            format!("must have at most {} rules", limits.max_rules),
         );
         return checker.finish().map(|()| Vec::new());
     }
@@ -43,7 +50,13 @@ pub fn validate_set(
     let mut valid = Vec::with_capacity(rules.len());
     let mut failed = false;
     for (index, value) in rules.iter().enumerate() {
-        match validate_rule(&mut checker, value, &format!("rules.{index}"), &mut steps) {
+        match validate_rule(
+            &mut checker,
+            value,
+            &format!("rules.{index}"),
+            &mut steps,
+            limits.steps.covers(index).then_some(limits.max_steps),
+        ) {
             Some(rule) => valid.push(rule),
             None => failed = true,
         }
@@ -100,6 +113,7 @@ fn validate_rule(
     value: &Value,
     path: &str,
     steps: &mut BTreeSet<String>,
+    max_steps: Option<usize>,
 ) -> Option<Rule> {
     let before = checker.count();
     let map = checker.object(value, path)?;
@@ -139,11 +153,11 @@ fn validate_rule(
         );
         return None;
     }
-    if items.len() > MAX_STEPS_PER_RULE {
+    if let Some(max_steps) = max_steps.filter(|max_steps| items.len() > *max_steps) {
         checker.fail(
             format!("{path}.steps"),
             RuleErrorCode::TooMany,
-            format!("must have at most {MAX_STEPS_PER_RULE} steps"),
+            format!("must have at most {max_steps} steps"),
         );
         return None;
     }

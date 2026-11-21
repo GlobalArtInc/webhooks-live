@@ -34,3 +34,5 @@ pub const SCHEDULE_RUNS_TOTAL: &str = "webhooks_live_schedule_runs_total";
 pub const MAIL_SESSIONS: &str = "webhooks_live_mail_sessions";
 pub const MAIL_MESSAGES_TOTAL: &str = "webhooks_live_mail_messages_total";
 pub const MAIL_REFUSED_TOTAL: &str = "webhooks_live_mail_refused_total";
+pub const QUOTA_EXCEEDED_TOTAL: &str = "webhooks_live_quota_exceeded_total";
+pub const OWNERS_OVER_STORAGE_QUOTA: &str = "webhooks_live_owners_over_storage_quota";

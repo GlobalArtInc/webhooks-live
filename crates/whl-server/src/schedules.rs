@@ -3,6 +3,7 @@ use std::sync::Arc;
 use whl_api::ScheduleSettings;
 use whl_capture::StorageFull;
 use whl_core::config::{AuthMode, Config};
+use whl_core::tier::MIN_TIER_SCHEDULE_INTERVAL;
 use whl_forward::{GuardConfig, GuardedClient};
 use whl_schedule::{MAX_CLAIM_BATCH, RunnerConfig, ScheduleRunner, SystemClock};
 use whl_secrets::Keyring;
@@ -37,18 +38,21 @@ impl ScheduleRuntime {
             None
         };
         let settings = if enabled {
-            ScheduleSettings::new(
-                usize::try_from(config.schedules.max_per_user).unwrap_or(usize::MAX),
-                config.schedules.min_interval,
-            )
+            ScheduleSettings::enabled()
         } else {
             ScheduleSettings::disabled()
         };
+        let floor = config
+            .tiers
+            .iter()
+            .map(|tier| tier.limits().schedule_min_interval)
+            .min()
+            .unwrap_or(MIN_TIER_SCHEDULE_INTERVAL);
         let runner = RunnerConfig::new(
             config.capture.retention,
             config.capture.max_captures,
             config.public_url.as_str(),
-            config.schedules.min_interval,
+            floor,
             config.schedules.runs_per_hour,
         );
         Ok(Self {

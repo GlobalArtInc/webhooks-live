@@ -4,12 +4,14 @@ use sqlx::postgres::PgPoolOptions;
 use whl_core::config::DatabaseConfig;
 
 use crate::error::StoreError;
+use crate::quota::EndpointByteCaps;
 
 static MIGRATIONS: migrator::Migrations = migrator::embed!("$CARGO_MANIFEST_DIR/migrations");
 
 #[derive(Clone, Debug)]
 pub struct Store {
     pool: PgPool,
+    pub(crate) byte_caps: EndpointByteCaps,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -31,11 +33,19 @@ impl Store {
             .connect(config.url.unpack().as_str())
             .await
             .map_err(|source| StoreError::Connect { source })?;
-        Ok(Self { pool })
+        Ok(Self::from_pool(pool))
     }
 
     pub fn from_pool(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            byte_caps: EndpointByteCaps::default(),
+        }
+    }
+
+    pub fn with_endpoint_byte_caps(mut self, caps: EndpointByteCaps) -> Self {
+        self.byte_caps = caps;
+        self
     }
 
     pub fn pool(&self) -> &PgPool {

@@ -7,10 +7,12 @@ use time::OffsetDateTime;
 use whl_auth::{Access, Caller};
 use whl_core::endpoint_id::EndpointId;
 use whl_export::{ExportFormat, file_name};
+use whl_store::composer::{QuotaCharge, QuotaWindow};
+use whl_store::quota::{EXPORTS_METRIC, user_subject};
 use whl_store::{EndpointError, ExportSelection};
 
 use super::params::{ExportParams, parse_selection};
-use super::stream::{self, Job, MAX_EXPORT_BYTES};
+use super::stream::{self, Job};
 use crate::body::RawBody;
 use crate::error::ApiError;
 use crate::state::ApiState;
@@ -63,8 +65,26 @@ async fn start(
         .get_endpoint(&endpoint, state.settings.retention)
         .await?
         .ok_or(ApiError::EndpointGone)?;
+    let tier = state.tier_of(caller);
+    let max_bytes = tier.limits().export_max_bytes;
+    let subject = match caller.user() {
+        Some(user) => user_subject(user.id),
+        None => format!("e:{}", endpoint.unpack()),
+    };
+    crate::quota::charge(
+        state,
+        tier,
+        EXPORTS_METRIC,
+        &[QuotaCharge {
+            subject,
+            window: QuotaWindow::Hour,
+            limit: tier.limits().exports_per_hour,
+            name: EXPORTS_METRIC,
+        }],
+    )
+    .await?;
     let snapshot = state.store.export_snapshot(&endpoint, &selection).await?;
-    if snapshot.total_bytes > i64::try_from(MAX_EXPORT_BYTES).unwrap_or(i64::MAX) {
+    if snapshot.total_bytes > i64::try_from(max_bytes).unwrap_or(i64::MAX) {
         return Err(ApiError::ExportTooLarge);
     }
     let exported_at = OffsetDateTime::now_utc();
@@ -83,6 +103,7 @@ async fn start(
         snapshot,
         format,
         exported_at,
+        max_bytes,
         _permit: permit,
     });
     let mut response = Response::new(body);

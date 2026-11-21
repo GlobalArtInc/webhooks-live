@@ -5,9 +5,9 @@ use axum::response::{IntoResponse, Response};
 use whl_auth::{ApiTokenSecret, AuthRejection, Caller};
 use whl_store::{CreateTokenOutcome, NewApiToken, RevokeTokenOutcome, TokenCaps, UserRecord, Uuid};
 
+use super::MAX_TOKENS_PER_HOUR;
 use super::dto::{ApiTokenDto, ApiTokenListDto, CreatedApiTokenDto};
 use super::input::parse_token_input;
-use super::{MAX_TOKENS_PER_HOUR, MAX_TOKENS_PER_USER};
 use crate::body::RawBody;
 use crate::error::ApiError;
 use crate::state::ApiState;
@@ -42,6 +42,7 @@ pub async fn create(
     RawBody(body): RawBody,
 ) -> Result<Response, ApiError> {
     let user = session_user(&state, &caller)?;
+    let max_active = state.tier_of(&caller).limits().tokens;
     let input = parse_token_input(&body)?;
     let secret = ApiTokenSecret::generate().map_err(|_| ApiError::EntropyUnavailable)?;
     let digest = secret.digest();
@@ -58,7 +59,7 @@ pub async fn create(
                 lifetime: input.lifetime,
             },
             TokenCaps {
-                max_active: MAX_TOKENS_PER_USER,
+                max_active,
                 max_per_hour: MAX_TOKENS_PER_HOUR,
             },
         )
@@ -72,7 +73,7 @@ pub async fn create(
             )
                 .into_response())
         }
-        CreateTokenOutcome::TooMany => Err(ApiError::TokenLimit),
+        CreateTokenOutcome::TooMany => Err(ApiError::TokenLimit { max: max_active }),
         CreateTokenOutcome::TooFast { resets_at } => Err(ApiError::TokenCreationRate { resets_at }),
         CreateTokenOutcome::UserGone => Err(AuthRejection::Unauthenticated.into()),
     }

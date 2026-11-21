@@ -45,6 +45,14 @@ pub async fn create(
     let endpoint = endpoint_id(&raw_id)?;
     live_endpoint(&state, &endpoint).await?;
     let mut parsed = parse_channel(&body, true, None)?;
+    if let Some(kind) = parsed.kind {
+        let tier = state.endpoint_tier(&endpoint).await?;
+        if !tier.limits().allows_notification_kind(kind.as_str()) {
+            return Err(ApiError::TierNotAllowed {
+                name: kind.as_str(),
+            });
+        }
+    }
     let id = Uuid::now_v7();
     let stored = resolve_config(&state, keyring, &endpoint, id, &mut parsed).await?;
     let (Some(kind), Some(name), Some(change)) = (

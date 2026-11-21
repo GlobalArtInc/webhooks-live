@@ -25,6 +25,10 @@ const CREATE_KEYS: &[&str] = &[
     "template",
     "per_hour",
 ];
+pub(crate) fn kind_is_available(name: &str) -> bool {
+    AVAILABLE_KINDS.iter().any(|kind| kind.as_str() == name)
+}
+
 const AVAILABLE_KINDS: [ChannelKind; 4] = [
     ChannelKind::Webhook,
     ChannelKind::Slack,

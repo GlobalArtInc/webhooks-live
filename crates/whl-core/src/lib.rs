@@ -14,4 +14,5 @@ pub mod rate;
 pub mod response;
 pub mod status;
 pub mod tag;
+pub mod tier;
 pub mod validation;

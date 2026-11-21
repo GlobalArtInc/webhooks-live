@@ -6,6 +6,7 @@ use time::{OffsetDateTime, UtcOffset};
 use whl_auth::AccessControl;
 use whl_core::header::MAX_HEADERS;
 use whl_core::response::{MAX_BODY_BYTES as RESPONSE_BODY_BYTES, MAX_DELAY_MS};
+use whl_core::tier::Tier;
 use whl_store::forward::ForwardRule;
 use whl_store::{EndpointRecord, EndpointRole, StoredVerifier, UserRecord};
 
@@ -18,6 +19,7 @@ const MAX_FORWARD_RULES: u32 = 5;
 pub struct InstanceDto {
     version: &'static str,
     auth_mode: &'static str,
+    tier: String,
     user: Option<UserDto>,
     public_url: String,
     auth: AuthDto,
@@ -60,6 +62,23 @@ struct LimitsDto {
     max_forward_rules: u32,
     max_response_body_bytes: usize,
     max_response_headers: usize,
+    endpoints: u32,
+    storage_bytes: Option<u64>,
+    rules_per_endpoint: u32,
+    steps_per_rule: u32,
+    sync_http_steps: u32,
+    aliases: u32,
+    tokens: u32,
+    folders: u32,
+    schedules: u32,
+    schedule_min_interval_seconds: u64,
+    exports_per_hour: u32,
+    export_max_bytes: u64,
+    imports_per_day: u32,
+    import_max_bytes: u64,
+    outbound_per_hour: Option<u32>,
+    notifications_per_hour: Option<u32>,
+    email_notifications_per_day: u32,
 }
 
 #[derive(Serialize)]
@@ -68,6 +87,15 @@ struct FeaturesDto {
     forwarding: bool,
     private_forward_targets_allowed: bool,
     secrets: bool,
+    schedules: bool,
+    notifications: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Availability {
+    pub secrets: bool,
+    pub schedules: bool,
+    pub notifications: bool,
 }
 
 impl InstanceDto {
@@ -75,12 +103,23 @@ impl InstanceDto {
         settings: &ApiSettings,
         access: &AccessControl,
         user: Option<&UserRecord>,
-        secrets: bool,
+        tier: Tier<'_>,
+        available: Availability,
     ) -> Self {
-        let ceilings = settings.lifecycle_limits(user.is_some());
+        let limits = tier.limits();
+        let ceilings = settings.lifecycle_limits(tier);
+        let (outbound, notifications) = if user.is_some() {
+            (limits.outbound_per_user_hour, limits.notify_per_user_hour)
+        } else {
+            (
+                limits.outbound_per_endpoint_hour,
+                limits.notify_per_endpoint_hour,
+            )
+        };
         Self {
             version: env!("CARGO_PKG_VERSION"),
             auth_mode: access.mode().as_str(),
+            tier: tier.name().to_owned(),
             user: user.map(UserDto::from),
             public_url: settings.public_url.clone(),
             auth: AuthDto {
@@ -98,12 +137,40 @@ impl InstanceDto {
                 max_forward_rules: MAX_FORWARD_RULES,
                 max_response_body_bytes: RESPONSE_BODY_BYTES,
                 max_response_headers: MAX_HEADERS,
+                endpoints: limits.endpoints,
+                storage_bytes: limits.storage_bytes,
+                rules_per_endpoint: limits.rules_per_endpoint,
+                steps_per_rule: limits.steps_per_rule,
+                sync_http_steps: limits.sync_http_steps,
+                aliases: limits.aliases,
+                tokens: limits.tokens,
+                folders: limits.folders,
+                schedules: limits.schedules,
+                schedule_min_interval_seconds: limits.schedule_min_interval.as_secs(),
+                exports_per_hour: limits.exports_per_hour,
+                export_max_bytes: limits.export_max_bytes,
+                imports_per_day: limits.imports_per_day,
+                import_max_bytes: limits.import_max_bytes,
+                outbound_per_hour: outbound,
+                notifications_per_hour: notifications,
+                email_notifications_per_day: limits.email_notifications_per_day,
             },
             features: FeaturesDto {
                 ring_mode_allowed: settings.ring_mode_allowed,
                 forwarding: settings.forwarding,
                 private_forward_targets_allowed: settings.private_forward_targets_allowed,
-                secrets,
+                secrets: available.secrets,
+                schedules: available.schedules && limits.schedules > 0,
+                notifications: if available.notifications {
+                    limits
+                        .notification_kinds
+                        .iter()
+                        .filter(|kind| crate::notify::kind_is_available(kind))
+                        .cloned()
+                        .collect()
+                } else {
+                    Vec::new()
+                },
             },
         }
     }

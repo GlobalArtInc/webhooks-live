@@ -319,10 +319,9 @@ async fn the_endpoint_quota_refuses_with_its_name_and_a_retry_hint() {
 
     assert_eq!(refused.status, StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(error_code(&refused), "quota_exceeded");
-    assert_eq!(
-        refused.json()["error"]["limit"]["name"],
-        "composer_endpoint_hour"
-    );
+    assert_eq!(refused.json()["error"]["limit"]["name"], "outbound");
+    assert_eq!(refused.json()["error"]["limit"]["window"], "hour");
+    assert!(refused.json()["error"]["limit"]["resets_at"].is_string());
     assert_eq!(refused.json()["error"]["limit"]["max"], 2);
     assert!(refused.headers.contains_key(header::RETRY_AFTER));
     assert_eq!(local.delivered().len(), 2);

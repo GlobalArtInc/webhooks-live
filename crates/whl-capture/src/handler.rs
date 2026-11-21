@@ -13,6 +13,7 @@ use whl_store::captures::{
     CaptureOutcome, CaptureStoreError, Endpoint, EndpointState, NameValue, NewCapture,
     RenderRecord, StoredCapture,
 };
+use whl_telemetry::series;
 
 use crate::body::{ReadFailure, read_body};
 use crate::client_ip::{ForwardedRequest, sanitize_host};
@@ -55,6 +56,17 @@ async fn run(state: &CaptureState, request: Request) -> Result<Response, Failure
     let admission = state.store().endpoint_admission(&id, state.policy()).await;
     match admission.as_ref().map(|admission| admission.state) {
         Ok(EndpointState::Live) => {
+            if let Ok(admitted) = &admission
+                && admitted.over_quota
+            {
+                metrics::counter!(
+                    series::QUOTA_EXCEEDED_TOTAL,
+                    "metric" => "storage_bytes",
+                    "tier" => admitted.owner_tier.clone().unwrap_or_default()
+                )
+                .increment(1);
+                return Err(early(Refusal::QuotaExceeded(id)));
+            }
             if let Admission::Limited { retry_after } = state.admit_endpoint(&id) {
                 return Err(early(Refusal::RateLimited { retry_after }));
             }
@@ -165,6 +177,7 @@ async fn run(state: &CaptureState, request: Request) -> Result<Response, Failure
         }
         CaptureOutcome::Gone => Err(late(Refusal::Gone(id))),
         CaptureOutcome::Full => Err(late(Refusal::Full(id))),
+        CaptureOutcome::OverQuota => Err(late(Refusal::QuotaExceeded(id))),
     }
 }
 

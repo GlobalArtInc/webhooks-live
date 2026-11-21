@@ -25,6 +25,7 @@ const CLAIM_DNS_SLOT: &str = "UPDATE endpoints SET \
        last_seq = last_seq + 1, \
        last_active_at = GREATEST(last_active_at, now()) \
      WHERE id = $1 AND deleted_at IS NULL AND dns_enabled \
+       AND NOT (overflow <> 'ring' AND COALESCE((SELECT u.storage_over_quota FROM users u WHERE u.id = endpoints.owner_id), false)) \
        AND last_active_at > now() - make_interval(secs => $3) \
        AND (capture_count < $4 OR overflow = 'ring') \
      RETURNING last_seq, capture_count";

@@ -5,10 +5,8 @@ use serde::Serialize;
 use time::OffsetDateTime;
 use whl_auth::{AccessDenied, AuthRejection};
 use whl_core::validation::{FieldPath, Violation, ViolationCode};
-use whl_rules::MAX_RULES_PER_ENDPOINT;
 use whl_script::LimitsError;
 use whl_secrets::{MAX_SECRETS_PER_ENDPOINT, SealError};
-use whl_store::MAX_FOLDERS_PER_USER;
 use whl_store::composer::ComposerStoreError;
 use whl_store::forward::ForwardStoreError;
 use whl_store::notify::{MAX_CHANNELS_PER_ENDPOINT, NotifyStoreError};
@@ -19,7 +17,7 @@ use whl_store::vars::{MAX_VARS_PER_ENDPOINT, VarStoreError};
 use whl_store::{ApiTokenStoreError, EndpointError, FolderError, LifecycleError, MembershipError};
 
 use crate::dto::timestamp;
-use crate::tokens::{MAX_TOKENS_PER_HOUR, MAX_TOKENS_PER_USER};
+use crate::tokens::MAX_TOKENS_PER_HOUR;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -144,7 +142,7 @@ pub enum ApiError {
     #[error("the rule is not found in this endpoint")]
     RuleNotFound,
     #[error("the endpoint already has the maximum number of rules")]
-    RuleLimit,
+    RuleLimit { max: usize },
     #[error("forwarding is disabled on this instance")]
     ForwardingDisabled,
     #[error("the cursor is malformed or does not match the order and filters")]
@@ -180,7 +178,7 @@ pub enum ApiError {
     #[error("a folder with that name already exists")]
     FolderNameTaken,
     #[error("the user already has the maximum number of folders")]
-    FolderLimit,
+    FolderLimit { max: usize },
     #[error("folder storage failed: {0}")]
     FolderStorage(FolderError),
     #[error("the secret is not found in this endpoint")]
@@ -217,12 +215,19 @@ pub enum ApiError {
     SendBodyTimeout,
     #[error("this request has been relayed too many times")]
     HopLimit,
-    #[error("the composer quota {name} of {max} is used up")]
-    ComposerQuota {
+    #[error("the {name} quota of {max} per {window} is used up")]
+    QuotaExceeded {
         name: &'static str,
-        max: usize,
-        retry_after_secs: u64,
+        window: &'static str,
+        max: u64,
+        resets_at: OffsetDateTime,
     },
+    #[error("the maximum of {max} live endpoints is reached")]
+    EndpointLimit { max: u32 },
+    #[error("the owner stores more than the quota of {max} bytes, delete data to continue")]
+    StorageQuota { max: u64 },
+    #[error("{name} is not available in this tier")]
+    TierNotAllowed { name: &'static str },
     #[error(transparent)]
     Access(AccessDenied),
     #[error("a secret could not be sealed: {0}")]
@@ -230,7 +235,7 @@ pub enum ApiError {
     #[error("the API token is not found")]
     TokenNotFound,
     #[error("the maximum number of active API tokens is reached")]
-    TokenLimit,
+    TokenLimit { max: u32 },
     #[error("too many API tokens were created recently")]
     TokenCreationRate { resets_at: OffsetDateTime },
     #[error("a token could not be generated")]
@@ -367,6 +372,8 @@ impl From<LifecycleError> for ApiError {
             LifecycleError::Endpoint(error) => error.into(),
             LifecycleError::NeverExpireLimit { max } => Self::NeverExpireLimit { max },
             LifecycleError::NeverExpireNeedsOwner => Self::Auth(AuthRejection::SignInRequired),
+            LifecycleError::EndpointLimit { max } => Self::EndpointLimit { max },
+            LifecycleError::StorageQuota { max } => Self::StorageQuota { max },
         }
     }
 }
@@ -417,7 +424,7 @@ struct ReferenceDetail {
 #[derive(Serialize)]
 struct LimitDetail {
     name: &'static str,
-    max: usize,
+    max: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     window: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -426,10 +433,14 @@ struct LimitDetail {
 
 impl LimitDetail {
     fn count(name: &'static str, max: usize) -> Self {
+        Self::total(name, u64::try_from(max).unwrap_or(u64::MAX), None)
+    }
+
+    fn total(name: &'static str, max: u64, window: Option<&'static str>) -> Self {
         Self {
             name,
             max,
-            window: None,
+            window,
             resets_at: None,
         }
     }
@@ -449,30 +460,45 @@ impl IntoResponse for ApiError {
             return denied.into_response();
         }
         let retry_after = match &self {
-            Self::RateLimited { retry_after_secs }
-            | Self::ComposerQuota {
-                retry_after_secs, ..
-            } => Some(*retry_after_secs),
-            Self::TokenCreationRate { resets_at } => Some(seconds_until(*resets_at)),
+            Self::RateLimited { retry_after_secs } => Some(*retry_after_secs),
+            Self::TokenCreationRate { resets_at } | Self::QuotaExceeded { resets_at, .. } => {
+                Some(seconds_until(*resets_at))
+            }
             _ => None,
         };
         let limit = match &self {
             Self::SecretLimit => Some(LimitDetail::count("secrets", MAX_SECRETS_PER_ENDPOINT)),
-            Self::TokenLimit => Some(LimitDetail::count("tokens", MAX_TOKENS_PER_USER as usize)),
+            Self::TokenLimit { max } => Some(LimitDetail::total("tokens", u64::from(*max), None)),
             Self::TokenCreationRate { resets_at } => Some(LimitDetail {
                 name: "token_creation",
-                max: MAX_TOKENS_PER_HOUR as usize,
+                max: u64::from(MAX_TOKENS_PER_HOUR),
                 window: Some("hour"),
                 resets_at: Some(timestamp(*resets_at)),
             }),
-            Self::FolderLimit => Some(LimitDetail::count("folders", MAX_FOLDERS_PER_USER)),
-            Self::NeverExpireLimit { max } => Some(LimitDetail::count(
-                "never_expire",
-                usize::try_from(*max).unwrap_or(usize::MAX),
-            )),
-            Self::RuleLimit => Some(LimitDetail::count("rules", MAX_RULES_PER_ENDPOINT)),
+            Self::FolderLimit { max } => Some(LimitDetail::count("folders", *max)),
+            Self::NeverExpireLimit { max } => {
+                Some(LimitDetail::total("never_expire", u64::from(*max), None))
+            }
+            Self::EndpointLimit { max } => {
+                Some(LimitDetail::total("endpoints", u64::from(*max), None))
+            }
+            Self::StorageQuota { max } => {
+                Some(LimitDetail::total("storage_bytes", *max, Some("total")))
+            }
+            Self::TierNotAllowed { name } => Some(LimitDetail::total(name, 0, None)),
+            Self::RuleLimit { max } => Some(LimitDetail::count("rules", *max)),
             Self::VarLimit => Some(LimitDetail::count("vars", MAX_VARS_PER_ENDPOINT)),
-            Self::ComposerQuota { name, max, .. } => Some(LimitDetail::count(name, *max)),
+            Self::QuotaExceeded {
+                name,
+                window,
+                max,
+                resets_at,
+            } => Some(LimitDetail {
+                name,
+                max: *max,
+                window: Some(window),
+                resets_at: Some(timestamp(*resets_at)),
+            }),
             Self::ScheduleLimit(max) => Some(LimitDetail::count("schedules", *max)),
             Self::ChannelLimit => Some(LimitDetail::count(
                 "notification_channels",
@@ -562,7 +588,7 @@ impl IntoResponse for ApiError {
                 self.to_string(),
                 None,
             ),
-            Self::RuleLimit => (
+            Self::RuleLimit { .. } => (
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "limit_reached",
                 self.to_string(),
@@ -680,7 +706,7 @@ impl IntoResponse for ApiError {
                 None,
             ),
             Self::FolderNameTaken => (StatusCode::CONFLICT, "name_taken", self.to_string(), None),
-            Self::FolderLimit => (
+            Self::FolderLimit { .. } => (
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "limit_reached",
                 self.to_string(),
@@ -738,15 +764,27 @@ impl IntoResponse for ApiError {
                 self.to_string(),
                 None,
             ),
-            Self::TokenLimit => (
+            Self::TokenLimit { .. } | Self::EndpointLimit { .. } => (
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "limit_reached",
                 self.to_string(),
                 None,
             ),
-            Self::TokenCreationRate { .. } | Self::ComposerQuota { .. } => (
+            Self::TokenCreationRate { .. } | Self::QuotaExceeded { .. } => (
                 StatusCode::TOO_MANY_REQUESTS,
                 "quota_exceeded",
+                self.to_string(),
+                None,
+            ),
+            Self::StorageQuota { .. } => (
+                StatusCode::FORBIDDEN,
+                "quota_exceeded",
+                self.to_string(),
+                None,
+            ),
+            Self::TierNotAllowed { .. } => (
+                StatusCode::FORBIDDEN,
+                "tier_not_allowed",
                 self.to_string(),
                 None,
             ),

@@ -15,7 +15,10 @@ use whl_core::tag::Tag;
 use whl_verify::{Verifier, VerifierDocument};
 
 use crate::captures::EVENT_CHANNEL;
-use crate::lifecycle::{Lifecycle, LifecycleError, LifecycleLimits, admit_never_expires};
+use crate::lifecycle::{
+    LOCK_OWNER_SQL, Lifecycle, LifecycleError, LifecycleLimits, admit_endpoint_count,
+    admit_never_expires,
+};
 use crate::store::Store;
 
 pub(crate) const COLUMNS: &str = "id, title, response_status, response_content_type, \
@@ -229,6 +232,10 @@ impl Store {
              RETURNING {COLUMNS}"
         );
         let mut transaction = self.pool().begin().await.map_err(classify)?;
+        if let Some(max) = new.limits.endpoints_max {
+            admit_endpoint_count(&mut transaction, new.owner, new.creator_net, max, retention)
+                .await?;
+        }
         if new.lifecycle.never_expires {
             admit_never_expires(&mut transaction, new.owner, new.limits).await?;
         }
@@ -279,6 +286,19 @@ impl Store {
             .begin()
             .await
             .map_err(|error| E::from(classify(error)))?;
+        let known_owner: Option<Option<Uuid>> =
+            sqlx::query_scalar("SELECT owner_id FROM endpoints WHERE id = $1")
+                .bind(id.unpack())
+                .fetch_optional(&mut *transaction)
+                .await
+                .map_err(|error| E::from(classify(error)))?;
+        if let Some(Some(owner)) = known_owner {
+            sqlx::query(LOCK_OWNER_SQL)
+                .bind(owner)
+                .fetch_optional(&mut *transaction)
+                .await
+                .map_err(|error| E::from(classify(error)))?;
+        }
         let lock_sql = format!(
             "SELECT {COLUMNS}, owner_id FROM endpoints \
              WHERE id = $1 AND deleted_at IS NULL \

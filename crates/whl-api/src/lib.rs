@@ -17,6 +17,7 @@ mod listing;
 mod members;
 mod notify;
 mod policy;
+mod quota;
 mod resolve;
 mod rules;
 mod schedules;
@@ -75,6 +76,7 @@ pub fn router(state: ApiState) -> Router {
         .merge(secrets::routes())
         .merge(composer::routes())
         .merge(tokens::routes())
+        .merge(quota::routes())
         .merge(vars::routes());
     let api = guard_routes(api, &state.access)
         .fallback(not_found)

@@ -101,6 +101,7 @@ async fn a_quota_counts_up_to_its_limit_and_then_refuses_with_a_retry_hint() {
             name,
             limit,
             retry_after,
+            ..
         } => {
             assert_eq!((name, limit), ("test_limit", 3));
             assert!(

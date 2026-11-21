@@ -17,6 +17,7 @@ use whl_core::capture_id::CaptureId;
 use whl_core::creator_net::CreatorNet;
 use whl_core::endpoint_id::EndpointId;
 use whl_core::response::ResponseConfig;
+use whl_core::tier::{TierLimits, Tiers};
 use whl_forward::GuardConfig;
 use whl_notify::{
     NotifyHandle, NotifyLimits, NotifySettings, NotifyWorker, Transport, VendorHosts,
@@ -184,16 +185,37 @@ fn settings() -> EndpointSettings {
     }
 }
 
-pub fn limits(endpoint: i32, owner: i32, network: i32) -> NotifyLimits {
+pub struct TestLimits {
+    pub limits: NotifyLimits,
+    pub tiers: Tiers,
+}
+
+pub fn limits(endpoint: i32, owner: i32, network: i32) -> TestLimits {
     limits_with_global(endpoint, owner, network, 1000)
 }
 
-pub fn limits_with_global(endpoint: i32, owner: i32, network: i32, global: i32) -> NotifyLimits {
-    NotifyLimits {
-        global_per_hour: global,
-        endpoint_per_hour: endpoint,
-        owner_per_hour: owner,
-        network_per_hour: network,
+pub fn limits_with_global(endpoint: i32, owner: i32, network: i32, global: i32) -> TestLimits {
+    let endpoint = u32::try_from(endpoint).expect("a positive endpoint limit");
+    let owner = u32::try_from(owner).expect("a positive owner limit");
+    let anonymous = TierLimits {
+        notify_per_endpoint_hour: Some(endpoint),
+        ..TierLimits::anonymous()
+    };
+    let member = TierLimits {
+        notify_per_endpoint_hour: Some(endpoint),
+        notify_per_user_hour: Some(owner),
+        ..TierLimits::member()
+    };
+    let tiers = Tiers::default()
+        .with_limits("anonymous", anonymous)
+        .and_then(|tiers| tiers.with_limits("member", member))
+        .expect("the tiers are valid");
+    TestLimits {
+        limits: NotifyLimits {
+            global_per_hour: global,
+            network_per_hour: network,
+        },
+        tiers,
     }
 }
 
@@ -365,12 +387,14 @@ impl Rig {
         Transport::new(loopback_guard(), None, hosts).expect("the transport is built")
     }
 
-    pub fn start(&self, limits: NotifyLimits) -> Running {
+    pub fn start(&self, limits: TestLimits) -> Running {
         self.start_with(self.transport(), limits)
     }
 
-    pub fn start_with(&self, transport: Transport, limits: NotifyLimits) -> Running {
-        let mut settings = NotifySettings::new("https://hooks.example".to_owned(), limits, 4, 3);
+    pub fn start_with(&self, transport: Transport, limits: TestLimits) -> Running {
+        let mut settings =
+            NotifySettings::new("https://hooks.example".to_owned(), limits.limits, 4, 3)
+                .with_tiers(limits.tiers);
         settings.poll_interval = Duration::from_millis(100);
         let worker = NotifyWorker::new(
             self.store.clone(),

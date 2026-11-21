@@ -7,6 +7,7 @@ use sqlx::postgres::PgListener;
 use sqlx::types::Uuid;
 use tokio::sync::watch;
 use whl_core::endpoint_id::EndpointId;
+use whl_core::tier::{TierLimits, Tiers};
 use whl_store::Store;
 use whl_store::captures::EVENT_CHANNEL;
 use whl_store::maintenance::{
@@ -795,4 +796,115 @@ async fn the_ttl_purge_keeps_starred_captures_and_stops_scanning_once_only_they_
             .expect("the scan runs")
             .is_empty()
     );
+}
+
+async fn owner_storage(pool: &PgPool, user: Uuid) -> (i64, bool) {
+    sqlx::query_as("SELECT bytes_used, storage_over_quota FROM users WHERE id = $1")
+        .bind(user)
+        .fetch_one(pool)
+        .await
+        .expect("the user row is readable")
+}
+
+#[tokio::test]
+async fn refreshing_owner_storage_flags_owners_over_their_tier_quota_and_clears_the_flag() {
+    let db = TestDb::new().await;
+    let store = Store::from_pool(db.pool().clone());
+    let heavy = insert_user(db.pool()).await;
+    let light = insert_user(db.pool()).await;
+    seed(db.pool(), Seed::active(10).owned_by(heavy).with_bytes(3000)).await;
+    seed(db.pool(), Seed::active(10).owned_by(light).with_bytes(100)).await;
+    let member = TierLimits {
+        storage_bytes: Some(2000),
+        ..TierLimits::member()
+    };
+    let settings = MaintenanceSettings {
+        tiers: Tiers::default()
+            .with_limits("member", member)
+            .expect("the tier is valid"),
+        ..settings(u64::MAX)
+    };
+
+    let first = store
+        .refresh_owner_storage(&settings)
+        .await
+        .expect("the refresh runs");
+    assert_eq!(first.over_quota, 1);
+    assert_eq!(owner_storage(db.pool(), heavy).await, (3000, true));
+    assert_eq!(owner_storage(db.pool(), light).await, (100, false));
+
+    sqlx::query("UPDATE endpoints SET bytes_used = 10 WHERE owner_id = $1")
+        .bind(heavy)
+        .execute(db.pool())
+        .await
+        .expect("the usage shrinks");
+    let second = store
+        .refresh_owner_storage(&settings)
+        .await
+        .expect("the refresh runs");
+    assert_eq!(second.over_quota, 0);
+    assert_eq!(owner_storage(db.pool(), heavy).await, (10, false));
+}
+
+#[tokio::test]
+async fn refreshing_owner_storage_writes_a_quarter_of_the_quota_as_the_endpoint_cap() {
+    let db = TestDb::new().await;
+    let store = Store::from_pool(db.pool().clone());
+    let capped = insert_user(db.pool()).await;
+    let free = insert_user(db.pool()).await;
+    sqlx::query("UPDATE users SET tier = 'unmetered' WHERE id = $1")
+        .bind(free)
+        .execute(db.pool())
+        .await
+        .expect("the tier is set");
+    let member = TierLimits {
+        storage_bytes: Some(2000),
+        ..TierLimits::member()
+    };
+    let unmetered = TierLimits {
+        storage_bytes: None,
+        ..TierLimits::member()
+    };
+    let settings = MaintenanceSettings {
+        tiers: Tiers::default()
+            .with_limits("member", member)
+            .and_then(|tiers| tiers.with_limits("unmetered", unmetered))
+            .expect("the tiers are valid"),
+        ..settings(u64::MAX)
+    };
+
+    store
+        .refresh_owner_storage(&settings)
+        .await
+        .expect("the refresh runs");
+
+    let cap = |user: Uuid| {
+        sqlx::query_scalar::<_, Option<i64>>("SELECT endpoint_bytes_cap FROM users WHERE id = $1")
+            .bind(user)
+            .fetch_one(db.pool())
+    };
+    assert_eq!(cap(capped).await.expect("the cap reads"), Some(500));
+    assert_eq!(cap(free).await.expect("the cap reads"), Some(i64::MAX));
+}
+
+#[tokio::test]
+async fn eviction_takes_an_over_quota_owners_endpoint_before_older_anonymous_ones() {
+    let db = TestDb::new().await;
+    let store = Store::from_pool(db.pool().clone());
+    let owner = insert_user(db.pool()).await;
+    sqlx::query("UPDATE users SET storage_over_quota = true WHERE id = $1")
+        .bind(owner)
+        .execute(db.pool())
+        .await
+        .expect("the flag is set");
+    let anonymous = seed(db.pool(), Seed::active(5000).with_bytes(100)).await;
+    seed(db.pool(), Seed::active(10).owned_by(owner).with_bytes(100)).await;
+
+    let batch = store
+        .evict_batch(&settings(u64::MAX), 1)
+        .await
+        .expect("the batch runs");
+
+    assert_eq!(batch.endpoints, 1);
+    assert_eq!(endpoint_ids(db.pool()).await, BTreeSet::from([anonymous]));
 }

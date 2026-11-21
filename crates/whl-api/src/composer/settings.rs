@@ -27,9 +27,6 @@ pub const DENIED_PORTS: [u16; 18] = [
     27017,
 ];
 
-const DEFAULT_ENDPOINT_PER_HOUR: u32 = 200;
-const DEFAULT_NETWORK_PER_DAY: u32 = 1000;
-const DEFAULT_USER_PER_HOUR: u32 = 2000;
 const DEFAULT_MAX_IN_FLIGHT: usize = 32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,16 +34,6 @@ pub struct ComposerLimits {
     pub endpoint_per_hour: u32,
     pub network_per_day: u32,
     pub user_per_hour: u32,
-}
-
-impl Default for ComposerLimits {
-    fn default() -> Self {
-        Self {
-            endpoint_per_hour: DEFAULT_ENDPOINT_PER_HOUR,
-            network_per_day: DEFAULT_NETWORK_PER_DAY,
-            user_per_hour: DEFAULT_USER_PER_HOUR,
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -88,7 +75,7 @@ pub(crate) struct Clients {
 #[derive(Clone)]
 pub struct ComposerSettings {
     pub(crate) enabled: bool,
-    pub(crate) limits: ComposerLimits,
+    pub(crate) limits: Option<ComposerLimits>,
     pub(crate) local: Option<Arc<dyn LocalDelivery>>,
     pub(crate) gate: Arc<Semaphore>,
     subjects: Arc<Mutex<HashMap<String, usize>>>,
@@ -98,10 +85,19 @@ pub struct ComposerSettings {
 
 impl ComposerSettings {
     pub fn new(enabled: bool, limits: ComposerLimits, max_in_flight: usize) -> Self {
+        Self::tiered(enabled, max_in_flight).with_limits(limits)
+    }
+
+    pub fn with_limits(mut self, limits: ComposerLimits) -> Self {
+        self.limits = Some(limits);
+        self
+    }
+
+    pub fn tiered(enabled: bool, max_in_flight: usize) -> Self {
         let permits = max_in_flight.clamp(1, Semaphore::MAX_PERMITS);
         Self {
             enabled,
-            limits,
+            limits: None,
             local: None,
             gate: Arc::new(Semaphore::new(permits)),
             subjects: Arc::new(Mutex::new(HashMap::new())),
@@ -112,13 +108,8 @@ impl ComposerSettings {
 
     pub fn from_config(config: &Config) -> Self {
         let composer = &config.composer;
-        Self::new(
+        Self::tiered(
             composer.enabled,
-            ComposerLimits {
-                endpoint_per_hour: composer.endpoint_per_hour,
-                network_per_day: composer.network_per_day,
-                user_per_hour: composer.user_per_hour,
-            },
             usize::try_from(composer.max_in_flight).unwrap_or(usize::MAX),
         )
     }
@@ -202,6 +193,6 @@ impl Drop for SubjectPermit {
 
 impl Default for ComposerSettings {
     fn default() -> Self {
-        Self::new(true, ComposerLimits::default(), DEFAULT_MAX_IN_FLIGHT)
+        Self::tiered(true, DEFAULT_MAX_IN_FLIGHT)
     }
 }

@@ -15,13 +15,14 @@ const MEMBERS_TAIL: &str = "/members";
 const CLAIM_TAIL: &str = "/claim";
 const TOKENS_PATH: &str = "/tokens";
 const TOKEN_PATH: &str = "/tokens/{token_id}";
+const USAGE_PATH: &str = "/usage";
 const SCHEDULES_TAIL: &str = "/schedules";
 
 pub fn requirement(mode: AccessMode, method: &Method, pattern: &str) -> Requirement {
     let rest = pattern.strip_prefix(API_PREFIX).unwrap_or(pattern);
     match rest {
         "/instance" | "/inbox/captures" | "/inbox/stream" => Requirement::Anyone,
-        TOKENS_PATH | TOKEN_PATH => Requirement::SignedIn,
+        TOKENS_PATH | TOKEN_PATH | USAGE_PATH => Requirement::SignedIn,
         "/send" | "/send/history" | "/send/history/{sent_id}" if mode == AccessMode::Sso => {
             Requirement::SignedIn
         }
@@ -49,7 +50,7 @@ pub fn token_policy(method: &Method, pattern: &str) -> TokenPolicy {
     let rest = pattern.strip_prefix(API_PREFIX).unwrap_or(pattern);
     let read = matches!(*method, Method::GET | Method::HEAD);
     let scope = match rest {
-        "/instance" if read => Some(TokenScope::Read),
+        "/instance" | USAGE_PATH if read => Some(TokenScope::Read),
         "/endpoints" if read => Some(TokenScope::Read),
         "/endpoints" if *method == Method::POST => Some(TokenScope::EndpointsWrite),
         "/send" if *method == Method::POST => Some(TokenScope::Send),

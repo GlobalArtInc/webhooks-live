@@ -76,3 +76,24 @@ where
     }
     text.parse::<T>().map(Some).map_err(D::Error::custom)
 }
+
+pub fn optional_duration<'de, D>(deserializer: D) -> Result<Option<Duration>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer)?
+        .map(|text| parse_duration(&text).map_err(D::Error::custom))
+        .transpose()
+}
+
+pub fn optional_byte_size<'de, D>(deserializer: D) -> Result<Option<ByteSize>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Option::<NumberOrText>::deserialize(deserializer)?
+        .map(|value| match value {
+            NumberOrText::Number(bytes) => Ok(ByteSize::b(bytes)),
+            NumberOrText::Text(text) => text.parse::<ByteSize>().map_err(D::Error::custom),
+        })
+        .transpose()
+}

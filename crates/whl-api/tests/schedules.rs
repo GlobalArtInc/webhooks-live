@@ -1,7 +1,6 @@
 mod common;
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use axum::Router;
 use axum::http::{Method, StatusCode, header};
@@ -16,7 +15,7 @@ const KEYRING: &str = "1:a2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2s=";
 fn app(harness: &SsoHarness, keyring: Option<Arc<Keyring>>) -> Router {
     let state = ApiState::new(harness.store.clone(), api_settings())
         .with_access(harness.access.clone())
-        .with_schedules(ScheduleSettings::new(5, Duration::from_secs(300)));
+        .with_schedules(ScheduleSettings::enabled());
     let state = match keyring {
         Some(keyring) => state.with_secrets(keyring),
         None => state,

@@ -22,8 +22,7 @@ use super::slots::ExportPermit;
 const PAGE: i64 = 50;
 const CHUNK_BYTES: usize = 64 * 1024;
 const PIPE_BYTES: usize = 4 * CHUNK_BYTES;
-pub const MAX_EXPORT_BYTES: u64 = 256 * 1024 * 1024;
-const OUTPUT_CEILING_BYTES: u64 = 2 * MAX_EXPORT_BYTES;
+const OUTPUT_CEILING_FACTOR: u64 = 2;
 const WRITE_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_EXPORT_DURATION: Duration = Duration::from_secs(10 * 60);
 
@@ -35,11 +34,13 @@ struct Limits {
 }
 
 impl Limits {
-    const STANDARD: Self = Self {
-        idle: WRITE_IDLE_TIMEOUT,
-        total: MAX_EXPORT_DURATION,
-        output_bytes: OUTPUT_CEILING_BYTES,
-    };
+    fn standard(export_max_bytes: u64) -> Self {
+        Self {
+            idle: WRITE_IDLE_TIMEOUT,
+            total: MAX_EXPORT_DURATION,
+            output_bytes: export_max_bytes.saturating_mul(OUTPUT_CEILING_FACTOR),
+        }
+    }
 }
 
 pub struct Job {
@@ -49,6 +50,7 @@ pub struct Job {
     pub snapshot: ExportSnapshot,
     pub format: ExportFormat,
     pub exported_at: OffsetDateTime,
+    pub max_bytes: u64,
     pub _permit: ExportPermit,
 }
 
@@ -180,7 +182,9 @@ impl AsyncWrite for PipeWriter {
 }
 
 pub fn body(job: Job) -> Body {
-    pipe(Limits::STANDARD, move |writer| produce(job, writer))
+    pipe(Limits::standard(job.max_bytes), move |writer| {
+        produce(job, writer)
+    })
 }
 
 fn pipe<P, F>(limits: Limits, producer: P) -> Body

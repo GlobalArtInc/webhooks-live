@@ -42,7 +42,7 @@ const REVOKE_TOKEN_SQL: &str = "UPDATE api_tokens SET revoked_at = COALESCE(revo
 const LOOKUP_TOKENS_SQL: &str = "SELECT t.id, t.token_hash, t.scopes, t.endpoint_ids, \
         t.expires_at <= now() AS expired, t.revoked_at IS NOT NULL AS revoked, \
         (t.last_used_at IS NULL OR t.last_used_at < now() - make_interval(secs => $2)) AS touch_due, \
-        u.id AS user_id, u.email, u.display_name \
+        u.id AS user_id, u.email, u.display_name, u.tier \
     FROM api_tokens t JOIN users u ON u.id = t.user_id \
     WHERE t.prefix = $1 \
     ORDER BY t.id \
@@ -256,6 +256,7 @@ fn lookup_from_row(row: &PgRow) -> Result<ApiTokenLookup, ApiTokenStoreError> {
             id: row.try_get("user_id").map_err(classify)?,
             email: row.try_get("email").map_err(classify)?,
             display_name: row.try_get("display_name").map_err(classify)?,
+            tier: row.try_get("tier").map_err(classify)?,
         },
         scopes: scopes_from(&scopes)?,
         endpoint_ids: endpoints_from(endpoint_ids)?,

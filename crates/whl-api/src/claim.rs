@@ -25,12 +25,13 @@ pub async fn claim(
     let network = caller.network();
     let outcome = state
         .store
-        .claim_endpoint(
+        .claim_endpoint_limited(
             &id,
             user.id,
             network.as_ref(),
             state.settings.retention,
             CLAIM_WINDOW,
+            Some(state.tier_of(&caller).limits().endpoints),
         )
         .await?;
     match outcome {
@@ -41,6 +42,7 @@ pub async fn claim(
                     .with_identity(Some(EndpointRole::Owner), Some(user)),
             ))
         }
+        ClaimOutcome::EndpointLimit { max } => Err(ApiError::EndpointLimit { max }),
         ClaimOutcome::AlreadyOwned => Err(ApiError::AlreadyOwned),
         ClaimOutcome::Gone => Err(ApiError::EndpointGone),
         ClaimOutcome::Refused(reason) => {

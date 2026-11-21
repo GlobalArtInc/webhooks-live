@@ -325,21 +325,33 @@ fn count(kind: ChannelKind, outcome: &'static str) {
 fn caps(delivery: &ClaimedDelivery, shared: &Shared) -> Vec<QuotaCap> {
     let limits = shared.settings.limits;
     let channel = &delivery.channel;
-    let mut caps = vec![
-        QuotaCap {
-            subject: format!("c:{}", delivery.channel_id.hyphenated()),
-            limit: channel.per_hour,
-        },
-        QuotaCap {
+    let tier = match channel.owner_id {
+        Some(_) => shared
+            .settings
+            .tiers
+            .for_user(channel.owner_tier.as_deref().unwrap_or_default()),
+        None => shared.settings.tiers.anonymous(),
+    };
+    let hourly = |cap: Option<u32>| cap.map(|cap| i32::try_from(cap).unwrap_or(i32::MAX));
+    let mut caps = vec![QuotaCap {
+        subject: format!("c:{}", delivery.channel_id.hyphenated()),
+        limit: channel.per_hour,
+    }];
+    if let Some(limit) = hourly(tier.limits().notify_per_endpoint_hour) {
+        caps.push(QuotaCap {
             subject: format!("e:{}", channel.endpoint_id),
-            limit: limits.endpoint_per_hour,
-        },
-    ];
+            limit,
+        });
+    }
     match (&channel.owner_id, &channel.creator_net) {
-        (Some(owner), _) => caps.push(QuotaCap {
-            subject: format!("u:{}", owner.hyphenated()),
-            limit: limits.owner_per_hour,
-        }),
+        (Some(owner), _) => {
+            if let Some(limit) = hourly(tier.limits().notify_per_user_hour) {
+                caps.push(QuotaCap {
+                    subject: format!("u:{}", owner.hyphenated()),
+                    limit,
+                });
+            }
+        }
         (None, Some(network)) => caps.push(QuotaCap {
             subject: format!("n:{network}"),
             limit: limits.network_per_hour,

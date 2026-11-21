@@ -14,6 +14,7 @@ use whl_secrets::{KeyId, SealedSecret};
 use whl_verify::{Verification, Verifier, VerifierDocument};
 
 use crate::kind::CaptureKind;
+use crate::quota::EndpointByteCaps;
 use crate::store::Store;
 
 pub const ACQUIRE_TIMEOUT: Duration = Duration::from_secs(1);
@@ -30,13 +31,17 @@ pub(crate) const SESSION_LIMITS: &str = "SELECT \
        set_config('statement_timeout', '2s', true), \
        set_config('idle_in_transaction_session_timeout', '5s', true)";
 
-const ENDPOINT_LIVE: &str = "SELECT 1 FROM endpoints \
-     WHERE id = $1 AND deleted_at IS NULL \
-     AND (never_expires OR last_active_at > now() - make_interval(secs => COALESCE(retention_seconds::float8, $2)))";
+const SLOT_REFUSAL: &str = "SELECT (COALESCE(o.storage_over_quota, false) AND e.overflow <> 'ring') AS over_quota \
+     FROM endpoints e LEFT JOIN users o ON o.id = e.owner_id \
+     WHERE e.id = $1 AND e.deleted_at IS NULL \
+     AND (e.never_expires OR e.last_active_at > now() - make_interval(secs => COALESCE(e.retention_seconds::float8, $2)))";
 
-const ENDPOINT_ADMISSION: &str = "SELECT (e.capture_count >= COALESCE(e.max_captures::bigint, $3) AND e.overflow <> 'ring') AS full, \
+const ENDPOINT_ADMISSION: &str = "SELECT (e.overflow <> 'ring' AND (e.capture_count >= COALESCE(e.max_captures::bigint, $3) \
+         OR COALESCE(e.bytes_used >= CASE WHEN e.owner_id IS NULL THEN $4::bigint ELSE COALESCE(o.endpoint_bytes_cap, $5::bigint) END, false))) AS full, \
+       (COALESCE(o.storage_over_quota, false) AND e.overflow <> 'ring') AS over_quota, o.tier AS owner_tier, \
        e.verifier::text AS verifier, s.key_id, s.nonce, s.ciphertext \
      FROM endpoints e \
+     LEFT JOIN users o ON o.id = e.owner_id \
      LEFT JOIN endpoint_secrets s ON e.verifier IS NOT NULL \
        AND s.endpoint_id = e.id AND s.name = e.verifier ->> 'secret_name' \
      WHERE e.id = $1 AND e.deleted_at IS NULL \
@@ -48,12 +53,31 @@ const CLAIM_SLOT: &str = "UPDATE endpoints SET \
        last_seq = last_seq + 1, \
        last_active_at = GREATEST(last_active_at, now()) \
      WHERE id = $1 AND deleted_at IS NULL \
+       AND NOT (overflow <> 'ring' AND COALESCE((SELECT u.storage_over_quota FROM users u WHERE u.id = endpoints.owner_id), false)) \
        AND (never_expires OR last_active_at > now() - make_interval(secs => COALESCE(retention_seconds::float8, $3))) \
        AND (capture_count < COALESCE(max_captures::bigint, $4) OR (overflow = 'ring' AND EXISTS ( \
          SELECT 1 FROM captures WHERE endpoint_id = $1 AND NOT starred))) \
-     RETURNING last_seq, capture_count, COALESCE(max_captures::bigint, $4) AS effective_max, response_status, response_content_type, \
+       AND (COALESCE(bytes_used + $2 <= CASE WHEN endpoints.owner_id IS NULL THEN $5::bigint ELSE COALESCE((SELECT u.endpoint_bytes_cap FROM users u WHERE u.id = endpoints.owner_id), $6::bigint) END, true) OR (overflow = 'ring' AND EXISTS ( \
+         SELECT 1 FROM captures WHERE endpoint_id = $1 AND NOT starred))) \
+     RETURNING last_seq, capture_count, COALESCE(max_captures::bigint, $4) AS effective_max, bytes_used, overflow, CASE WHEN endpoints.owner_id IS NULL THEN $5::bigint ELSE COALESCE((SELECT u.endpoint_bytes_cap FROM users u WHERE u.id = endpoints.owner_id), $6::bigint) END AS byte_cap, response_status, response_content_type, \
        response_headers::text AS response_headers, response_body, response_delay_ms, cors, \
        title, response_templated, response_status_template";
+
+const EVICT_FOR_BYTES: &str = "WITH surplus AS ( \
+       SELECT bytes_used - $2::bigint AS excess FROM endpoints WHERE id = $1 \
+     ), ranked AS ( \
+       SELECT seq, sum(stored_bytes) OVER (ORDER BY seq) - stored_bytes AS freed_before \
+       FROM captures WHERE endpoint_id = $1 AND NOT starred \
+     ), picked AS ( \
+       SELECT r.seq FROM ranked r, surplus s \
+       WHERE s.excess > 0 AND r.freed_before < s.excess ORDER BY r.seq LIMIT $3 \
+     ), evicted AS ( \
+       DELETE FROM captures WHERE endpoint_id = $1 AND seq IN (SELECT seq FROM picked) \
+       RETURNING stored_bytes) \
+     UPDATE endpoints SET \
+       capture_count = capture_count - (SELECT count(*) FROM evicted), \
+       bytes_used = bytes_used - (SELECT coalesce(sum(stored_bytes), 0) FROM evicted) \
+     WHERE id = $1";
 
 pub(crate) const EVICT_OLDEST: &str = "WITH evicted AS ( \
        DELETE FROM captures WHERE endpoint_id = $1 AND seq IN ( \
@@ -225,6 +249,8 @@ pub enum VerifierSource {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EndpointAdmission {
     pub state: EndpointState,
+    pub over_quota: bool,
+    pub owner_tier: Option<String>,
     pub verifier: Option<VerifierSource>,
 }
 
@@ -265,6 +291,7 @@ pub enum CaptureOutcome {
     },
     Gone,
     Full,
+    OverQuota,
 }
 
 impl NewCapture {
@@ -470,6 +497,8 @@ impl Store {
             .bind(id.unpack())
             .bind(policy.retention.as_secs_f64())
             .bind(i64::from(policy.max_captures))
+            .bind(self.byte_caps.anonymous)
+            .bind(self.byte_caps.owner_default)
             .fetch_optional(&mut *connection);
         let row = tokio::time::timeout(TRANSACTION_DEADLINE, query)
             .await
@@ -478,16 +507,26 @@ impl Store {
         let Some(row) = row else {
             return Ok(EndpointAdmission {
                 state: EndpointState::Gone,
+                over_quota: false,
+                owner_tier: None,
                 verifier: None,
             });
         };
         let full: bool = row.try_get("full").map_err(CaptureStoreError::classify)?;
+        let over_quota: bool = row
+            .try_get("over_quota")
+            .map_err(CaptureStoreError::classify)?;
+        let owner_tier: Option<String> = row
+            .try_get("owner_tier")
+            .map_err(CaptureStoreError::classify)?;
         Ok(EndpointAdmission {
             state: if full {
                 EndpointState::Full
             } else {
                 EndpointState::Live
             },
+            over_quota,
+            owner_tier,
             verifier: verifier_from_row(&row)?,
         })
     }
@@ -555,7 +594,7 @@ impl Store {
         let meta = shape.meta.to_string();
         let prepared = Prepared::new(capture, meta)?;
         let tx = self.begin_capture_transaction().await?;
-        let work = execute_capture(tx, capture, prepared, policy, shape);
+        let work = execute_capture(tx, capture, prepared, policy, shape, self.byte_caps);
         tokio::time::timeout(TRANSACTION_DEADLINE, work)
             .await
             .map_err(|_| CaptureStoreError::DeadlineExceeded)?
@@ -667,6 +706,7 @@ async fn execute_capture(
     prepared: Prepared,
     policy: CapturePolicy,
     shape: CaptureShape,
+    byte_caps: EndpointByteCaps,
 ) -> Result<CaptureOutcome, CaptureStoreError> {
     let max_captures = i64::from(policy.max_captures);
     attempt!(
@@ -684,6 +724,8 @@ async fn execute_capture(
             .bind(i64::from(prepared.stored_bytes))
             .bind(policy.retention.as_secs_f64())
             .bind(max_captures)
+            .bind(byte_caps.anonymous)
+            .bind(byte_caps.owner_default)
             .fetch_optional(&mut *tx)
             .await
             .map_err(CaptureStoreError::classify)
@@ -691,17 +733,27 @@ async fn execute_capture(
     let Some(row) = claimed else {
         let live = attempt!(
             tx,
-            sqlx::query(ENDPOINT_LIVE)
+            sqlx::query(SLOT_REFUSAL)
                 .bind(capture.endpoint_id.unpack())
                 .bind(policy.retention.as_secs_f64())
                 .fetch_optional(&mut *tx)
                 .await
                 .map_err(CaptureStoreError::classify)
         );
-        let outcome = if live.is_some() {
-            CaptureOutcome::Full
-        } else {
-            CaptureOutcome::Gone
+        let outcome = match live {
+            None => CaptureOutcome::Gone,
+            Some(row) => {
+                let over_quota: bool = attempt!(
+                    tx,
+                    row.try_get("over_quota")
+                        .map_err(CaptureStoreError::classify)
+                );
+                if over_quota {
+                    CaptureOutcome::OverQuota
+                } else {
+                    CaptureOutcome::Full
+                }
+            }
         };
         tx.rollback().await.map_err(CaptureStoreError::classify)?;
         return Ok(outcome);
@@ -721,6 +773,19 @@ async fn execute_capture(
         row.try_get("effective_max")
             .map_err(CaptureStoreError::classify)
     );
+    let overflow: String = attempt!(
+        tx,
+        row.try_get("overflow").map_err(CaptureStoreError::classify)
+    );
+    let bytes_after: i64 = attempt!(
+        tx,
+        row.try_get("bytes_used")
+            .map_err(CaptureStoreError::classify)
+    );
+    let byte_cap: Option<i64> = attempt!(
+        tx,
+        row.try_get("byte_cap").map_err(CaptureStoreError::classify)
+    );
     let endpoint = attempt!(tx, endpoint_from_row(&row, &capture.endpoint_id));
 
     let surplus = i64::from(count_after) - effective_max;
@@ -730,6 +795,22 @@ async fn execute_capture(
             sqlx::query(EVICT_OLDEST)
                 .bind(capture.endpoint_id.unpack())
                 .bind(surplus.min(MAX_EVICTIONS_PER_CAPTURE))
+                .execute(&mut *tx)
+                .await
+                .map_err(CaptureStoreError::classify)
+        );
+    }
+
+    if let Some(cap) = byte_cap
+        && overflow == "ring"
+        && bytes_after > cap
+    {
+        attempt!(
+            tx,
+            sqlx::query(EVICT_FOR_BYTES)
+                .bind(capture.endpoint_id.unpack())
+                .bind(cap)
+                .bind(MAX_EVICTIONS_PER_CAPTURE)
                 .execute(&mut *tx)
                 .await
                 .map_err(CaptureStoreError::classify)
