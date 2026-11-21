@@ -38,8 +38,21 @@ function propsFor(body: Bytes, contentType: string, overrides: Partial<BodyViewe
   };
 }
 
+function editorRoot(container: HTMLElement): ShadowRoot | null {
+  for (const element of container.querySelectorAll('div')) {
+    if (element.shadowRoot !== null) {
+      return element.shadowRoot;
+    }
+  }
+  return null;
+}
+
+function inEditor(container: HTMLElement, selector: string): Element | null {
+  return editorRoot(container)?.querySelector(selector) ?? null;
+}
+
 function editorText(container: HTMLElement): string {
-  return container.querySelector('.cm-content')?.textContent ?? '';
+  return inEditor(container, '.cm-content')?.textContent ?? '';
 }
 
 afterEach(() => {
@@ -102,7 +115,7 @@ describe('BodyViewer', () => {
     );
 
     await waitFor(() => {
-      expect(container.querySelector('.cm-wl-match')?.textContent).toBe('status');
+      expect(inEditor(container, '.cm-wl-match')?.textContent).toBe('status');
     });
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search in body' }), { target: { value: 'version' } });
     expect(onSearchChange).toHaveBeenCalledWith('version');
@@ -119,6 +132,20 @@ describe('BodyViewer', () => {
     expect(container.querySelector('img')).toBeNull();
     expect(container.querySelector('iframe')).toBeNull();
     expect(container.querySelector('a')).toBeNull();
+    for (const selector of ['script', 'img', 'iframe', 'a']) {
+      expect(inEditor(container, selector)).toBeNull();
+    }
+  });
+
+  it('mounts the editor in a shadow root and adds no style element to document.head', async () => {
+    const stylesBefore = document.head.querySelectorAll('style').length;
+    const { container } = render(<BodyViewer {...propsFor(encode(JSON_BODY), 'application/json')} />);
+
+    await waitFor(() => {
+      expect(inEditor(container, '.cm-content')).not.toBeNull();
+    });
+    expect(container.querySelector('.cm-content')).toBeNull();
+    expect(document.head.querySelectorAll('style')).toHaveLength(stylesBefore);
   });
 
   it('shows type, size, SHA-256, a hex view and a download control for a binary body', async () => {
@@ -144,7 +171,7 @@ describe('BodyViewer', () => {
 
     const image = container.querySelector('img');
     expect(image?.getAttribute('src')).toBe('blob:preview-image/png');
-    expect(container.querySelector('.cm-content')).toBeNull();
+    expect(editorRoot(container)).toBeNull();
     unmount();
     expect(revoke).toHaveBeenCalledWith('blob:preview-image/png');
   });
@@ -157,7 +184,7 @@ describe('BodyViewer', () => {
 
     expect(screen.getByRole('button', { name: 'Load full body (5.0 MiB)' })).toBeTruthy();
     await waitFor(() => {
-      expect(container.querySelector('.cm-content')).not.toBeNull();
+      expect(inEditor(container, '.cm-content')).not.toBeNull();
     });
     expect(formatter.format).not.toHaveBeenCalled();
 
@@ -174,7 +201,9 @@ describe('BodyViewer', () => {
 
   it('fetches a large body through the loader: a 256 KiB prefix on open, the rest on request', async () => {
     const full = generateLargeBody(2 * MIB);
-    const loadBody = vi.fn((limit: number | null) => Promise.resolve(limit === null ? full : full.slice(0, limit)));
+    const loadBody = vi.fn((limit: number | null) =>
+      limit === null ? new Promise<Bytes>(() => undefined) : Promise.resolve(full.slice(0, limit)),
+    );
     const props = propsFor(full, 'application/json', { body: undefined, loadBody });
     render(<BodyViewer {...props} />);
 

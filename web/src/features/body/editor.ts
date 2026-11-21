@@ -1,7 +1,7 @@
 import { html } from '@codemirror/lang-html';
 import { json } from '@codemirror/lang-json';
 import { xml } from '@codemirror/lang-xml';
-import { foldGutter, foldKeymap, syntaxTree } from '@codemirror/language';
+import { foldGutter, foldKeymap, HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { findNext, findPrevious, getSearchQuery, search, SearchQuery, setSearchQuery } from '@codemirror/search';
 import { Compartment, EditorState, type Extension, type Range } from '@codemirror/state';
 import {
@@ -14,72 +14,22 @@ import {
   type DecorationSet,
   type ViewUpdate,
 } from '@codemirror/view';
+import { tags } from '@lezer/highlight';
 import { MAX_SEARCH_HIGHLIGHTS } from './constants';
+import { syntaxColour } from './syntaxPalette';
 import type { CodeLanguage, EditorConfig, EditorHandle } from './types';
 
-const NODE_CLASSES: ReadonlyMap<string, string> = new Map([
-  ['PropertyName', 'cm-wl-key'],
-  ['AttributeName', 'cm-wl-attr'],
-  ['String', 'cm-wl-string'],
-  ['AttributeValue', 'cm-wl-string'],
-  ['UnquotedAttributeValue', 'cm-wl-string'],
-  ['Number', 'cm-wl-number'],
-  ['EntityReference', 'cm-wl-number'],
-  ['CharacterReference', 'cm-wl-number'],
-  ['True', 'cm-wl-literal'],
-  ['False', 'cm-wl-literal'],
-  ['Null', 'cm-wl-literal'],
-  ['TagName', 'cm-wl-tag'],
-  ['StartTag', 'cm-wl-punct'],
-  ['StartCloseTag', 'cm-wl-punct'],
-  ['EndTag', 'cm-wl-punct'],
-  ['SelfCloseEndTag', 'cm-wl-punct'],
-  ['SelfClosingEndTag', 'cm-wl-punct'],
-  ['Comment', 'cm-wl-comment'],
-  ['LineComment', 'cm-wl-comment'],
-  ['BlockComment', 'cm-wl-comment'],
-  ['ProcessingInst', 'cm-wl-meta'],
-  ['DoctypeDecl', 'cm-wl-meta'],
-  ['Cdata', 'cm-wl-meta'],
+const highlightStyle = HighlightStyle.define([
+  { tag: tags.propertyName, color: syntaxColour('key') },
+  { tag: tags.attributeName, color: syntaxColour('attribute') },
+  { tag: [tags.string, tags.attributeValue], color: syntaxColour('string') },
+  { tag: [tags.number, tags.character], color: syntaxColour('number') },
+  { tag: [tags.bool, tags.null, tags.keyword], color: syntaxColour('literal') },
+  { tag: tags.tagName, color: syntaxColour('tag') },
+  { tag: [tags.punctuation, tags.bracket, tags.meta, tags.documentMeta], color: syntaxColour('muted') },
+  { tag: tags.comment, color: syntaxColour('muted'), fontStyle: 'italic' },
+  { tag: tags.invalid, color: syntaxColour('error'), textDecoration: 'underline' },
 ]);
-
-const ERROR_CLASS = 'cm-wl-error';
-
-function buildSyntaxDecorations(view: EditorView): DecorationSet {
-  const ranges: Range<Decoration>[] = [];
-  const tree = syntaxTree(view.state);
-  for (const visible of view.visibleRanges) {
-    tree.iterate({
-      from: visible.from,
-      to: visible.to,
-      enter: (node) => {
-        const className = node.type.isError ? ERROR_CLASS : NODE_CLASSES.get(node.name);
-        if (className !== undefined && node.to > node.from) {
-          ranges.push(Decoration.mark({ class: className }).range(node.from, node.to));
-        }
-      },
-    });
-  }
-  return Decoration.set(ranges, true);
-}
-
-const syntaxColours = ViewPlugin.fromClass(
-  class {
-    decorations: DecorationSet;
-
-    constructor(view: EditorView) {
-      this.decorations = buildSyntaxDecorations(view);
-    }
-
-    update(update: ViewUpdate): void {
-      const treeChanged = syntaxTree(update.startState) !== syntaxTree(update.state);
-      if (update.docChanged || update.viewportChanged || treeChanged) {
-        this.decorations = buildSyntaxDecorations(update.view);
-      }
-    }
-  },
-  { decorations: (plugin) => plugin.decorations },
-);
 
 const matchMark = Decoration.mark({ class: 'cm-wl-match' });
 
@@ -164,16 +114,6 @@ const theme = EditorView.theme({
     backgroundColor: 'var(--color-accent-soft)',
     outline: '1px solid var(--color-accent-text)',
   },
-  '.cm-wl-key': { color: 'var(--color-accent-text)' },
-  '.cm-wl-attr': { color: 'var(--color-warning)' },
-  '.cm-wl-string': { color: 'var(--color-success)' },
-  '.cm-wl-number': { color: 'var(--color-info)' },
-  '.cm-wl-literal': { color: 'var(--color-warning)' },
-  '.cm-wl-tag': { color: 'var(--color-info)' },
-  '.cm-wl-punct': { color: 'var(--color-text-muted)' },
-  '.cm-wl-comment': { color: 'var(--color-text-muted)', fontStyle: 'italic' },
-  '.cm-wl-meta': { color: 'var(--color-text-muted)' },
-  '.cm-wl-error': { color: 'var(--color-danger)', textDecoration: 'underline' },
 });
 
 function languageExtension(language: CodeLanguage): Extension {
@@ -202,8 +142,11 @@ export function createEditor(parent: HTMLElement, config: EditorConfig): EditorH
   const wrapSlot = new Compartment();
   const labelSlot = new Compartment();
 
+  const root = parent.shadowRoot ?? parent.attachShadow({ mode: 'open' });
+
   const view = new EditorView({
-    parent,
+    parent: root,
+    root,
     state: EditorState.create({
       doc: config.text,
       extensions: [
@@ -215,7 +158,7 @@ export function createEditor(parent: HTMLElement, config: EditorConfig): EditorH
         drawSelection(),
         keymap.of(foldKeymap),
         search(),
-        syntaxColours,
+        syntaxHighlighting(highlightStyle),
         matchHighlights,
         theme,
         languageSlot.of(languageExtension(config.language)),
