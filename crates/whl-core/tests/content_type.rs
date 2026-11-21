@@ -26,6 +26,24 @@ fn accepts_media_types_with_and_without_parameters() {
 }
 
 #[test]
+fn accepts_trailing_semicolon_and_optional_spaces_around_semicolons() {
+    for text in [
+        "text/plain;",
+        "text/plain; ",
+        "text/plain ;",
+        "text/plain ; charset=utf-8",
+        "text/plain  ;  charset=utf-8",
+        "text/plain; charset=utf-8;",
+        "text/plain; charset=utf-8 ;",
+        "text/plain; a=\"x y\" ; b=c ; ",
+    ] {
+        let parsed = ContentType::parse(text).expect(text);
+
+        assert_eq!(parsed.unpack(), text);
+    }
+}
+
+#[test]
 fn default_is_text_plain() {
     assert_eq!(ContentType::default().unpack(), "text/plain");
 }
@@ -58,12 +76,7 @@ fn rejects_non_token_characters_and_wildcards_in_type_and_subtype() {
 
 #[test]
 fn rejects_surrounding_whitespace_without_trimming() {
-    for text in [
-        " text/plain",
-        "text/plain ",
-        "text/plain ; a=b",
-        "text /plain",
-    ] {
+    for text in [" text/plain", "text/plain ", "text /plain"] {
         assert_eq!(codes(text), [ViolationCode::InvalidMediaType], "{text:?}");
     }
 }
@@ -71,8 +84,6 @@ fn rejects_surrounding_whitespace_without_trimming() {
 #[test]
 fn rejects_malformed_parameters() {
     for text in [
-        "text/plain;",
-        "text/plain; ",
         "text/plain; charset",
         "text/plain; =utf-8",
         "text/plain; charset=",
@@ -80,6 +91,12 @@ fn rejects_malformed_parameters() {
         "text/plain; a=\"x\"y",
         "text/plain; a=b c",
         "text/plain; a b=c",
+        "text/plain;;",
+        "text/plain; ;",
+        "text/plain;;a=b",
+        "text/plain; a=b ",
+        "text/plain; a=b ;;",
+        "text/plain ;; a=b",
     ] {
         assert_eq!(codes(text), [ViolationCode::InvalidMediaType], "{text:?}");
     }

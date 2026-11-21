@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use whl_core::endpoint_id::{ENDPOINT_ID_ALPHABET, ENDPOINT_ID_LEN, EndpointId, EndpointIdError};
 
 const VALID: &str = "7k2m9q4xw8c1d5f3h6j0n2p4";
@@ -13,6 +15,29 @@ fn generate_yields_24_characters_from_the_alphabet() {
             .all(|b| ENDPOINT_ID_ALPHABET.contains(&b))
     );
     assert_eq!(EndpointId::parse(id.unpack()), Ok(id));
+}
+
+#[test]
+fn generate_covers_every_position_with_the_whole_alphabet() {
+    const SAMPLES: usize = 2000;
+    const MIN_DISTINCT: usize = 28;
+
+    let ids: Vec<_> = (0..SAMPLES)
+        .map(|_| EndpointId::generate().expect("the OS random source works"))
+        .collect();
+
+    for position in 0..ENDPOINT_ID_LEN {
+        let distinct: HashSet<u8> = ids
+            .iter()
+            .map(|id| id.unpack().as_bytes()[position])
+            .collect();
+
+        assert!(
+            distinct.len() >= MIN_DISTINCT,
+            "position {position} saw only {} distinct characters",
+            distinct.len()
+        );
+    }
 }
 
 #[test]

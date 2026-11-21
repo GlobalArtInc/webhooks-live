@@ -51,6 +51,8 @@ fn defaults_apply_when_only_required_keys_are_set() {
     assert_eq!(config.capture.max_body_bytes, ByteSize::mib(10));
     assert_eq!(config.capture.body_memory_budget, ByteSize::mib(256));
     assert_eq!(config.capture.max_delayed, 2000);
+    assert!(config.capture.ring_mode_allowed);
+    assert_eq!(config.auth.oidc.provider_name, None);
     assert_eq!(config.capture.storage_cap_bytes, ByteSize::gib(20));
     assert_eq!(
         config.rate.capture_ip,
@@ -190,6 +192,144 @@ fn sso_without_oidc_keys_reports_all_missing_keys_at_once() {
     }
 }
 
+fn problems_of(error: ConfigError) -> Vec<Problem> {
+    match error {
+        ConfigError::Invalid { problems } => problems,
+        other => panic!("expected Invalid, got {other:?}"),
+    }
+}
+
+#[test]
+fn sso_key_problems_are_reported_together_with_required_key_problems() {
+    let missing = load(&[("WEBHOOKS_LIVE_AUTH_MODE", "sso")]).expect_err("everything is missing");
+    let invalid = load(&[
+        ("WEBHOOKS_LIVE_AUTH_MODE", "sso"),
+        ("WEBHOOKS_LIVE_PUBLIC_URL", "not a url"),
+        DATABASE_URL,
+        ("WEBHOOKS_LIVE_OIDC_ISSUER", "https://issuer.example.test"),
+    ])
+    .expect_err("PUBLIC_URL is invalid and two OIDC keys are missing");
+
+    assert_eq!(
+        problems_of(missing),
+        [
+            Problem::MissingRequired("PUBLIC_URL"),
+            Problem::MissingRequired("DATABASE_URL"),
+            Problem::MissingForSso("OIDC_ISSUER"),
+            Problem::MissingForSso("OIDC_CLIENT_ID"),
+            Problem::MissingForSso("OIDC_CLIENT_SECRET"),
+        ]
+    );
+    assert_eq!(
+        problems_of(invalid),
+        [
+            Problem::InvalidRequired("PUBLIC_URL"),
+            Problem::MissingForSso("OIDC_CLIENT_ID"),
+            Problem::MissingForSso("OIDC_CLIENT_SECRET"),
+        ]
+    );
+}
+
+#[test]
+fn open_mode_does_not_report_oidc_keys_next_to_required_key_problems() {
+    let error = load(&[]).expect_err("required keys are missing");
+
+    assert_eq!(
+        problems_of(error),
+        [
+            Problem::MissingRequired("PUBLIC_URL"),
+            Problem::MissingRequired("DATABASE_URL"),
+        ]
+    );
+}
+
+#[test]
+fn ring_mode_is_allowed_by_default_and_can_be_switched_off() {
+    let default = load(&[PUBLIC_URL, DATABASE_URL]).expect("required keys are enough");
+    let disabled = load(&with_required(&[(
+        "WEBHOOKS_LIVE_RING_MODE_ALLOWED",
+        "false",
+    )]))
+    .expect("the flag is a valid boolean");
+
+    assert!(default.capture.ring_mode_allowed);
+    assert!(!disabled.capture.ring_mode_allowed);
+}
+
+#[test]
+fn oidc_provider_name_is_optional_and_read_from_env() {
+    let default = load(&[PUBLIC_URL, DATABASE_URL]).expect("required keys are enough");
+    let named = load(&with_required(&[(
+        "WEBHOOKS_LIVE_OIDC_PROVIDER_NAME",
+        "GlobalArt SSO",
+    )]))
+    .expect("the provider name is plain text");
+
+    assert_eq!(default.auth.oidc.provider_name, None);
+    assert_eq!(
+        named.auth.oidc.provider_name.as_deref(),
+        Some("GlobalArt SSO")
+    );
+}
+
+#[test]
+fn pool_size_below_two_is_reported_and_two_is_accepted() {
+    for size in ["0", "1"] {
+        let error = load(&with_required(&[("WEBHOOKS_LIVE_DB_POOL_SIZE", size)]))
+            .expect_err("the migrator needs two connections");
+
+        assert_eq!(
+            problems_of(error),
+            [Problem::PoolSizeTooSmall],
+            "size {size}"
+        );
+    }
+    let config = load(&with_required(&[("WEBHOOKS_LIVE_DB_POOL_SIZE", "2")]))
+        .expect("two connections are enough");
+
+    assert_eq!(config.database.pool_size, 2);
+}
+
+#[test]
+fn pool_size_problem_is_reported_in_the_same_error_as_the_others() {
+    let error = load(&[
+        ("WEBHOOKS_LIVE_AUTH_MODE", "sso"),
+        ("WEBHOOKS_LIVE_DB_POOL_SIZE", "1"),
+    ])
+    .expect_err("several keys are wrong");
+
+    assert_eq!(
+        problems_of(error),
+        [
+            Problem::MissingRequired("PUBLIC_URL"),
+            Problem::MissingRequired("DATABASE_URL"),
+            Problem::MissingForSso("OIDC_ISSUER"),
+            Problem::MissingForSso("OIDC_CLIENT_ID"),
+            Problem::MissingForSso("OIDC_CLIENT_SECRET"),
+            Problem::PoolSizeTooSmall,
+        ]
+    );
+}
+
+#[test]
+fn validate_reports_pool_size_and_sso_problems_of_a_built_config() {
+    let mut config = load(&with_required(&[])).expect("defaults are valid");
+    config.auth.mode = AuthMode::Sso;
+    config.database.pool_size = 1;
+
+    let error = config.validate().expect_err("sso keys and pool are wrong");
+
+    assert_eq!(
+        problems_of(error),
+        [
+            Problem::MissingForSso("OIDC_ISSUER"),
+            Problem::MissingForSso("OIDC_CLIENT_ID"),
+            Problem::MissingForSso("OIDC_CLIENT_SECRET"),
+            Problem::PoolSizeTooSmall,
+        ]
+    );
+}
+
 #[test]
 fn sso_with_oidc_keys_loads() {
     let config = load(&with_required(&[
@@ -205,11 +345,36 @@ fn sso_with_oidc_keys_loads() {
 }
 
 #[test]
-fn duration_values_parse_from_humantime_strings() {
-    let config = load(&with_required(&[("WEBHOOKS_LIVE_SESSION_IDLE", "90m")]))
-        .expect("humantime duration is valid");
+fn duration_values_parse_from_unit_strings_including_compound_ones() {
+    let config = load(&with_required(&[
+        ("WEBHOOKS_LIVE_SESSION_IDLE", "1h30m"),
+        ("WEBHOOKS_LIVE_SESSION_MAX", "2w"),
+    ]))
+    .expect("duration strings are valid");
 
     assert_eq!(config.auth.session_idle, Duration::from_secs(90 * 60));
+    assert_eq!(config.auth.session_max, Duration::from_secs(14 * 86_400));
+}
+
+#[test]
+fn invalid_duration_strings_fail_the_load() {
+    for value in ["90", "-5s", "5x", "", "1.5h"] {
+        let error = load(&with_required(&[("WEBHOOKS_LIVE_SESSION_IDLE", value)]))
+            .expect_err("the duration is invalid");
+
+        assert!(matches!(error, ConfigError::Load(_)), "value {value:?}");
+    }
+}
+
+#[test]
+fn duration_errors_do_not_echo_the_rejected_text() {
+    let error = load(&with_required(&[(
+        "WEBHOOKS_LIVE_SESSION_IDLE",
+        "5parsecs",
+    )]))
+    .expect_err("the unit is unknown");
+
+    assert!(!error.to_string().contains("parsecs"));
 }
 
 #[test]

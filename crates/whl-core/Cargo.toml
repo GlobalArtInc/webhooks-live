@@ -8,7 +8,6 @@ publish.workspace = true
 [dependencies]
 bytesize.workspace = true
 figment.workspace = true
-humantime.workspace = true
 ipnet.workspace = true
 rand.workspace = true
 serde.workspace = true

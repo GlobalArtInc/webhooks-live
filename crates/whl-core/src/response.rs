@@ -4,7 +4,9 @@ use std::time::Duration;
 use crate::content_type::ContentType;
 use crate::header::{HeaderInput, HeaderName, HeaderValue, MAX_HEADERS, ResponseHeader};
 use crate::status::{HttpStatus, STATUS_MAX, STATUS_MIN};
-use crate::validation::{FieldPath, InvalidValue, ValidationError, Violation, ViolationCode};
+use crate::validation::{
+    FieldPath, InvalidValue, MAX_VIOLATIONS, ValidationError, Violation, ViolationCode,
+};
 
 pub const MAX_BODY_BYTES: usize = 64 * 1024;
 pub const MAX_DELAY_MS: i64 = 10_000;
@@ -127,7 +129,8 @@ fn validate_headers(
     inputs: &[HeaderInput],
     violations: &mut Vec<Violation>,
 ) -> Vec<ResponseHeader> {
-    if inputs.len() > MAX_HEADERS {
+    let too_many = inputs.len() > MAX_HEADERS;
+    if too_many {
         violations.push(Violation {
             field: FieldPath::Headers,
             code: ViolationCode::TooMany { max: MAX_HEADERS },
@@ -136,7 +139,10 @@ fn validate_headers(
 
     let mut seen = HashSet::new();
     let mut accepted = Vec::new();
-    for (index, input) in inputs.iter().take(MAX_HEADERS).enumerate() {
+    for (index, input) in inputs.iter().enumerate() {
+        if violations.len() >= MAX_VIOLATIONS {
+            break;
+        }
         let name = HeaderName::parse(&input.name);
         if let Err(error) = &name {
             record(violations, FieldPath::HeaderName(index), error);
@@ -151,7 +157,9 @@ fn validate_headers(
         if let Err(error) = &value {
             record(violations, FieldPath::HeaderValue(index), error);
         }
-        if let (Ok(name), Ok(value)) = (name, value) {
+        if let (Ok(name), Ok(value)) = (name, value)
+            && !too_many
+        {
             accepted.push(ResponseHeader { name, value });
         }
     }

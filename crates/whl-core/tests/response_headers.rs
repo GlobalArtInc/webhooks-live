@@ -1,6 +1,8 @@
+use std::time::{Duration, Instant};
+
 use whl_core::header::HeaderInput;
 use whl_core::response::{ResponseConfig, ResponseConfigInput};
-use whl_core::validation::{FieldPath, ValidationError, Violation, ViolationCode};
+use whl_core::validation::{FieldPath, MAX_VIOLATIONS, ValidationError, Violation, ViolationCode};
 
 fn header(name: &str, value: &str) -> HeaderInput {
     HeaderInput {
@@ -184,6 +186,11 @@ fn rejects_session_and_origin_wide_policy_headers_in_mixed_case() {
         "NEL",
         "Origin-Trial",
         "Document-Policy",
+        "WWW-Authenticate",
+        "Proxy-Authenticate",
+        "Accept-CH",
+        "Critical-CH",
+        "Set-Login",
         "Cross-Origin-Opener-Policy",
         "Cross-Origin-Embedder-Policy",
         "Cross-Origin-Resource-Policy",
@@ -262,6 +269,63 @@ fn accepts_exactly_20_headers_and_rejects_21() {
         violations(make(21)),
         one(FieldPath::Headers, ViolationCode::TooMany { max: 20 })
     );
+}
+
+#[test]
+fn a_401_status_without_www_authenticate_stays_allowed() {
+    let config = ResponseConfig::validate(ResponseConfigInput {
+        status: 401,
+        content_type: "text/plain".to_owned(),
+        headers: vec![header("X-Reason", "login required")],
+        body: Vec::new(),
+        delay_ms: 0,
+    })
+    .expect("a plain 401 is valid");
+
+    assert_eq!(config.status().unpack(), 401);
+}
+
+#[test]
+fn validates_every_header_even_when_there_are_too_many() {
+    let mut headers: Vec<_> = (0..21)
+        .map(|index| header(&format!("X-H{index}"), "v"))
+        .collect();
+    headers.push(header("Set-Cookie", "a=b"));
+
+    assert_eq!(
+        violations(headers),
+        [
+            Violation {
+                field: FieldPath::Headers,
+                code: ViolationCode::TooMany { max: 20 }
+            },
+            Violation {
+                field: FieldPath::HeaderName(21),
+                code: ViolationCode::Denied
+            },
+        ]
+    );
+}
+
+#[test]
+fn caps_the_reported_violations_for_hostile_input() {
+    let headers: Vec<_> = (0..200_000)
+        .map(|_| header("Set-Cookie", "a\r\nb"))
+        .collect();
+
+    let started = Instant::now();
+    let reported = violations(headers);
+
+    assert_eq!(reported.len(), MAX_VIOLATIONS);
+    assert_eq!(MAX_VIOLATIONS, 50);
+    assert_eq!(
+        reported[0],
+        Violation {
+            field: FieldPath::Headers,
+            code: ViolationCode::TooMany { max: 20 }
+        }
+    );
+    assert!(started.elapsed() < Duration::from_secs(2));
 }
 
 #[test]

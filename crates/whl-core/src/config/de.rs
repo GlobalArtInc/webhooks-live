@@ -6,6 +6,8 @@ use bytesize::ByteSize;
 use serde::de::Error;
 use serde::{Deserialize, Deserializer};
 
+use crate::duration::parse_duration;
+
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum NumberOrText {
@@ -25,7 +27,7 @@ where
     D: Deserializer<'de>,
 {
     let text = String::deserialize(deserializer)?;
-    humantime::parse_duration(&text).map_err(D::Error::custom)
+    parse_duration(&text).map_err(D::Error::custom)
 }
 
 pub fn byte_size<'de, D>(deserializer: D) -> Result<ByteSize, D::Error>

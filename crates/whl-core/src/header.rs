@@ -35,6 +35,11 @@ const DENIED_NAMES: &[&str] = &[
     "nel",
     "origin-trial",
     "document-policy",
+    "www-authenticate",
+    "proxy-authenticate",
+    "accept-ch",
+    "critical-ch",
+    "set-login",
 ];
 
 const DENIED_PREFIXES: &[&str] = &[

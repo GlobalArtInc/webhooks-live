@@ -40,6 +40,35 @@ fn parse_rejects_other_versions() {
 }
 
 #[test]
+fn parse_rejects_a_version_7_uuid_with_a_non_rfc4122_variant() {
+    for text in [
+        "0193a1c2-9d10-7a3e-cb44-1c2d3e4f5a6b",
+        "0193a1c2-9d10-7a3e-0b44-1c2d3e4f5a6b",
+    ] {
+        assert_eq!(
+            CaptureId::parse(text),
+            Err(CaptureIdError::Version),
+            "{text}"
+        );
+    }
+}
+
+#[test]
+fn serde_round_trip_is_a_plain_string_and_deserialisation_is_strict() {
+    let id: CaptureId = V7.parse().expect("valid id");
+
+    let json = serde_json::to_string(&id).expect("serialises");
+
+    assert_eq!(json, format!("\"{V7}\""));
+    assert_eq!(
+        serde_json::from_str::<CaptureId>(&json).expect("deserialises"),
+        id
+    );
+    assert!(serde_json::from_str::<CaptureId>(&format!("\"{}\"", V7.to_uppercase())).is_err());
+    assert!(serde_json::from_str::<CaptureId>("\"67e55044-10b1-426f-9247-bb680e5fe0c8\"").is_err());
+}
+
+#[test]
 fn parse_rejects_non_canonical_forms() {
     assert_eq!(
         CaptureId::parse(&V7.to_uppercase()),

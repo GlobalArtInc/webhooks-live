@@ -18,6 +18,8 @@ use crate::rate::RateSpec;
 const FILE_ENV: &str = "WEBHOOKS_LIVE_CONFIG";
 const ENV_PREFIX: &str = "WEBHOOKS_LIVE_";
 
+pub const MIN_DB_POOL_SIZE: u32 = 2;
+
 const DEFAULTS: &str = r#"
 listen_addr = "0.0.0.0:8080"
 admin_addr = "0.0.0.0:9090"
@@ -41,6 +43,7 @@ max_captures = 500
 max_body_bytes = "10MiB"
 body_memory_budget = "256MiB"
 max_delayed = 2000
+ring_mode_allowed = true
 storage_cap_bytes = "20GiB"
 
 [rate]
@@ -71,6 +74,7 @@ const ENV_KEYS: &[(&str, &str)] = &[
     ("OIDC_CLIENT_ID", "auth.oidc.client_id"),
     ("OIDC_CLIENT_SECRET", "auth.oidc.client_secret"),
     ("OIDC_SCOPES", "auth.oidc.scopes"),
+    ("OIDC_PROVIDER_NAME", "auth.oidc.provider_name"),
     ("SESSION_IDLE", "auth.session_idle"),
     ("SESSION_MAX", "auth.session_max"),
     ("TRUSTED_PROXIES", "trusted_proxies"),
@@ -79,6 +83,7 @@ const ENV_KEYS: &[(&str, &str)] = &[
     ("MAX_BODY_BYTES", "capture.max_body_bytes"),
     ("BODY_MEMORY_BUDGET", "capture.body_memory_budget"),
     ("MAX_DELAYED", "capture.max_delayed"),
+    ("RING_MODE_ALLOWED", "capture.ring_mode_allowed"),
     ("STORAGE_CAP_BYTES", "capture.storage_cap_bytes"),
     ("RATE_CAPTURE_IP", "rate.capture_ip"),
     ("RATE_CAPTURE_ENDPOINT", "rate.capture_endpoint"),
@@ -137,6 +142,7 @@ pub struct OidcConfig {
     pub issuer: Option<Url>,
     pub client_id: Option<String>,
     pub client_secret: Option<ClientSecret>,
+    pub provider_name: Option<String>,
     #[serde(deserialize_with = "de::list")]
     pub scopes: Vec<String>,
 }
@@ -151,6 +157,7 @@ pub struct CaptureConfig {
     #[serde(deserialize_with = "de::byte_size")]
     pub body_memory_budget: ByteSize,
     pub max_delayed: u32,
+    pub ring_mode_allowed: bool,
     #[serde(deserialize_with = "de::byte_size")]
     pub storage_cap_bytes: ByteSize,
 }
@@ -217,6 +224,7 @@ pub enum Problem {
     MissingRequired(&'static str),
     InvalidRequired(&'static str),
     MissingForSso(&'static str),
+    PoolSizeTooSmall,
 }
 
 impl fmt::Display for Problem {
@@ -227,6 +235,10 @@ impl fmt::Display for Problem {
             Self::MissingForSso(key) => write!(
                 f,
                 "{ENV_PREFIX}{key} is required when {ENV_PREFIX}AUTH_MODE is sso"
+            ),
+            Self::PoolSizeTooSmall => write!(
+                f,
+                "{ENV_PREFIX}DB_POOL_SIZE must be at least {MIN_DB_POOL_SIZE}"
             ),
         }
     }
@@ -258,11 +270,42 @@ fn check_required<T: DeserializeOwned>(
     }
 }
 
-fn required_problems(figment: &Figment) -> Vec<Problem> {
+fn figment_problems(figment: &Figment) -> Vec<Problem> {
     let mut problems = Vec::new();
     check_required::<Url>(figment, "PUBLIC_URL", "public_url", &mut problems);
     check_required::<DatabaseUrl>(figment, "DATABASE_URL", "database.url", &mut problems);
+
+    let sso = figment
+        .extract_inner::<AuthMode>("auth.mode")
+        .is_ok_and(|mode| mode == AuthMode::Sso);
+    if sso {
+        problems.extend(sso_problems(
+            figment.contains("auth.oidc.issuer"),
+            figment.contains("auth.oidc.client_id"),
+            figment.contains("auth.oidc.client_secret"),
+        ));
+    }
+
+    if let Ok(pool_size) = figment.extract_inner::<u32>("database.pool_size") {
+        problems.extend(pool_size_problem(pool_size));
+    }
     problems
+}
+
+fn sso_problems(issuer: bool, client_id: bool, client_secret: bool) -> Vec<Problem> {
+    [
+        (issuer, "OIDC_ISSUER"),
+        (client_id, "OIDC_CLIENT_ID"),
+        (client_secret, "OIDC_CLIENT_SECRET"),
+    ]
+    .into_iter()
+    .filter(|(present, _)| !present)
+    .map(|(_, key)| Problem::MissingForSso(key))
+    .collect()
+}
+
+fn pool_size_problem(pool_size: u32) -> Option<Problem> {
+    (pool_size < MIN_DB_POOL_SIZE).then_some(Problem::PoolSizeTooSmall)
 }
 
 fn join_problems(problems: &[Problem]) -> String {
@@ -297,7 +340,7 @@ impl Config {
         });
         figment = figment.merge(env);
 
-        let problems = required_problems(&figment);
+        let problems = figment_problems(&figment);
         if !problems.is_empty() {
             return Err(ConfigError::Invalid { problems });
         }
@@ -314,16 +357,13 @@ impl Config {
 
         if self.auth.mode == AuthMode::Sso {
             let oidc = &self.auth.oidc;
-            if oidc.issuer.is_none() {
-                problems.push(Problem::MissingForSso("OIDC_ISSUER"));
-            }
-            if oidc.client_id.is_none() {
-                problems.push(Problem::MissingForSso("OIDC_CLIENT_ID"));
-            }
-            if oidc.client_secret.is_none() {
-                problems.push(Problem::MissingForSso("OIDC_CLIENT_SECRET"));
-            }
+            problems.extend(sso_problems(
+                oidc.issuer.is_some(),
+                oidc.client_id.is_some(),
+                oidc.client_secret.is_some(),
+            ));
         }
+        problems.extend(pool_size_problem(self.database.pool_size));
 
         if problems.is_empty() {
             Ok(())

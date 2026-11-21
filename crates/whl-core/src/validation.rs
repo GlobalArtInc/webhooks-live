@@ -1,5 +1,7 @@
 use std::fmt;
 
+pub const MAX_VIOLATIONS: usize = 50;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FieldPath {
     Status,
@@ -85,7 +87,8 @@ pub struct ValidationError {
 }
 
 impl ValidationError {
-    pub(crate) fn new(violations: Vec<Violation>) -> Self {
+    pub(crate) fn new(mut violations: Vec<Violation>) -> Self {
+        violations.truncate(MAX_VIOLATIONS);
         Self { violations }
     }
 

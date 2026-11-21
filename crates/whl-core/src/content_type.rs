@@ -47,6 +47,11 @@ fn is_media_type(bytes: &[u8]) -> bool {
         .position(|&byte| byte == b';')
         .unwrap_or(bytes.len());
     let (essence, parameters) = bytes.split_at(essence_end);
+    let essence = if parameters.is_empty() {
+        essence
+    } else {
+        trim_trailing_spaces(essence)
+    };
     is_essence(essence) && are_parameters(parameters)
 }
 
@@ -71,6 +76,9 @@ fn are_parameters(mut rest: &[u8]) -> bool {
             return false;
         };
         let after_space = skip_spaces(after_semicolon);
+        if after_space.is_empty() {
+            return true;
+        }
         let Some(equals) = after_space.iter().position(|&byte| byte == b'=') else {
             return false;
         };
@@ -82,9 +90,17 @@ fn are_parameters(mut rest: &[u8]) -> bool {
         let Some(remaining) = take_parameter_value(value) else {
             return false;
         };
-        rest = remaining;
+        rest = skip_spaces(remaining);
+        if rest.is_empty() && !remaining.is_empty() {
+            return false;
+        }
     }
     true
+}
+
+fn trim_trailing_spaces(bytes: &[u8]) -> &[u8] {
+    let spaces = bytes.iter().rev().take_while(|&&byte| byte == b' ').count();
+    &bytes[..bytes.len() - spaces]
 }
 
 fn skip_spaces(bytes: &[u8]) -> &[u8] {

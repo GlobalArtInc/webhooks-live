@@ -1,6 +1,7 @@
 pub mod capture_id;
 pub mod config;
 pub mod content_type;
+pub mod duration;
 pub mod endpoint_id;
 pub mod entropy;
 pub mod header;
