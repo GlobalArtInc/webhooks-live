@@ -8,6 +8,7 @@ import forwarding from './en/forwarding.json';
 import home from './en/home.json';
 import live from './en/live.json';
 import sample from './en/sample.json';
+import script from './en/script.json';
 import state from './en/state.json';
 import workspace from './en/workspace.json';
 
@@ -21,6 +22,7 @@ export type SourceMessages = typeof common &
   typeof home &
   typeof live &
   typeof sample &
+  typeof script &
   typeof state &
   typeof workspace;
 

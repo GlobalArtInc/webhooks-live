@@ -10,6 +10,7 @@ import forwarding from './en/forwarding.json';
 import home from './en/home.json';
 import live from './en/live.json';
 import sample from './en/sample.json';
+import script from './en/script.json';
 import state from './en/state.json';
 import workspace from './en/workspace.json';
 
@@ -35,6 +36,7 @@ export function createI18nInstance(): I18nInstance {
           ...home,
           ...live,
           ...sample,
+          ...script,
           ...state,
           ...workspace,
         },
