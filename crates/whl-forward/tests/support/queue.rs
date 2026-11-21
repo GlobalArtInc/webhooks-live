@@ -43,6 +43,7 @@ pub async fn fixture() -> Fixture {
                 response: ResponseConfig::default(),
                 cors: false,
                 overflow: Overflow::Refuse,
+                tags: Vec::new(),
             },
             RETENTION,
         )

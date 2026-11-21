@@ -44,13 +44,14 @@ const CLAIM_SLOT: &str = "UPDATE endpoints SET \
        last_active_at = GREATEST(last_active_at, now()) \
      WHERE id = $1 AND deleted_at IS NULL \
        AND last_active_at > now() - make_interval(secs => $3) \
-       AND (capture_count < $4 OR overflow = 'ring') \
+       AND (capture_count < $4 OR (overflow = 'ring' AND EXISTS ( \
+         SELECT 1 FROM captures WHERE endpoint_id = $1 AND NOT starred))) \
      RETURNING last_seq, capture_count, response_status, response_content_type, \
        response_headers::text AS response_headers, response_body, response_delay_ms, cors";
 
 const EVICT_OLDEST: &str = "WITH evicted AS ( \
        DELETE FROM captures WHERE endpoint_id = $1 AND seq IN ( \
-         SELECT seq FROM captures WHERE endpoint_id = $1 ORDER BY seq LIMIT $2) \
+         SELECT seq FROM captures WHERE endpoint_id = $1 AND NOT starred ORDER BY seq LIMIT $2) \
        RETURNING stored_bytes) \
      UPDATE endpoints SET \
        capture_count = capture_count - (SELECT count(*) FROM evicted), \
