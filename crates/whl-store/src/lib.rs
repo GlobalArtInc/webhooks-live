@@ -16,6 +16,7 @@ pub mod secrets;
 pub mod stats;
 mod store;
 pub mod stream;
+mod view;
 
 pub use api_tokens::{
     ApiTokenLookup, ApiTokenRecord, ApiTokenStoreError, CreateTokenOutcome, MAX_TOKEN_ENDPOINTS,
@@ -47,3 +48,7 @@ pub use members::{
 pub use sqlx::types::Uuid;
 pub use stats::{EndpointStats, StatsBucket, StatsPoint};
 pub use store::{MigrationState, Status, Store};
+pub use view::{
+    EndpointSnapshot, GRANT_PURGE_BATCH, MAX_GRANTS_PER_ENDPOINT, ViewPasswordChange,
+    ViewPasswordHash, ViewStanding, ViewStoreError,
+};

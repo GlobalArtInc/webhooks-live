@@ -249,7 +249,7 @@ async fn a_preflight_is_answered_with_the_documented_headers_and_never_allows_cr
     );
     assert_eq!(
         header_of("access-control-allow-headers").as_deref(),
-        Some("Authorization, Content-Type, Last-Event-ID")
+        Some("Authorization, Content-Type, Last-Event-ID, X-Webhooks-Live-Grant")
     );
     assert_eq!(header_of("access-control-max-age").as_deref(), Some("600"));
     assert!(

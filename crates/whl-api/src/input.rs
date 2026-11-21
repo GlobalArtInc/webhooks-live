@@ -1,6 +1,7 @@
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use serde_json::{Map, Value};
+use whl_auth::{MAX_PASSWORD_CHARS, MIN_PASSWORD_CHARS, PasswordShape, ViewPassword};
 use whl_core::header::HeaderInput;
 use whl_core::tag::{MAX_TAGS, Tag};
 use whl_store::Overflow;
@@ -17,6 +18,7 @@ const ENDPOINT_KEYS: &[&str] = &[
     "retention",
     "max_captures",
     "capture_ttl_seconds",
+    "view_password",
 ];
 const RETENTION_KEYS: &[&str] = &["mode", "seconds"];
 const RESPONSE_KEYS: &[&str] = &["status", "content_type", "headers", "body", "delay_ms"];
@@ -31,6 +33,7 @@ pub struct EndpointPatch {
     pub overflow: Option<Overflow>,
     pub tags: Option<Vec<Tag>>,
     pub lifecycle: LifecyclePatch,
+    pub view_password: Option<Option<ViewPassword>>,
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -144,7 +147,45 @@ impl Walk {
             patch.lifecycle.capture_ttl_seconds =
                 self.nullable_integer(value, "capture_ttl_seconds");
         }
+        if let Some(value) = object.get("view_password") {
+            patch.view_password = self.view_password(value);
+        }
         patch
+    }
+
+    fn view_password(&mut self, value: &Value) -> Option<Option<ViewPassword>> {
+        match value {
+            Value::Null => Some(None),
+            Value::String(text) => match ViewPassword::parse(text) {
+                Ok(password) => Some(Some(password)),
+                Err(PasswordShape::TooShort) => {
+                    self.push(
+                        "view_password",
+                        FieldCode::OutOfRange,
+                        format!(
+                            "must be between {MIN_PASSWORD_CHARS} and {MAX_PASSWORD_CHARS} characters"
+                        ),
+                    );
+                    None
+                }
+                Err(PasswordShape::TooLong) => {
+                    self.push(
+                        "view_password",
+                        FieldCode::TooLong,
+                        format!("must be at most {MAX_PASSWORD_CHARS} characters"),
+                    );
+                    None
+                }
+            },
+            _ => {
+                self.push(
+                    "view_password",
+                    FieldCode::InvalidFormat,
+                    "must be a string or null",
+                );
+                None
+            }
+        }
     }
 
     fn tags(&mut self, value: &Value) -> Option<Vec<Tag>> {

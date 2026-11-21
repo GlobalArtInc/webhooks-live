@@ -19,6 +19,7 @@ mod settings;
 mod state;
 mod stream;
 mod tokens;
+mod view_password;
 
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
@@ -49,6 +50,7 @@ pub fn router(state: ApiState) -> Router {
                 .delete(handlers::delete),
         )
         .route("/endpoints/{id}/claim", post(claim::claim))
+        .route("/endpoints/{id}/unlock", post(view_password::unlock))
         .merge(members::routes())
         .merge(captures::routes())
         .merge(folders::routes())

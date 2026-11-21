@@ -21,6 +21,8 @@ use crate::rate::{RatePeriod, RateSpec};
 
 pub const DEFAULT_MAX_KEYS: usize = 100_000;
 
+const STRICT_FULL_RETRY: Duration = Duration::from_secs(1);
+
 const IPV6_PREFIX_BYTES: usize = 8;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -92,7 +94,14 @@ impl<K: Hash + Eq> BoundedStore<K> {
         }
         true
     }
+
+    fn has_room_for(&self, key: &K) -> bool {
+        self.cells.contains_key(key) || self.live.load(Ordering::Acquire) < self.max_keys
+    }
 }
+
+#[derive(Debug)]
+struct SharedStore<K: Hash + Eq>(Arc<BoundedStore<K>>);
 
 fn swap<T, E>(
     cell: &AtomicU64,
@@ -167,13 +176,44 @@ impl<K: Hash + Eq + Clone> ShrinkableKeyedStateStore<K> for BoundedStore<K> {
     }
 }
 
-type Gcra<K> = RateLimiter<K, BoundedStore<K>, DefaultClock, StateInformationMiddleware>;
+impl<K: Hash + Eq + Clone> StateStore for SharedStore<K> {
+    type Key = K;
+
+    fn measure_and_replace<T, F, E>(&self, key: &Self::Key, decide: F) -> Result<T, E>
+    where
+        F: Fn(Option<Nanos>) -> Result<(T, Nanos), E>,
+    {
+        self.0.measure_and_replace(key, decide)
+    }
+}
+
+impl<K: Hash + Eq + Clone> ShrinkableKeyedStateStore<K> for SharedStore<K> {
+    fn retain_recent(&self, drop_below: Nanos) {
+        self.0.retain_recent(drop_below);
+    }
+
+    fn shrink_to_fit(&self) {
+        self.0.shrink_to_fit();
+    }
+
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+type Gcra<K> = RateLimiter<K, SharedStore<K>, DefaultClock, StateInformationMiddleware>;
 
 #[derive(Debug)]
 pub struct KeyedLimiter<K: Hash + Eq + Clone> {
     gcra: Gcra<K>,
+    store: Arc<BoundedStore<K>>,
     burst: u32,
     max_keys: usize,
+    strict: bool,
 }
 
 impl<K: Hash + Eq + Clone> KeyedLimiter<K> {
@@ -190,15 +230,34 @@ impl<K: Hash + Eq + Clone> KeyedLimiter<K> {
             RatePeriod::Minute => Quota::per_minute(count),
         }
         .allow_burst(burst);
-        let gcra = RateLimiter::new(quota, BoundedStore::new(max_keys), DefaultClock::default());
+        let store = Arc::new(BoundedStore::new(max_keys));
+        let gcra = RateLimiter::new(
+            quota,
+            SharedStore(Arc::clone(&store)),
+            DefaultClock::default(),
+        );
         Ok(Self {
             gcra,
+            store,
             burst: burst.get(),
             max_keys,
+            strict: false,
         })
     }
 
+    pub fn new_strict(spec: RateSpec, max_keys: usize) -> Result<Self, LimiterError> {
+        let mut limiter = Self::new(spec, max_keys)?;
+        limiter.strict = true;
+        Ok(limiter)
+    }
+
     pub fn check(&self, key: &K) -> Verdict {
+        if self.strict && !self.store.has_room_for(key) {
+            return Verdict::Limited {
+                limit: self.burst,
+                retry_after: STRICT_FULL_RETRY,
+            };
+        }
         match self.gcra.check_key(key) {
             Ok(snapshot) => Verdict::Allowed {
                 limit: self.burst,

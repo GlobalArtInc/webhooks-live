@@ -3,14 +3,18 @@ mod api_token;
 mod cookies;
 mod current_user;
 mod error;
+mod failures;
 mod flow;
 mod gate;
+mod grant;
 mod origin;
+mod password;
 mod provider;
 mod return_to;
 mod settings;
 mod state;
 mod token;
+mod view;
 
 use axum::Router;
 use axum::extract::Request;
@@ -26,10 +30,17 @@ pub use api_token::{
 pub use cookies::{CookiePolicy, LoginCookie};
 pub use current_user::CurrentUser;
 pub use error::{AccessDenied, AuthError, AuthRejection, LoginFailure};
+pub use failures::FailureSpec;
 pub use gate::{
-    Access, AccessControl, AccessMode, Caller, Creation, EndpointParam, Requirement, TokenPolicy,
+    Access, AccessControl, AccessMode, Caller, Creation, EndpointParam, Requirement, RoutePolicy,
+    TokenPolicy,
 };
+pub use grant::{GRANT_HEADER, GRANT_LIFETIME, GRANT_QUERY_KEY, GrantRule, ViewGrant};
 pub use origin::{OriginCheck, OriginCheckService};
+pub use password::{
+    HASH_WAIT, MAX_CONCURRENT_HASHES, MAX_CONCURRENT_VERIFIES, MAX_PASSWORD_CHARS,
+    MIN_PASSWORD_CHARS, PasswordError, PasswordShape, ViewPassword, ViewPasswords,
+};
 pub use provider::CLOCK_LEEWAY;
 pub use return_to::sanitize as sanitize_return_to;
 pub use settings::{
@@ -37,6 +48,7 @@ pub use settings::{
     SessionLimits,
 };
 pub use state::{AuthState, DiscoveryBackoff};
+pub use view::{IssuedGrant, ViewAccess, ViewLimitSettings};
 pub use whl_store::{EndpointRole, TokenScope};
 
 pub fn router(state: AuthState) -> Router {

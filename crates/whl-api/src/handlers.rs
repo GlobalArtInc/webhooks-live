@@ -4,16 +4,20 @@ use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use whl_auth::{Access, AuthRejection, Caller, Creation};
 use whl_core::endpoint_id::EndpointId;
-use whl_store::{EndpointRole, Lifecycle, LifecycleLimits, NewEndpoint, UserRecord};
+use whl_store::{
+    EndpointChange, EndpointRecord, EndpointRole, Lifecycle, LifecycleLimits, NewEndpoint,
+    UserRecord, Uuid, ViewPasswordChange,
+};
 
 use crate::body::RawBody;
 use crate::dto::{EndpointDto, InstanceDto};
-use crate::error::ApiError;
+use crate::error::{ApiError, FieldViolation};
 use crate::input::parse_endpoint_input;
 use crate::lifecycle::{self, Standing, combine};
 use crate::resolve::{defaults, resolve};
 use crate::settings::ApiSettings;
 use crate::state::ApiState;
+use crate::view_password;
 
 pub async fn instance(State(state): State<ApiState>, caller: Caller) -> Json<InstanceDto> {
     Json(InstanceDto::new(
@@ -36,7 +40,12 @@ pub async fn create(
         return Err(AuthRejection::InsufficientScope.into());
     }
     let creation = state.access.creation(&caller)?;
-    let parsed = parse_endpoint_input(&body, true)?;
+    let mut parsed = parse_endpoint_input(&body, true)?;
+    view_password::forbid_when_owned_on_create(
+        &mut parsed.violations,
+        &parsed.patch.view_password,
+        matches!(creation, Creation::Owned(_)),
+    );
     let standing = Standing {
         owned: matches!(creation, Creation::Owned(_)),
         signed_in: caller.user().is_some(),
@@ -61,19 +70,29 @@ pub async fn create(
         Creation::Owned(user) => (Some(*user), None),
         Creation::Anonymous { network } => (None, network.as_ref()),
     };
-    let record = state
-        .store
-        .create_endpoint_with_lifecycle(
-            NewEndpoint {
-                owner: owner_id,
-                creator_net,
-                settings: &change.settings,
-                lifecycle: change.lifecycle,
-                limits: never_expire_limits(&state.settings),
-            },
-            state.settings.retention,
-        )
-        .await?;
+    let view_hash =
+        view_password::prepare(&state, caller.ip(), &parsed.patch.view_password).await?;
+    let new = NewEndpoint {
+        owner: owner_id,
+        creator_net,
+        settings: &change.settings,
+        lifecycle: change.lifecycle,
+        limits: never_expire_limits(&state.settings),
+    };
+    let record = match &view_hash {
+        Some(hash) => {
+            state
+                .store
+                .create_endpoint_with_view_password(new, hash, state.settings.retention)
+                .await?
+        }
+        None => {
+            state
+                .store
+                .create_endpoint_with_lifecycle(new, state.settings.retention)
+                .await?
+        }
+    };
     let owner = caller.user();
     let location = format!("/api/v1/endpoints/{}", record.id.unpack());
     let role = match creation {
@@ -81,10 +100,16 @@ pub async fn create(
         Creation::Anonymous { .. } if state.access.is_mixed() => Some(EndpointRole::Owner),
         Creation::Anonymous { .. } => None,
     };
+    let view_grant = view_password::grant_for_setter(&state, &record.id, view_hash.as_ref()).await;
     Ok((
         StatusCode::CREATED,
         [(header::LOCATION, location)],
-        Json(EndpointDto::from_record(&record, &state.settings, &[]).with_identity(role, owner)),
+        Json(
+            EndpointDto::from_record(&record, &state.settings, &[])
+                .with_identity(role, owner)
+                .with_view_protected(view_hash.is_some())
+                .with_view_grant(view_grant),
+        ),
     )
         .into_response())
 }
@@ -102,9 +127,11 @@ pub async fn show(
         .ok_or(ApiError::EndpointGone)?;
     let rules = state.store.list_forward_rules(&id).await?;
     let owner = owner_of(&state, &id).await?;
+    let protected = state.access.view_access()?.is_protected(&id).await?;
     Ok(Json(
         EndpointDto::from_record(&record, &state.settings, &rules)
-            .with_identity(access.role(), owner.as_ref()),
+            .with_identity(access.role(), owner.as_ref())
+            .with_view_protected(protected),
     ))
 }
 
@@ -119,42 +146,67 @@ pub async fn update(
     let signed_in = access.caller().user().is_some();
     let sign_in_possible = state.access.has_users();
     let role = access.role();
+    let merge = |current: &EndpointRecord,
+                 owner_id: Option<Uuid>,
+                 violations: Vec<FieldViolation>|
+     -> Result<EndpointChange, ApiError> {
+        let standing = Standing {
+            owned: owner_id.is_some(),
+            signed_in,
+            sign_in_possible,
+            role,
+        };
+        let outcome = combine(
+            resolve(
+                &state.settings,
+                &current.settings,
+                &parsed.patch,
+                violations,
+            ),
+            lifecycle::resolve(
+                &state.settings,
+                standing,
+                &current.lifecycle,
+                &parsed.patch.lifecycle,
+            ),
+        );
+        view_password::forbid_when_owned(outcome, &parsed.patch.view_password, owner_id.is_some())
+    };
+    if matches!(parsed.patch.view_password, Some(Some(_))) {
+        let snapshot = state
+            .store
+            .endpoint_snapshot(&id, state.settings.retention)
+            .await?
+            .ok_or(ApiError::EndpointGone)?;
+        merge(&snapshot.record, snapshot.owner, parsed.violations.clone())?;
+    }
+    let view_hash =
+        view_password::prepare(&state, access.caller().ip(), &parsed.patch.view_password).await?;
+    let view_change = view_password::change_of(&parsed.patch.view_password, view_hash.as_ref());
     let record = state
         .store
-        .update_endpoint(
+        .update_endpoint_with_view_password(
             &id,
             state.settings.retention,
             never_expire_limits(&state.settings),
-            |current, owner_id| {
-                let standing = Standing {
-                    owned: owner_id.is_some(),
-                    signed_in,
-                    sign_in_possible,
-                    role,
-                };
-                combine(
-                    resolve(
-                        &state.settings,
-                        &current.settings,
-                        &parsed.patch,
-                        parsed.violations,
-                    ),
-                    lifecycle::resolve(
-                        &state.settings,
-                        standing,
-                        &current.lifecycle,
-                        &parsed.patch.lifecycle,
-                    ),
-                )
-            },
+            view_change,
+            |current, owner_id| merge(current, owner_id, parsed.violations.clone()),
         )
         .await?
         .ok_or(ApiError::EndpointGone)?;
     let rules = state.store.list_forward_rules(&id).await?;
     let owner = owner_of(&state, &id).await?;
+    let protected = match view_change {
+        ViewPasswordChange::Set(_) => true,
+        ViewPasswordChange::Remove => false,
+        ViewPasswordChange::Keep => state.access.view_access()?.is_protected(&id).await?,
+    };
+    let view_grant = view_password::grant_for_setter(&state, &id, view_hash.as_ref()).await;
     Ok(Json(
         EndpointDto::from_record(&record, &state.settings, &rules)
-            .with_identity(access.role(), owner.as_ref()),
+            .with_identity(access.role(), owner.as_ref())
+            .with_view_protected(protected)
+            .with_view_grant(view_grant),
     ))
 }
 

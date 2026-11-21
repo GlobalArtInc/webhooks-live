@@ -97,6 +97,14 @@ pub enum AuthRejection {
     InsufficientScope,
     #[error("too many requests with this API token")]
     TokenRateLimited { retry_after_secs: u64 },
+    #[error("this endpoint needs a view password grant")]
+    GrantRequired,
+    #[error("the password is wrong")]
+    WrongPassword,
+    #[error("too many password attempts, try again shortly")]
+    ViewRateLimited { retry_after_secs: u64 },
+    #[error("too many passwords are being checked right now, try again shortly")]
+    PasswordBusy,
     #[error("this route needs sso mode")]
     NotAvailableInMode,
     #[error("the method is not allowed on this route")]
@@ -186,6 +194,10 @@ impl IntoResponse for AuthRejection {
             Self::SessionRequired => (StatusCode::FORBIDDEN, "session_required"),
             Self::InsufficientScope => (StatusCode::FORBIDDEN, "insufficient_scope"),
             Self::TokenRateLimited { .. } => (StatusCode::TOO_MANY_REQUESTS, "rate_limited"),
+            Self::GrantRequired => (StatusCode::UNAUTHORIZED, "grant_required"),
+            Self::WrongPassword => (StatusCode::UNAUTHORIZED, "wrong_password"),
+            Self::ViewRateLimited { .. } => (StatusCode::TOO_MANY_REQUESTS, "rate_limited"),
+            Self::PasswordBusy => (StatusCode::SERVICE_UNAVAILABLE, "password_busy"),
             Self::NotAvailableInMode => (StatusCode::NOT_FOUND, "not_available_in_mode"),
             Self::MethodNotAllowed => (StatusCode::METHOD_NOT_ALLOWED, "method_not_allowed"),
             Self::NotFound => (StatusCode::NOT_FOUND, "not_found"),
@@ -202,7 +214,9 @@ impl IntoResponse for AuthRejection {
                 HeaderValue::from_static(BEARER_CHALLENGE),
             );
         }
-        if let Self::TokenRateLimited { retry_after_secs } = self {
+        if let Self::TokenRateLimited { retry_after_secs }
+        | Self::ViewRateLimited { retry_after_secs } = self
+        {
             response
                 .headers_mut()
                 .insert(header::RETRY_AFTER, HeaderValue::from(retry_after_secs));

@@ -113,7 +113,6 @@ impl Bound {
         }
         .with_proxies(self.proxies.clone())
         .with_token_limits(self.limiters.clone());
-        let authorizer = whl_api::stream_authorizer(&access);
         let state = ApiState::new(store.clone(), self.api.clone())
             .with_access(access)
             .with_limits(self.api_limits.clone())
@@ -122,6 +121,7 @@ impl Bound {
             Some(keyring) => state.with_secrets(Arc::clone(keyring)),
             None => state,
         };
+        let authorizer = whl_api::stream_authorizer(state.access());
         tracing::info!(public = %self.public_addr, admin = %self.admin_addr, "listening");
 
         let capture =

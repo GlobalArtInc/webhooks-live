@@ -154,3 +154,25 @@ fn retry_after_is_rounded_up_to_whole_seconds_with_a_floor_of_one() {
     assert_eq!(whole_seconds_up(Duration::from_millis(1001)), 2);
     assert_eq!(whole_seconds_up(Duration::from_secs(3)), 3);
 }
+
+#[test]
+fn a_strict_limiter_refuses_new_keys_when_the_table_is_full_and_serves_known_ones() {
+    let strict = KeyedLimiter::new_strict(spec("1000/s:1000"), 2).expect("limiter builds");
+    let lenient = KeyedLimiter::new(spec("1000/s:1000"), 2).expect("limiter builds");
+    let keys = [
+        ClientKey::from_ip(ip("203.0.113.1")),
+        ClientKey::from_ip(ip("203.0.113.2")),
+        ClientKey::from_ip(ip("203.0.113.3")),
+    ];
+    for key in &keys[..2] {
+        assert!(strict.check(key).is_allowed());
+        assert!(lenient.check(key).is_allowed());
+    }
+
+    assert!(!strict.check(&keys[2]).is_allowed());
+    assert!(strict.check(&keys[0]).is_allowed());
+    assert!(lenient.check(&keys[2]).is_allowed());
+    std::thread::sleep(Duration::from_millis(20));
+    strict.cleanup();
+    assert!(strict.check(&keys[2]).is_allowed());
+}

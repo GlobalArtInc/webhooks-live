@@ -214,7 +214,7 @@ async fn stream_endpoint(
 
     let subscription = state.hub.subscribe(&endpoint);
     let peer = connect.map(|Extension(ConnectInfo(peer))| peer.ip());
-    let request = StreamRequest::new(headers, peer);
+    let request = StreamRequest::new(headers, peer).with_query(query);
     let mut viewer = Viewer::new(endpoint.clone(), subscription, request, &state.settings);
     viewer.queue.push_back(sse::retry_frame(RETRY_MILLIS));
     if viewer.subscription.was_closing_at_subscribe() {

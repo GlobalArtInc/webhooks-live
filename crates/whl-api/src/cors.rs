@@ -7,7 +7,7 @@ const API_PREFIX: &str = "/api/v1";
 const ALLOW_ORIGIN: HeaderValue = HeaderValue::from_static("*");
 const ALLOW_METHODS: HeaderValue = HeaderValue::from_static("GET, POST, PUT, PATCH, DELETE");
 const ALLOW_HEADERS: HeaderValue =
-    HeaderValue::from_static("Authorization, Content-Type, Last-Event-ID");
+    HeaderValue::from_static("Authorization, Content-Type, Last-Event-ID, X-Webhooks-Live-Grant");
 const MAX_AGE: HeaderValue = HeaderValue::from_static("600");
 const EXPOSE_HEADERS: HeaderValue =
     HeaderValue::from_static("Location, RateLimit-Limit, RateLimit-Remaining, Retry-After");

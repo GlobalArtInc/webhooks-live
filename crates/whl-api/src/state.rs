@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use whl_auth::AccessControl;
+use whl_auth::{AccessControl, ViewAccess};
 use whl_secrets::Keyring;
 use whl_store::Store;
 
@@ -20,12 +20,14 @@ pub struct ApiState {
 
 impl ApiState {
     pub fn new(store: Store, settings: ApiSettings) -> Self {
+        let access =
+            AccessControl::open().with_views(ViewAccess::new(store.clone(), settings.retention));
         Self {
             store,
             settings,
             limits: None,
             forward: ForwardSettings::default(),
-            access: AccessControl::open(),
+            access,
             secrets: None,
         }
     }
@@ -40,7 +42,11 @@ impl ApiState {
     }
 
     pub fn with_access(mut self, access: AccessControl) -> Self {
-        self.access = access;
+        self.access = if access.views().is_some() {
+            access
+        } else {
+            access.with_views(ViewAccess::new(self.store.clone(), self.settings.retention))
+        };
         self
     }
 

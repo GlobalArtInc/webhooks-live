@@ -7,6 +7,7 @@ use whl_core::endpoint_id::EndpointId;
 
 use crate::endpoints::{COLUMNS, EndpointError, EndpointRecord, classify, record_from_row};
 use crate::store::Store;
+use crate::view::{notify_access_changed, revoke_view_grants};
 
 const LOCK_SQL: &str = "SELECT e.owner_id, e.creator_net::text AS creator_net, \
         e.created_at > now() - make_interval(secs => $3) AS within_window, \
@@ -89,7 +90,7 @@ impl Store {
             .await
             .map_err(classify)?;
         let update = format!(
-            "UPDATE endpoints SET owner_id = $2, creator_net = NULL \
+            "UPDATE endpoints SET owner_id = $2, creator_net = NULL, view_password_hash = NULL \
              WHERE id = $1 AND owner_id IS NULL RETURNING {COLUMNS}"
         );
         let Some(claimed) = sqlx::query(&update)
@@ -101,6 +102,12 @@ impl Store {
         else {
             return Ok(ClaimOutcome::AlreadyOwned);
         };
+        revoke_view_grants(&mut tx, endpoint)
+            .await
+            .map_err(EndpointError::from)?;
+        notify_access_changed(&mut tx, endpoint)
+            .await
+            .map_err(EndpointError::from)?;
         let record = record_from_row(&claimed, retention)?;
         tx.commit().await.map_err(classify)?;
         Ok(ClaimOutcome::Claimed(Box::new(record)))
