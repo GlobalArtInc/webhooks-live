@@ -1,0 +1,193 @@
+use axum::Json;
+use axum::http::{HeaderValue, StatusCode, header};
+use axum::response::{IntoResponse, Response};
+use serde::Serialize;
+use whl_core::validation::{FieldPath, Violation, ViolationCode};
+use whl_store::EndpointError;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FieldCode {
+    Required,
+    InvalidFormat,
+    TooLong,
+    OutOfRange,
+    TooMany,
+    NotAllowed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FieldViolation {
+    field: String,
+    code: FieldCode,
+    message: String,
+}
+
+impl FieldViolation {
+    pub fn new(field: impl Into<String>, code: FieldCode, message: impl Into<String>) -> Self {
+        Self {
+            field: field.into(),
+            code,
+            message: message.into(),
+        }
+    }
+
+    pub fn from_core(violation: &Violation) -> Self {
+        Self::new(
+            core_field(violation.field),
+            core_code(violation.code),
+            violation.code.to_string(),
+        )
+    }
+}
+
+fn core_field(field: FieldPath) -> String {
+    match field {
+        FieldPath::Status => "response.status".to_owned(),
+        FieldPath::ContentType => "response.content_type".to_owned(),
+        FieldPath::Headers => "response.headers".to_owned(),
+        FieldPath::HeaderName(index) => format!("response.headers.{index}.name"),
+        FieldPath::HeaderValue(index) => format!("response.headers.{index}.value"),
+        FieldPath::Body => "response.body".to_owned(),
+        FieldPath::DelayMs => "response.delay_ms".to_owned(),
+    }
+}
+
+fn core_code(code: ViolationCode) -> FieldCode {
+    match code {
+        ViolationCode::OutOfRange { .. } => FieldCode::OutOfRange,
+        ViolationCode::Empty => FieldCode::Required,
+        ViolationCode::TooLong { .. } => FieldCode::TooLong,
+        ViolationCode::TooMany { .. } => FieldCode::TooMany,
+        ViolationCode::Denied => FieldCode::NotAllowed,
+        ViolationCode::ControlCharacter
+        | ViolationCode::NonAscii
+        | ViolationCode::InvalidToken
+        | ViolationCode::InvalidMediaType
+        | ViolationCode::Duplicate => FieldCode::InvalidFormat,
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ApiError {
+    #[error("{0}")]
+    InvalidJson(&'static str),
+    #[error("the request body must be application/json")]
+    UnsupportedMediaType,
+    #[error("the request body is too large")]
+    PayloadTooLarge,
+    #[error("the request failed validation")]
+    Validation(Vec<FieldViolation>),
+    #[error("the endpoint is unknown, expired or deleted")]
+    EndpointGone,
+    #[error("the resource was not found")]
+    NotFound,
+    #[error("the method is not allowed on this route")]
+    MethodNotAllowed,
+    #[error("the database is unavailable")]
+    StoreUnavailable,
+    #[error("endpoint storage failed: {0}")]
+    Internal(EndpointError),
+}
+
+impl From<EndpointError> for ApiError {
+    fn from(error: EndpointError) -> Self {
+        match error {
+            EndpointError::Unavailable(_) => Self::StoreUnavailable,
+            other => Self::Internal(other),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct ErrorBody {
+    error: ErrorDetail,
+}
+
+#[derive(Serialize)]
+struct ErrorDetail {
+    code: &'static str,
+    message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fields: Option<Vec<FieldViolation>>,
+}
+
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response {
+        let (status, code, message, fields) = match self {
+            Self::InvalidJson(detail) => (
+                StatusCode::BAD_REQUEST,
+                "invalid_json",
+                detail.to_owned(),
+                None,
+            ),
+            Self::UnsupportedMediaType => (
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                "unsupported_media_type",
+                self.to_string(),
+                None,
+            ),
+            Self::PayloadTooLarge => (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "payload_too_large",
+                format!(
+                    "the request body is larger than {} bytes",
+                    crate::body::MAX_BODY_BYTES
+                ),
+                None,
+            ),
+            Self::Validation(violations) => {
+                let message = violations.first().map_or_else(
+                    || "the request failed validation".to_owned(),
+                    |first| format!("{} {}", first.field, first.message),
+                );
+                (
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "validation_failed",
+                    message,
+                    Some(violations),
+                )
+            }
+            Self::EndpointGone => (StatusCode::GONE, "endpoint_gone", self.to_string(), None),
+            Self::NotFound => (StatusCode::NOT_FOUND, "not_found", self.to_string(), None),
+            Self::MethodNotAllowed => (
+                StatusCode::METHOD_NOT_ALLOWED,
+                "method_not_allowed",
+                self.to_string(),
+                None,
+            ),
+            Self::StoreUnavailable => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "store_unavailable",
+                self.to_string(),
+                None,
+            ),
+            Self::Internal(error) => {
+                tracing::error!(%error, "endpoint storage failed");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal_error",
+                    "the request could not be completed".to_owned(),
+                    None,
+                )
+            }
+        };
+        let mut response = (
+            status,
+            Json(ErrorBody {
+                error: ErrorDetail {
+                    code,
+                    message,
+                    fields,
+                },
+            }),
+        )
+            .into_response();
+        if status == StatusCode::SERVICE_UNAVAILABLE {
+            response
+                .headers_mut()
+                .insert(header::RETRY_AFTER, HeaderValue::from_static("5"));
+        }
+        response
+    }
+}

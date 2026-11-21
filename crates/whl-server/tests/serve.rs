@@ -270,3 +270,44 @@ async fn sends_bye_to_open_streams_after_the_drain_and_closes_them() {
         .expect("server task joins")
         .expect("serve returns Ok after shutdown");
 }
+
+#[tokio::test]
+async fn mounts_the_management_api_on_the_public_listener() {
+    let db = TestDb::new().await;
+    let config = load_config(db.url());
+    let store = Store::connect(&config.database)
+        .await
+        .expect("the test database accepts connections");
+    let bound = whl_server::bind(&config)
+        .await
+        .expect("ephemeral ports bind");
+    let public = bound.public_addr();
+
+    let (trigger, stop) = oneshot::channel::<()>();
+    let server = tokio::spawn(bound.serve(store, async {
+        let _ = stop.await;
+    }));
+
+    let instance = get(public, "/api/v1/instance")
+        .await
+        .expect("public answers");
+    assert_eq!(instance.status, 200);
+    assert!(instance.body.contains("\"auth_mode\":\"open\""));
+
+    let missing = get(public, "/api/v1/nothing")
+        .await
+        .expect("public answers");
+    assert_eq!(
+        (missing.status, missing.content_type.as_str()),
+        (404, "application/json")
+    );
+
+    trigger
+        .send(())
+        .expect("server waits for the shutdown future");
+    tokio::time::timeout(Duration::from_secs(5), server)
+        .await
+        .expect("run returns within the grace period")
+        .expect("server task joins")
+        .expect("serve returns Ok after shutdown");
+}

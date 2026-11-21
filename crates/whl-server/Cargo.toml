@@ -17,6 +17,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tower-http.workspace = true
 tracing.workspace = true
+whl-api.workspace = true
 whl-core.workspace = true
 whl-live.workspace = true
 whl-store.workspace = true

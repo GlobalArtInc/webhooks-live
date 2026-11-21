@@ -2910,6 +2910,21 @@ dependencies = [
 [[package]]
 name = "whl-api"
 version = "0.1.0-dev"
+dependencies = [
+ "axum",
+ "base64",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror",
+ "time",
+ "tokio",
+ "tower",
+ "tracing",
+ "whl-core",
+ "whl-store",
+ "whl-testkit",
+]
 
 [[package]]
 name = "whl-auth"
@@ -2969,6 +2984,7 @@ dependencies = [
  "tokio",
  "tower-http",
  "tracing",
+ "whl-api",
  "whl-core",
  "whl-live",
  "whl-store",
@@ -2981,9 +2997,12 @@ name = "whl-store"
 version = "0.1.0-dev"
 dependencies = [
  "sea-orm",
+ "serde",
+ "serde_json",
  "sqlmig",
  "sqlx",
  "thiserror",
+ "time",
  "tokio",
  "tracing",
  "whl-core",

@@ -8,8 +8,11 @@ publish.workspace = true
 [dependencies]
 migrator.workspace = true
 sea-orm.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true
+time.workspace = true
 tracing.workspace = true
 whl-core.workspace = true
 

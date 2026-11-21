@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use tokio::net::TcpListener;
 use tokio::sync::watch;
+use whl_api::{ApiSettings, ApiState};
 use whl_core::config::Config;
 use whl_live::{HUB_CAPACITY, Hub, LiveState, StreamSettings};
 use whl_store::Store;
@@ -28,6 +29,7 @@ pub struct Bound {
     drain: Duration,
     grace: Duration,
     retention: Duration,
+    api: ApiSettings,
 }
 
 impl Bound {
@@ -45,6 +47,7 @@ impl Bound {
         shutdown: impl Future<Output = ()> + Send + 'static,
     ) -> Result<(), ServerError> {
         let readiness = Arc::new(Readiness::default());
+        let state = ApiState::new(store.clone(), self.api.clone());
         tracing::info!(public = %self.public_addr, admin = %self.admin_addr, "listening");
 
         let (stop_tx, stop_rx) = watch::channel(false);
@@ -59,7 +62,7 @@ impl Bound {
             Arc::clone(&hub),
             until_stopped(stop_rx.clone()),
         );
-        let public = axum::serve(self.public, router::public(live.clone()))
+        let public = axum::serve(self.public, router::public(live.clone(), state))
             .with_graceful_shutdown(until_stopped(stop_rx.clone()));
         let admin = axum::serve(self.admin, router::admin(Arc::clone(&readiness)))
             .with_graceful_shutdown(until_stopped(stop_rx));
@@ -129,6 +132,7 @@ pub async fn bind(config: &Config) -> Result<Bound, ServerError> {
         drain: config.shutdown.drain,
         grace: config.shutdown.grace,
         retention: config.capture.retention,
+        api: ApiSettings::from_config(config),
     })
 }
 

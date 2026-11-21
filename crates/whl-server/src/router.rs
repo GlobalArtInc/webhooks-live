@@ -11,10 +11,14 @@ use tower_http::trace::TraceLayer;
 use tracing::Span;
 use whl_live::LiveState;
 
+use whl_api::ApiState;
+
 use crate::readiness::Readiness;
 
-pub fn public(live: LiveState) -> Router {
-    let routes = Router::new().merge(whl_live::router(live));
+pub fn public(live: LiveState, api: ApiState) -> Router {
+    let routes = Router::new()
+        .merge(whl_live::router(live))
+        .merge(whl_api::router(api));
     with_tracing(routes.fallback(not_found))
 }
 

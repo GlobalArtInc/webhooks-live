@@ -1,0 +1,281 @@
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
+use serde_json::{Map, Value};
+use whl_core::header::HeaderInput;
+use whl_store::Overflow;
+
+use crate::error::{ApiError, FieldCode, FieldViolation};
+
+const TITLE_MAX_CHARS: usize = 100;
+const ENDPOINT_KEYS: &[&str] = &["title", "response", "cors", "overflow"];
+const RESPONSE_KEYS: &[&str] = &["status", "content_type", "headers", "body", "delay_ms"];
+const HEADER_KEYS: &[&str] = &["name", "value"];
+const BODY_KEYS: &[&str] = &["encoding", "data", "truncated"];
+
+#[derive(Debug, Default, PartialEq)]
+pub struct EndpointPatch {
+    pub title: Option<Option<String>>,
+    pub response: ResponsePatch,
+    pub cors: Option<bool>,
+    pub overflow: Option<Overflow>,
+}
+
+#[derive(Debug, Default, PartialEq)]
+pub struct ResponsePatch {
+    pub status: Option<i64>,
+    pub content_type: Option<String>,
+    pub headers: Option<Vec<HeaderInput>>,
+    pub body: Option<Vec<u8>>,
+    pub delay_ms: Option<i64>,
+}
+
+#[derive(Debug, Default)]
+pub struct ParsedInput {
+    pub patch: EndpointPatch,
+    pub violations: Vec<FieldViolation>,
+}
+
+pub fn parse_endpoint_input(bytes: &[u8], allow_empty: bool) -> Result<ParsedInput, ApiError> {
+    if bytes.is_empty() {
+        return if allow_empty {
+            Ok(ParsedInput::default())
+        } else {
+            Err(ApiError::InvalidJson("the request body is empty"))
+        };
+    }
+    let value: Value = serde_json::from_slice(bytes)
+        .map_err(|_| ApiError::InvalidJson("the request body is not valid JSON"))?;
+    let Value::Object(object) = value else {
+        return Err(ApiError::InvalidJson(
+            "the request body must be a JSON object",
+        ));
+    };
+    let mut walk = Walk::default();
+    let patch = walk.endpoint(&object);
+    Ok(ParsedInput {
+        patch,
+        violations: walk.violations,
+    })
+}
+
+#[derive(Default)]
+struct Walk {
+    violations: Vec<FieldViolation>,
+}
+
+impl Walk {
+    fn push(&mut self, field: impl Into<String>, code: FieldCode, message: impl Into<String>) {
+        self.violations
+            .push(FieldViolation::new(field, code, message));
+    }
+
+    fn unknown_keys(&mut self, object: &Map<String, Value>, path: &str, known: &[&str]) {
+        let unknown: Vec<String> = object
+            .keys()
+            .filter(|key| !known.contains(&key.as_str()))
+            .map(|key| join(path, key))
+            .collect();
+        for field in unknown {
+            self.push(field, FieldCode::NotAllowed, "is not a known field");
+        }
+    }
+
+    fn endpoint(&mut self, object: &Map<String, Value>) -> EndpointPatch {
+        self.unknown_keys(object, "", ENDPOINT_KEYS);
+        let mut patch = EndpointPatch::default();
+        if let Some(value) = object.get("title") {
+            patch.title = self.title(value);
+        }
+        if let Some(value) = object.get("response")
+            && let Some(response) = self.object(value, "response")
+        {
+            patch.response = self.response(response);
+        }
+        if let Some(value) = object.get("cors") {
+            patch.cors = self.boolean(value, "cors");
+        }
+        if let Some(value) = object.get("overflow") {
+            patch.overflow = self.overflow(value);
+        }
+        patch
+    }
+
+    fn title(&mut self, value: &Value) -> Option<Option<String>> {
+        match value {
+            Value::Null => Some(None),
+            Value::String(text) if text.chars().count() <= TITLE_MAX_CHARS => {
+                Some(Some(text.clone()))
+            }
+            Value::String(_) => {
+                self.push(
+                    "title",
+                    FieldCode::TooLong,
+                    format!("must be at most {TITLE_MAX_CHARS} characters"),
+                );
+                None
+            }
+            _ => {
+                self.push(
+                    "title",
+                    FieldCode::InvalidFormat,
+                    "must be a string or null",
+                );
+                None
+            }
+        }
+    }
+
+    fn overflow(&mut self, value: &Value) -> Option<Overflow> {
+        match value.as_str() {
+            Some("refuse") => Some(Overflow::Refuse),
+            Some("ring") => Some(Overflow::Ring),
+            _ => {
+                self.push(
+                    "overflow",
+                    FieldCode::InvalidFormat,
+                    "must be refuse or ring",
+                );
+                None
+            }
+        }
+    }
+
+    fn response(&mut self, object: &Map<String, Value>) -> ResponsePatch {
+        self.unknown_keys(object, "response", RESPONSE_KEYS);
+        let mut patch = ResponsePatch::default();
+        if let Some(value) = object.get("status") {
+            patch.status = self.integer(value, "response.status");
+        }
+        if let Some(value) = object.get("content_type") {
+            patch.content_type = self.text(value, "response.content_type").map(str::to_owned);
+        }
+        if let Some(value) = object.get("headers") {
+            patch.headers = self.headers(value);
+        }
+        if let Some(value) = object.get("body") {
+            patch.body = self.body(value);
+        }
+        if let Some(value) = object.get("delay_ms") {
+            patch.delay_ms = self.integer(value, "response.delay_ms");
+        }
+        patch
+    }
+
+    fn headers(&mut self, value: &Value) -> Option<Vec<HeaderInput>> {
+        let Some(items) = value.as_array() else {
+            self.push(
+                "response.headers",
+                FieldCode::InvalidFormat,
+                "must be an array",
+            );
+            return None;
+        };
+        let mut headers = Vec::with_capacity(items.len());
+        let mut valid = true;
+        for (index, item) in items.iter().enumerate() {
+            let path = format!("response.headers.{index}");
+            let Some(object) = item.as_object() else {
+                self.push(path, FieldCode::InvalidFormat, "must be an object");
+                valid = false;
+                continue;
+            };
+            self.unknown_keys(object, &path, HEADER_KEYS);
+            let name = self.required_text(object, &path, "name");
+            let value = self.required_text(object, &path, "value");
+            match (name, value) {
+                (Some(name), Some(value)) => headers.push(HeaderInput { name, value }),
+                _ => valid = false,
+            }
+        }
+        valid.then_some(headers)
+    }
+
+    fn body(&mut self, value: &Value) -> Option<Vec<u8>> {
+        let object = self.object(value, "response.body")?;
+        self.unknown_keys(object, "response.body", BODY_KEYS);
+        let encoding = self.required_text(object, "response.body", "encoding");
+        let data = self.required_text(object, "response.body", "data");
+        if let Some(truncated) = object.get("truncated") {
+            self.boolean(truncated, "response.body.truncated");
+        }
+        let (encoding, data) = (encoding?, data?);
+        match encoding.as_str() {
+            "utf8" => Some(data.into_bytes()),
+            "base64" => match STANDARD.decode(&data) {
+                Ok(bytes) => Some(bytes),
+                Err(_) => {
+                    self.push(
+                        "response.body.data",
+                        FieldCode::InvalidFormat,
+                        "must be valid base64",
+                    );
+                    None
+                }
+            },
+            _ => {
+                self.push(
+                    "response.body.encoding",
+                    FieldCode::InvalidFormat,
+                    "must be utf8 or base64",
+                );
+                None
+            }
+        }
+    }
+
+    fn required_text(
+        &mut self,
+        object: &Map<String, Value>,
+        path: &str,
+        key: &str,
+    ) -> Option<String> {
+        let field = join(path, key);
+        match object.get(key) {
+            None => {
+                self.push(field, FieldCode::Required, "is required");
+                None
+            }
+            Some(value) => self.text(value, &field).map(str::to_owned),
+        }
+    }
+
+    fn object<'a>(&mut self, value: &'a Value, field: &str) -> Option<&'a Map<String, Value>> {
+        let object = value.as_object();
+        if object.is_none() {
+            self.push(field, FieldCode::InvalidFormat, "must be an object");
+        }
+        object
+    }
+
+    fn text<'a>(&mut self, value: &'a Value, field: &str) -> Option<&'a str> {
+        let text = value.as_str();
+        if text.is_none() {
+            self.push(field, FieldCode::InvalidFormat, "must be a string");
+        }
+        text
+    }
+
+    fn integer(&mut self, value: &Value, field: &str) -> Option<i64> {
+        let number = value.as_i64();
+        if number.is_none() {
+            self.push(field, FieldCode::InvalidFormat, "must be an integer");
+        }
+        number
+    }
+
+    fn boolean(&mut self, value: &Value, field: &str) -> Option<bool> {
+        let flag = value.as_bool();
+        if flag.is_none() {
+            self.push(field, FieldCode::InvalidFormat, "must be a boolean");
+        }
+        flag
+    }
+}
+
+fn join(path: &str, key: &str) -> String {
+    if path.is_empty() {
+        key.to_owned()
+    } else {
+        format!("{path}.{key}")
+    }
+}
