@@ -25,6 +25,7 @@ import { SettingsSectionScreen } from '../routes/settings/SettingsSectionScreen'
 import { SignInScreen } from '../routes/signin/SignInScreen';
 import { validateCaptureSearch } from '../features/filters/captureSearch';
 import { validateComposeSearch } from '../features/composer/search';
+import { validateEndpointsSearch } from '../features/folders/search';
 import { isCaptureId, isEndpointId } from './ids';
 import { ensureEndpoint } from './endpointQuery';
 import { isWorkspaceSectionId } from '../features/workspace/sections';
@@ -93,8 +94,14 @@ const homeRoute = createRoute({
 const endpointsRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/endpoints',
-  component: EndpointsScreen,
+  validateSearch: validateEndpointsSearch,
+  component: EndpointsRouteScreen,
 });
+
+export function EndpointsRouteScreen() {
+  const search = endpointsRoute.useSearch();
+  return <EndpointsScreen search={search} />;
+}
 
 const signInRoute = createRoute({
   getParentRoute: () => shellRoute,

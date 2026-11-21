@@ -1,7 +1,7 @@
 export type Timestamp = string;
 export type Uuid = string;
 export type EndpointId = string;
-export type AuthMode = 'open' | 'sso';
+export type AuthMode = 'open' | 'sso' | 'mixed';
 export type BodyEncoding = 'utf8' | 'base64';
 export type Overflow = 'refuse' | 'ring';
 export type EndpointRole = 'owner' | 'editor' | 'viewer';
@@ -115,10 +115,26 @@ export interface ForwardRuleInput {
   append_path?: boolean;
 }
 
+export interface Folder {
+  id: Uuid;
+  name: string;
+  position: number;
+  endpoint_ids: EndpointId[];
+  created_at: Timestamp;
+}
+
+export type FolderList = ItemList<Folder>;
+
+export interface FolderPatch {
+  name?: string;
+  position?: number;
+}
+
 export interface Endpoint {
   id: EndpointId;
   url: string;
   title: string | null;
+  tags: string[];
   response: ResponseConfig;
   cors: boolean;
   overflow: Overflow;
@@ -138,6 +154,7 @@ export interface Endpoint {
 
 export interface EndpointInput {
   title?: string | null;
+  tags?: string[];
   response?: ResponseInput;
   cors?: boolean;
   overflow?: Overflow;
@@ -248,6 +265,9 @@ export interface EndpointListQuery {
   cursor?: string | null;
   limit?: number;
   role?: EndpointRoleFilter;
+  tag?: string;
+  folder?: string;
+  q?: string;
 }
 
 export type ExportFormat = 'json' | 'ndjson' | 'csv' | 'zip';
@@ -273,6 +293,7 @@ export interface CaptureBodyOptions {
 
 export interface InstanceAuth {
   provider_name: string | null;
+  sign_in_available: boolean;
 }
 
 export interface InstanceLimits {

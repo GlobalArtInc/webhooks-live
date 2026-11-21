@@ -16,6 +16,9 @@ import type {
   ForwardRequest,
   ForwardRule,
   ForwardRuleInput,
+  Folder,
+  FolderList,
+  FolderPatch,
   Instance,
   Member,
   MemberInput,
@@ -211,6 +214,14 @@ function endpointPath(endpointId: string): string {
   return `/endpoints/${encodeURIComponent(endpointId)}`;
 }
 
+function folderPath(folderId: string): string {
+  return `/folders/${encodeURIComponent(folderId)}`;
+}
+
+function folderEndpointPath(folderId: string, endpointId: string): string {
+  return `${folderPath(folderId)}/endpoints/${encodeURIComponent(endpointId)}`;
+}
+
 function capturePath(endpointId: string, captureId: string): string {
   return `${endpointPath(endpointId)}/captures/${encodeURIComponent(captureId)}`;
 }
@@ -229,6 +240,34 @@ export function listEndpoints(query: EndpointListQuery = {}): Promise<EndpointPa
 
 export function getEndpoint(endpointId: string): Promise<Endpoint> {
   return requestJson<Endpoint>(endpointPath(endpointId), { method: 'GET' });
+}
+
+export function claimEndpoint(endpointId: string): Promise<Endpoint> {
+  return requestJson<Endpoint>(`${endpointPath(endpointId)}/claim`, { method: 'POST' });
+}
+
+export function listFolders(): Promise<FolderList> {
+  return requestJson<FolderList>('/folders', { method: 'GET' });
+}
+
+export function createFolder(name: string): Promise<Folder> {
+  return requestJson<Folder>('/folders', { method: 'POST', body: { name } });
+}
+
+export function patchFolder(folderId: string, input: FolderPatch): Promise<Folder> {
+  return requestJson<Folder>(folderPath(folderId), { method: 'PATCH', body: input });
+}
+
+export function deleteFolder(folderId: string): Promise<void> {
+  return requestEmpty(folderPath(folderId), { method: 'DELETE' });
+}
+
+export function putFolderEndpoint(folderId: string, endpointId: string): Promise<void> {
+  return requestEmpty(folderEndpointPath(folderId, endpointId), { method: 'PUT' });
+}
+
+export function deleteFolderEndpoint(folderId: string, endpointId: string): Promise<void> {
+  return requestEmpty(folderEndpointPath(folderId, endpointId), { method: 'DELETE' });
 }
 
 export function patchEndpoint(endpointId: string, input: EndpointInput): Promise<Endpoint> {
