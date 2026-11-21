@@ -125,6 +125,7 @@ fn endpoint_role(method: &Method, tail: &str) -> EndpointRole {
             EndpointRole::Editor
         }
         "/rules/order" if *method == Method::PUT => EndpointRole::Editor,
+        "/rules/dry-run" if *method == Method::POST => EndpointRole::Editor,
         "/rules/{rule_id}" if matches!(*method, Method::PATCH | Method::DELETE) => {
             EndpointRole::Editor
         }
@@ -202,7 +203,7 @@ mod tests {
     #[test]
     fn every_documented_route_needs_the_role_of_the_api_table() {
         use EndpointRole::{Editor, Owner, Viewer};
-        let table: [(&Method, &str, Requirement); 48] = [
+        let table: [(&Method, &str, Requirement); 49] = [
             (&GET, "/vars", Requirement::Role(Viewer)),
             (&Method::HEAD, "/vars", Requirement::Role(Viewer)),
             (&PUT, "/vars/{name}", Requirement::Role(Editor)),
@@ -224,6 +225,7 @@ mod tests {
             (&PATCH, "/rules/{rule_id}", Requirement::Role(Editor)),
             (&DELETE, "/rules/{rule_id}", Requirement::Role(Editor)),
             (&PUT, "/rules/order", Requirement::Role(Editor)),
+            (&POST, "/rules/dry-run", Requirement::Role(Editor)),
             (&GET, "/notifications", Requirement::Role(Viewer)),
             (&POST, "/notifications", Requirement::Role(Editor)),
             (

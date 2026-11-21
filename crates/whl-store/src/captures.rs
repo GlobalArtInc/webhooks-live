@@ -14,6 +14,7 @@ use whl_secrets::{KeyId, SealedSecret};
 use whl_verify::{Verification, Verifier, VerifierDocument};
 
 use crate::kind::CaptureKind;
+use crate::rule_runs::{RuleRunSeed, RunStart, insert_capture_run};
 use crate::store::Store;
 
 pub const ACQUIRE_TIMEOUT: Duration = Duration::from_secs(1);
@@ -53,7 +54,7 @@ const CLAIM_SLOT: &str = "UPDATE endpoints SET \
          SELECT 1 FROM captures WHERE endpoint_id = $1 AND NOT starred))) \
      RETURNING last_seq, capture_count, COALESCE(max_captures::bigint, $4) AS effective_max, response_status, response_content_type, \
        response_headers::text AS response_headers, response_body, response_delay_ms, cors, \
-       title, response_templated, response_status_template";
+       title, response_templated, response_status_template, rules_version, rule_count, rules_sync";
 
 pub(crate) const EVICT_OLDEST: &str = "WITH evicted AS ( \
        DELETE FROM captures WHERE endpoint_id = $1 AND seq IN ( \
@@ -255,6 +256,7 @@ pub struct StoredCapture {
     pub received_at: OffsetDateTime,
     pub response_status: HttpStatus,
     pub body_size: usize,
+    pub rule_run: Option<RuleRunSeed>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -555,7 +557,7 @@ impl Store {
         let meta = shape.meta.to_string();
         let prepared = Prepared::new(capture, meta)?;
         let tx = self.begin_capture_transaction().await?;
-        let work = execute_capture(tx, capture, prepared, policy, shape);
+        let work = execute_capture(tx, capture, prepared, policy, shape, self.rules_enabled());
         tokio::time::timeout(TRANSACTION_DEADLINE, work)
             .await
             .map_err(|_| CaptureStoreError::DeadlineExceeded)?
@@ -667,6 +669,7 @@ async fn execute_capture(
     prepared: Prepared,
     policy: CapturePolicy,
     shape: CaptureShape,
+    rules_enabled: bool,
 ) -> Result<CaptureOutcome, CaptureStoreError> {
     let max_captures = i64::from(policy.max_captures);
     attempt!(
@@ -722,6 +725,21 @@ async fn execute_capture(
             .map_err(CaptureStoreError::classify)
     );
     let endpoint = attempt!(tx, endpoint_from_row(&row, &capture.endpoint_id));
+    let rules_version: i32 = attempt!(
+        tx,
+        row.try_get("rules_version")
+            .map_err(CaptureStoreError::classify)
+    );
+    let rule_count: i16 = attempt!(
+        tx,
+        row.try_get("rule_count")
+            .map_err(CaptureStoreError::classify)
+    );
+    let rules_sync: bool = attempt!(
+        tx,
+        row.try_get("rules_sync")
+            .map_err(CaptureStoreError::classify)
+    );
 
     let surplus = i64::from(count_after) - effective_max;
     if surplus > 0 {
@@ -792,6 +810,28 @@ async fn execute_capture(
             .map_err(CaptureStoreError::classify)
     );
 
+    let runs_rules = rules_enabled
+        && rule_count > 0
+        && matches!(
+            shape.kind,
+            CaptureKind::Http | CaptureKind::Email | CaptureKind::Dns
+        );
+    let rule_run = if runs_rules {
+        let start = if rules_sync && shape.kind == CaptureKind::Http {
+            RunStart::Sync
+        } else {
+            RunStart::Queued
+        };
+        attempt!(
+            tx,
+            insert_capture_run(&mut tx, &capture.endpoint_id, id, rules_version, start)
+                .await
+                .map_err(CaptureStoreError::classify)
+        )
+    } else {
+        None
+    };
+
     if shape.kind == CaptureKind::Http {
         attempt!(
             tx,
@@ -832,6 +872,7 @@ async fn execute_capture(
             received_at: capture.received_at,
             response_status,
             body_size: capture.body.len(),
+            rule_run,
         },
     })
 }

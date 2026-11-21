@@ -5,7 +5,8 @@ use whl_core::config::Config;
 use whl_store::{Store, StoreError};
 
 #[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+static GLOBAL: whl_script::CountingAlloc<mimalloc::MiMalloc> =
+    whl_script::CountingAlloc::new(mimalloc::MiMalloc);
 
 #[derive(Debug, Parser)]
 #[command(

@@ -7,6 +7,7 @@ mod public;
 mod readiness;
 mod rotate;
 mod router;
+mod rules;
 mod schedules;
 mod secrets;
 mod signal;
@@ -50,6 +51,7 @@ use composer::CaptureDelivery;
 use forward::ForwardRuntime;
 use notify::NotifyRuntime;
 use readiness::Readiness;
+use rules::RulesRuntimeSetup;
 use schedules::ScheduleRuntime;
 
 pub struct Bound {
@@ -66,6 +68,7 @@ pub struct Bound {
     composer: ComposerSettings,
     schedules: ScheduleRuntime,
     notify: NotifyRuntime,
+    rules: RulesRuntimeSetup,
     http: HttpLimits,
     auth: Option<AuthSettings>,
     auth_mode: AuthMode,
@@ -116,6 +119,7 @@ impl Bound {
         store: Store,
         shutdown: impl Future<Output = ()> + Send + 'static,
     ) -> Result<(), ServerError> {
+        let store = store.with_rules_enabled(self.rules.settings().enabled);
         let readiness = Arc::new(Readiness::default());
         let worker = self.forward.worker(&store)?;
         let notify_worker = self.notify.worker(&store)?;
@@ -142,8 +146,9 @@ impl Bound {
         .with_token_limits(self.limiters.clone());
         let authorizer = whl_api::stream_authorizer(&access);
         let inbox = whl_api::inbox_selector(&access, store.clone(), self.retention);
-        let capture =
-            CaptureState::new(store.clone(), self.capture)?.with_limiters(self.limiters.clone());
+        let capture = CaptureState::new(store.clone(), self.capture)?
+            .with_limiters(self.limiters.clone())
+            .with_rules(self.rules.settings(), self.rules.pool())?;
         let capture = match &self.secrets {
             Some(keyring) => capture.with_secrets(Arc::clone(keyring)),
             None => capture,
@@ -155,7 +160,8 @@ impl Bound {
             .with_forward(ForwardSettings::with_system_lookup(self.forward.guard()))
             .with_composer(self.composer.with_local(Arc::new(delivery)))
             .with_schedules(self.schedules.settings())
-            .with_notifications(self.notify.api_settings());
+            .with_notifications(self.notify.api_settings())
+            .with_rules(capture.rules().clone());
         let state = match &self.secrets {
             Some(keyring) => state.with_secrets(Arc::clone(keyring)),
             None => state,
@@ -381,6 +387,7 @@ pub async fn bind(config: &Config) -> Result<Bound, ServerError> {
         composer: ComposerSettings::from_config(config),
         schedules: ScheduleRuntime::from_config(config)?,
         notify,
+        rules: RulesRuntimeSetup::from_config(config)?,
         http: HttpLimits::default(),
         auth: AuthSettings::from_config(config)?,
         auth_mode: config.auth.mode,

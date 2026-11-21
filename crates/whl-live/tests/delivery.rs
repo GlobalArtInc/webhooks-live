@@ -55,6 +55,13 @@ async fn delivers_every_event_type_with_its_data() {
             r#"{"capture_id":"c1","seq":4}"#,
         ),
         (
+            "rule_result",
+            format!(
+                r#"{{"t":"rule_result","e":"{endpoint}","d":{{"capture_id":"c1","run":{{"state":"queued"}}}}}}"#
+            ),
+            r#"{"capture_id":"c1","run":{"state":"queued"}}"#,
+        ),
+        (
             "captures_cleared",
             format!(r#"{{"t":"captures_cleared","e":"{endpoint}"}}"#),
             "{}",

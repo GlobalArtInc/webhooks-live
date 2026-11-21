@@ -2,7 +2,7 @@ use sqlx::PgPool;
 use whl_store::{Store, StoreError};
 use whl_testkit::TestDb;
 
-const TABLES: [&str; 24] = [
+const TABLES: [&str; 25] = [
     "api_tokens",
     "capture_bodies",
     "captures",
@@ -19,6 +19,7 @@ const TABLES: [&str; 24] = [
     "notification_channels",
     "notification_counters",
     "notification_deliveries",
+    "rule_runs",
     "rules",
     "schedule_quota_windows",
     "schedule_runs",
@@ -29,7 +30,7 @@ const TABLES: [&str; 24] = [
     "users",
 ];
 
-const KEY_INDEXES: [&str; 17] = [
+const KEY_INDEXES: [&str; 18] = [
     "api_tokens_user",
     "api_tokens_prefix",
     "users_email",
@@ -43,6 +44,7 @@ const KEY_INDEXES: [&str; 17] = [
     "endpoints_tags",
     "folder_endpoints_endpoint",
     "rules_endpoint_id_position_key",
+    "rule_runs_due",
     "schedules_due",
     "notification_channels_capture",
     "notification_deliveries_due",

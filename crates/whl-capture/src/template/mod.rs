@@ -8,7 +8,7 @@ pub use compiled::{
 };
 pub use engine::TemplateSettings;
 pub(crate) use engine::{RenderInput, TemplateEngine};
-pub(crate) use report::{FallbackCode, RenderedParts, Rendering, Served};
+pub(crate) use report::{FallbackCode, RenderedParts, Served};
 
 pub fn validate_response_templates(
     sources: &ResponseSources<'_>,

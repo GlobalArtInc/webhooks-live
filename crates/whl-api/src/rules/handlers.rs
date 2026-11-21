@@ -132,8 +132,14 @@ async fn commit(
         let current = state.store.list_rules(endpoint).await?;
         let plan = plan(&current, &mutation)?;
         let references = references(state, endpoint).await?;
-        let rules = validate_set(&plan.inputs, &references, &scripts)
-            .map_err(|error| ApiError::Validation(violations(error.diagnostics, plan.candidate)))?;
+        let inputs = plan.inputs.clone();
+        let rules =
+            tokio::task::spawn_blocking(move || validate_set(&inputs, &references, &scripts))
+                .await
+                .map_err(|_| ApiError::InternalFault("the rule validation did not finish"))?
+                .map_err(|error| {
+                    ApiError::Validation(violations(error.diagnostics, plan.candidate))
+                })?;
         vet_candidate(state, &rules, plan.candidate).await?;
         let change = change(&plan, &rules)?;
         match state
@@ -264,7 +270,10 @@ fn order_indexes(current: &RuleSet, ids: &[Uuid]) -> Result<Vec<usize>, ApiError
     Ok(indexes)
 }
 
-async fn references(state: &ApiState, endpoint: &EndpointId) -> Result<References, ApiError> {
+pub(super) async fn references(
+    state: &ApiState,
+    endpoint: &EndpointId,
+) -> Result<References, ApiError> {
     let secrets = state
         .store
         .list_secrets(endpoint)
@@ -336,7 +345,7 @@ async fn live_endpoint(state: &ApiState, endpoint: &EndpointId) -> Result<(), Ap
         .ok_or(ApiError::EndpointGone)
 }
 
-fn endpoint_id(raw: &str) -> Result<EndpointId, ApiError> {
+pub(super) fn endpoint_id(raw: &str) -> Result<EndpointId, ApiError> {
     EndpointId::parse(raw).map_err(|_| ApiError::NotFound)
 }
 

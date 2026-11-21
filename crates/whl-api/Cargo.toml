@@ -36,6 +36,7 @@ whl-template.workspace = true
 whl-verify.workspace = true
 
 [dev-dependencies]
+bytes.workspace = true
 futures-util.workspace = true
 sha2.workspace = true
 sqlx.workspace = true

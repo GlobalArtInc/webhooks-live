@@ -3,12 +3,13 @@ use std::collections::BTreeSet;
 use ipnet::IpNet;
 use serde_json::Value;
 
-use crate::check::{Checker, compile_regex, join};
+use crate::check::{Checker, join};
 use crate::error::RuleErrorCode;
 use crate::limits::{
     MAX_ARGUMENT_BYTES, MAX_CONDITION_DEPTH, MAX_CONDITION_LEAVES, MAX_CONDITION_LIST_ITEMS,
 };
 use crate::model::{Argument, Condition, Leaf, Op};
+use crate::pattern::PatternUse;
 
 pub(crate) fn validate_condition(
     checker: &mut Checker,
@@ -201,12 +202,7 @@ fn argument(
             None
         }
         (Op::Matches, Some(Value::String(pattern))) => {
-            if compile_regex(pattern).is_err() {
-                checker.fail(
-                    field,
-                    RuleErrorCode::InvalidFormat,
-                    "must be a valid regular expression",
-                );
+            if !checker.pattern(&field, pattern, PatternUse::Condition) {
                 return None;
             }
             Some(Some(Argument::Text(pattern.clone())))

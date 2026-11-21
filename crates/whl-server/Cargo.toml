@@ -30,6 +30,7 @@ whl-dns.workspace = true
 whl-forward.workspace = true
 whl-live.workspace = true
 whl-schedule.workspace = true
+whl-script.workspace = true
 whl-notify.workspace = true
 whl-mail.workspace = true
 whl-secrets.workspace = true
