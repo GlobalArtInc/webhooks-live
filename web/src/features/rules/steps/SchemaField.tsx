@@ -4,6 +4,7 @@ import { CodeEditor } from '../../../components/CodeEditor/CodeEditor';
 import { KeyValueEditor } from '../../../components/KeyValueEditor/KeyValueEditor';
 import type { KeyValueRow, KeyValueRowError } from '../../../components/KeyValueEditor/rows';
 import { variableCompletionSource } from '../../../components/VariablePicker/variables';
+import { ScriptStepEditor } from '../script/ScriptStepEditor';
 import { issueMessage } from './issueMessage';
 import { formatDuration, pairIssue, pairsFromRows, rowsFromPairs, samePairs } from './model';
 import styles from './SchemaField.module.css';
@@ -240,6 +241,17 @@ export function SchemaField({
           />
         );
       case 'code':
+        if (field.language === 'script' && context.scriptEditor === true) {
+          return (
+            <ScriptStepEditor
+              label={field.label}
+              value={textOf(value)}
+              onChange={emitText}
+              readOnly={readOnly}
+              rows={CODE_ROWS}
+            />
+          );
+        }
         return (
           <CodeEditor
             label={field.label}

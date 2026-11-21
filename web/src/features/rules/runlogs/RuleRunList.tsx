@@ -1,3 +1,4 @@
+import { Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import type { RuleRun, RuleRunStepEntry, RuleRunTrigger } from '../../../api/ruleRunTypes';
 import { formatAbsoluteTime } from '../../../components/format/format';
@@ -8,34 +9,38 @@ import styles from './RunLogs.module.css';
 export interface RuleRunListProps {
   runs: readonly RuleRun[];
   label: string;
+  testerEndpointId?: string;
 }
 
 interface RuleRunCardProps {
   run: RuleRun;
   open: boolean;
+  testerEndpointId: string | undefined;
 }
 
 interface RuleGroupRowProps {
   group: RuleGroup;
+  run: RuleRun;
+  testerEndpointId: string | undefined;
 }
 
 interface StepRowProps {
   step: RuleRunStepEntry;
 }
 
-export function RuleRunList({ runs, label }: RuleRunListProps) {
+export function RuleRunList({ runs, label, testerEndpointId }: RuleRunListProps) {
   return (
     <ol aria-label={label} className={styles.runs}>
       {runs.map((run, index) => (
         <li key={run.id}>
-          <RuleRunCard run={run} open={index === 0} />
+          <RuleRunCard run={run} open={index === 0} testerEndpointId={testerEndpointId} />
         </li>
       ))}
     </ol>
   );
 }
 
-function RuleRunCard({ run, open }: RuleRunCardProps) {
+function RuleRunCard({ run, open, testerEndpointId }: RuleRunCardProps) {
   const { t, i18n } = useTranslation();
   const triggers: Record<RuleRunTrigger, string> = {
     capture: t('wl.runlogs.trigger.capture'),
@@ -61,7 +66,7 @@ function RuleRunCard({ run, open }: RuleRunCardProps) {
       ) : (
         <ul className={styles.rules}>
           {groups.map((group) => (
-            <RuleGroupRow key={group.ruleId} group={group} />
+            <RuleGroupRow key={group.ruleId} group={group} run={run} testerEndpointId={testerEndpointId} />
           ))}
         </ul>
       )}
@@ -69,13 +74,24 @@ function RuleRunCard({ run, open }: RuleRunCardProps) {
   );
 }
 
-function RuleGroupRow({ group }: RuleGroupRowProps) {
+function RuleGroupRow({ group, run, testerEndpointId }: RuleGroupRowProps) {
   const { t } = useTranslation();
   const name = group.ruleName ?? t('wl.runlogs.rule.unnamed');
   const duration = totalDuration(group.steps);
   return (
     <li className={styles.rule}>
       <h3 className={styles.ruleTitle}>{name}</h3>
+      {testerEndpointId === undefined ? null : (
+        <Link
+          to="/e/$id/settings/rules/$ruleId"
+          params={{ id: testerEndpointId, ruleId: group.ruleId }}
+          search={{ tab: 'test', capture: run.capture_id, run: run.id }}
+          className={`${styles.action} ${styles.actionLink}`}
+          aria-label={t('wl.runlogs.rule.openInTesterFor', { name })}
+        >
+          {t('wl.runlogs.rule.openInTester')}
+        </Link>
+      )}
       <p className={styles.meta}>
         <span className={group.matched ? styles.matchedOk : styles.matchedNone}>
           {group.matched ? t('wl.runlogs.rule.matched') : t('wl.runlogs.rule.notMatched')}

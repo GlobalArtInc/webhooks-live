@@ -191,14 +191,15 @@ test('a switch turns a rule on at once, and deleting asks first', async ({ page 
   await expect(cardList(page).getByRole('region')).toHaveCount(2);
 });
 
-test('New rule opens the editor placeholder', async ({ page }) => {
+test('New rule opens a blank draft in the rule editor', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openRules(page);
 
   await page.getByRole('link', { name: 'New rule' }).click();
 
   await expect(page).toHaveURL(`${SECTION_PATH}/new?from=blank`);
-  await expect(page.getByRole('heading', { level: 2, name: 'Rule editor' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 2, name: 'New rule' })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Rule name' })).toBeVisible();
 });
 
 for (const theme of ['Light', 'Dark'] as const) {

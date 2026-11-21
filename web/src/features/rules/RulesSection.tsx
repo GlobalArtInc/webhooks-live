@@ -8,12 +8,13 @@ import {
   type DragEndEvent,
 } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
-import { Link } from '@tanstack/react-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useEndpoint } from '../../api/queries';
 import { useDeleteRule, useReorderRules, useRules, useSetRuleEnabled } from '../../api/rules';
 import type { Rule } from '../../api/rulesTypes';
+import type { CapturePick } from '../../components/CapturePicker/CapturePicker';
 import { ConfirmDialog } from '../../components/ConfirmDialog/ConfirmDialog';
 import { StatePage } from '../../components/StatePage/StatePage';
 import { stateKindForError } from '../../components/StatePage/stateKind';
@@ -38,6 +39,9 @@ interface RulesNotice {
 }
 
 const NEW_RULE_KEY = 'section:new';
+const SECTION_ROUTE_ID = '/shell/e/$id/settings/$section';
+const SECTION_ROUTE = '/e/$id/settings/$section';
+const RuleTester = lazy(() => import('./tester/RuleTester').then((module) => ({ default: module.RuleTester })));
 const POINTER_DISTANCE_PX = 6;
 const NO_RULES: Rule[] = [];
 
@@ -51,6 +55,8 @@ export function RulesSection({ endpointId }: SectionProps) {
   const [announcement, setAnnouncement] = useState('');
   const [notice, setNotice] = useState<RulesNotice | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Rule | null>(null);
+  const search = useSearch({ from: SECTION_ROUTE_ID });
+  const navigate = useNavigate();
   const rootRef = useRef<HTMLDivElement>(null);
   const focusKeys = useRef<string[]>([]);
   const noticeCount = useRef(0);
@@ -59,6 +65,12 @@ export function RulesSection({ endpointId }: SectionProps) {
     setNotice(null);
   }, []);
 
+  const testing = search.test === 'all';
+  const pinned = search.capture ?? null;
+  const pick = useMemo<CapturePick>(
+    () => (pinned === null ? { mode: 'latest' } : { mode: 'pinned', captureId: pinned }),
+    [pinned],
+  );
   const items = rulesQuery.data?.items ?? NO_RULES;
   const total = items.length;
   const readOnly = endpoint?.my_role === 'viewer';
@@ -96,6 +108,15 @@ export function RulesSection({ endpointId }: SectionProps) {
         {t('wl.workspace.loading')}
       </p>
     );
+  }
+
+  function setTestAll(open: boolean, captureId: string | null): void {
+    void navigate({
+      to: SECTION_ROUTE,
+      params: { id: endpointId, section: 'rules' },
+      search: open ? { test: 'all', capture: captureId ?? undefined } : {},
+      replace: true,
+    });
   }
 
   function notify(message: string, tone: NoticeTone, undoAction: RuleUndo | null): void {
@@ -236,27 +257,41 @@ export function RulesSection({ endpointId }: SectionProps) {
     <div ref={rootRef} className={styles.page}>
       <h2 className={styles.heading}>{t('wl.workspace.section.rules')}</h2>
       <p className={styles.hint}>{t('wl.rules.list.orderHint')}</p>
-      {readOnly ? null : (
-        <div className={styles.toolbar}>
-          <Link
-            to="/e/$id/settings/rules/$ruleId"
-            params={{ id: endpointId, ruleId: 'new' }}
-            search={{ from: 'blank' }}
-            className={styles.add}
-            data-focus-key={NEW_RULE_KEY}
-          >
-            {t('wl.rules.new.blank')}
-          </Link>
-          <Link
-            to="/e/$id/settings/rules/$ruleId"
-            params={{ id: endpointId, ruleId: 'new' }}
-            search={{ from: 'script' }}
+      <div className={styles.toolbar}>
+        {readOnly ? null : (
+          <>
+            <Link
+              to="/e/$id/settings/rules/$ruleId"
+              params={{ id: endpointId, ruleId: 'new' }}
+              search={{ from: 'blank' }}
+              className={styles.add}
+              data-focus-key={NEW_RULE_KEY}
+            >
+              {t('wl.rules.new.blank')}
+            </Link>
+            <Link
+              to="/e/$id/settings/rules/$ruleId"
+              params={{ id: endpointId, ruleId: 'new' }}
+              search={{ from: 'script' }}
+              className={styles.secondary}
+            >
+              {t('wl.rules.new.script')}
+            </Link>
+          </>
+        )}
+        {total === 0 ? null : (
+          <button
+            type="button"
             className={styles.secondary}
+            aria-expanded={testing}
+            onClick={() => {
+              setTestAll(!testing, pinned);
+            }}
           >
-            {t('wl.rules.new.script')}
-          </Link>
-        </div>
-      )}
+            {t('wl.rules.testAll.open')}
+          </button>
+        )}
+      </div>
       {total === 0 ? (
         <section className={styles.empty}>
           <h3 className={styles.emptyTitle}>{t('wl.rules.empty.title')}</h3>
@@ -289,6 +324,42 @@ export function RulesSection({ endpointId }: SectionProps) {
           </SortableContext>
         </DndContext>
       )}
+      {testing && endpoint !== undefined ? (
+        <div className={styles.testAll}>
+          <div className={styles.testAllHead}>
+            <h3 className={styles.testAllTitle}>{t('wl.rules.testAll.title')}</h3>
+            <button
+              type="button"
+              className={styles.secondary}
+              onClick={() => {
+                setTestAll(false, null);
+              }}
+            >
+              {t('wl.rules.testAll.close')}
+            </button>
+          </div>
+          <Suspense
+            fallback={
+              <p role="status" className={styles.loading}>
+                {t('wl.workspace.loading')}
+              </p>
+            }
+          >
+            <RuleTester
+              endpointId={endpointId}
+              endpointUrl={endpoint.url}
+              draft={null}
+              defaultScope="all"
+              showScope={false}
+              canEdit={!readOnly}
+              pick={pick}
+              onPickChange={(next) => {
+                setTestAll(true, next.mode === 'pinned' ? next.captureId : null);
+              }}
+            />
+          </Suspense>
+        </div>
+      ) : null}
       <p role="status" className={styles.announcer}>
         {announcement}
       </p>

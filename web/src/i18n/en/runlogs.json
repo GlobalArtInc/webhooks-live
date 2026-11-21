@@ -45,5 +45,7 @@
   "wl.runlogs.runs.loading": "Loading runs.",
   "wl.runlogs.runs.error": "Runs could not be loaded.",
   "wl.runlogs.runs.empty": "No runs yet.",
-  "wl.runlogs.runs.loadMore": "Load more runs"
+  "wl.runlogs.runs.loadMore": "Load more runs",
+  "wl.runlogs.rule.openInTester": "Open in tester",
+  "wl.runlogs.rule.openInTesterFor": "Open in tester: {{name}}"
 }

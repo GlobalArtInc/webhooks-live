@@ -26,6 +26,12 @@
   cursor: pointer;
 }
 
+.actionLink {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
 .action:hover:not(:disabled) {
   background: var(--color-surface-sunken);
 }

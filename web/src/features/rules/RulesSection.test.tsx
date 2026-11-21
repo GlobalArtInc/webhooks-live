@@ -5,6 +5,7 @@ import { renderAppAt } from '../endpoints/renderApp';
 import { endpointFixture, ENDPOINT_ID } from '../../test/fixtures/endpoint';
 import { RULE_IDS, rulesFixture } from '../../test/fixtures/rules';
 import { resetRulesStore, seedRules } from '../../test/msw/rules';
+import { ruleEditorSupportHandlers } from '../../test/msw/ruleEditor';
 import { errorResponse } from '../../test/msw/responses';
 import { mockServer, registerMockServer } from '../../test/msw/server';
 import { seedEndpoint } from '../../test/msw/store';
@@ -124,14 +125,29 @@ describe('rules section', () => {
     );
   });
 
-  it('opens a blank draft in the editor route, which says the editor arrives later', async () => {
+  it('opens a blank draft in the editor route', async () => {
     seed();
+    mockServer.use(...ruleEditorSupportHandlers);
     const { router } = renderAppAt(SECTION_PATH);
 
     fireEvent.click(await screen.findByRole('link', { name: 'New rule' }));
 
-    expect(await screen.findByRole('heading', { name: 'Rule editor' })).toBeTruthy();
-    expect(screen.getByText('The rule editor arrives in a later release.')).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'New rule' })).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: 'Rule name' })).toBeTruthy();
     expect(router.state.location.href).toContain('/settings/rules/new?from=blank');
+  });
+
+  it('opens the tester in all rules mode from the Test all rules button and closes it again', async () => {
+    seed();
+    mockServer.use(...ruleEditorSupportHandlers);
+    const { router } = renderAppAt(SECTION_PATH);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Test all rules' }));
+
+    expect(await screen.findByRole('region', { name: 'Test' })).toBeTruthy();
+    expect(router.state.location.href).toContain('test=all');
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Test' })).toBeNull());
+    expect(router.state.location.href).not.toContain('test=all');
   });
 });

@@ -8,6 +8,7 @@ import styles from './RunLogs.module.css';
 export type RuleRunsStatus = 'loading' | 'error' | 'ready';
 
 export interface RuleRunsViewProps {
+  testerEndpointId?: string;
   runs: readonly RuleRun[];
   status: RuleRunsStatus;
   failedOnly: boolean;
@@ -19,12 +20,14 @@ export interface RuleRunsViewProps {
 
 export interface RuleRunsPanelProps {
   endpointId: string;
+  testerLinks?: boolean;
 }
 
 const FAILED_FILTER: RuleRunFilter = { state: 'failed' };
 const NO_FILTER: RuleRunFilter = {};
 
 export function RuleRunsView({
+  testerEndpointId,
   runs,
   status,
   failedOnly,
@@ -59,7 +62,9 @@ export function RuleRunsView({
         </p>
       ) : null}
       {status === 'ready' && runs.length === 0 ? <p className={styles.muted}>{t('wl.runlogs.runs.empty')}</p> : null}
-      {runs.length === 0 ? null : <RuleRunList runs={runs} label={t('wl.runlogs.runs.label')} />}
+      {runs.length === 0 ? null : (
+        <RuleRunList runs={runs} label={t('wl.runlogs.runs.label')} testerEndpointId={testerEndpointId} />
+      )}
       {hasMore ? (
         <div className={styles.toolbar}>
           <button type="button" className={styles.action} disabled={loadingMore} onClick={onLoadMore}>
@@ -71,7 +76,7 @@ export function RuleRunsView({
   );
 }
 
-export function RuleRunsPanel({ endpointId }: RuleRunsPanelProps) {
+export function RuleRunsPanel({ endpointId, testerLinks = false }: RuleRunsPanelProps) {
   const [failedOnly, setFailedOnly] = useState(false);
   const filter = failedOnly ? FAILED_FILTER : NO_FILTER;
   const query = useRuleRuns(endpointId, filter);
@@ -79,6 +84,7 @@ export function RuleRunsPanel({ endpointId }: RuleRunsPanelProps) {
   const status: RuleRunsStatus = query.isError ? 'error' : query.isPending ? 'loading' : 'ready';
   return (
     <RuleRunsView
+      testerEndpointId={testerLinks ? endpointId : undefined}
       runs={runs}
       status={status}
       failedOnly={failedOnly}

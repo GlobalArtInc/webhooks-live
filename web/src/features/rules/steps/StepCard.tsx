@@ -227,15 +227,17 @@ export function StepCard({
                 }}
               />
             ))}
-            <StepGuardEditor
-              guard={step.guard}
-              idPrefix={baseId}
-              readOnly={readOnly}
-              error={messageFor('guard')}
-              onChange={(guard) => {
-                onChange({ ...step, guard });
-              }}
-            />
+            {context.guards === false ? null : (
+              <StepGuardEditor
+                guard={step.guard}
+                idPrefix={baseId}
+                readOnly={readOnly}
+                error={messageFor('guard')}
+                onChange={(guard) => {
+                  onChange({ ...step, guard });
+                }}
+              />
+            )}
             {produced.length === 0 ? null : (
               <p className={styles.produces}>
                 <span>{t('wl.steps.produces.label')}</span>{' '}

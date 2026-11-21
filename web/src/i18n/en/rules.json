@@ -35,7 +35,7 @@
   "wl.rules.delete.body": "{{name}} and its steps will be deleted. This cannot be undone.",
   "wl.rules.delete.confirm": "Delete rule",
   "wl.rules.delete.cancel": "Keep rule",
-  "wl.rules.editor.title": "Rule editor",
-  "wl.rules.editor.arrives": "The rule editor arrives in a later release.",
-  "wl.rules.editor.back": "Back to rules"
+  "wl.rules.testAll.open": "Test all rules",
+  "wl.rules.testAll.title": "Test all rules",
+  "wl.rules.testAll.close": "Close"
 }

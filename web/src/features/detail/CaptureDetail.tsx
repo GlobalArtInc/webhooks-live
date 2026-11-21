@@ -154,6 +154,7 @@ function ReadyDetail({
             captureId={capture.id}
             runs={capture.rule_runs ?? []}
             canRerun={canRerun}
+            testerLinks={endpointId !== undefined}
           />
         );
       case 'query':

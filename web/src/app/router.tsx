@@ -37,9 +37,8 @@ import { validateComposeSearch } from '../features/composer/search';
 import { validateEndpointsSearch } from '../features/folders/search';
 import { isCaptureId, isEndpointId } from './ids';
 import { ensureEndpoint } from './endpointQuery';
-import { validatePreviewSearch } from '../features/templating/previewSearch';
+import { validateSectionSearch } from '../features/workspace/sectionSearch';
 import { isWorkspaceSectionId } from '../features/workspace/sections';
-import { RuleEditorPlaceholder } from '../features/rules/RuleEditorPlaceholder';
 import { validateRuleEditorSearch } from '../features/rules/ruleEditorSearch';
 import { RouteError } from './RouteError';
 import { ShellLayout } from './shell/ShellLayout';
@@ -192,7 +191,7 @@ const settingsIndexRoute = createRoute({
 const settingsSectionRoute = createRoute({
   getParentRoute: () => endpointSettingsRoute,
   path: '$section',
-  validateSearch: validatePreviewSearch,
+  validateSearch: validateSectionSearch,
   beforeLoad: ({ params }) => assertWorkspaceSection(params.section),
   component: SettingsSectionScreen,
 });
@@ -201,7 +200,7 @@ const ruleEditorRoute = createRoute({
   getParentRoute: () => endpointSettingsRoute,
   path: 'rules/$ruleId',
   validateSearch: validateRuleEditorSearch,
-  component: RuleEditorPlaceholder,
+  component: lazyRouteComponent(() => import('../features/rules/editor/RuleEditorPage'), 'RuleEditorPage'),
 });
 
 const forwardingRedirectRoute = createRoute({

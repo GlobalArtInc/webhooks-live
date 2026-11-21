@@ -19,6 +19,7 @@ export interface RerunFailure {
 }
 
 export interface CaptureRulesViewProps {
+  testerEndpointId?: string;
   runs: readonly RuleRun[];
   canRerun: boolean;
   busy: boolean;
@@ -32,6 +33,7 @@ export interface CaptureRulesSectionProps {
   captureId: string;
   runs: readonly RuleRun[];
   canRerun: boolean;
+  testerLinks?: boolean;
 }
 
 export function rerunFailureOf(error: Error | null): RerunFailure | null {
@@ -50,7 +52,15 @@ export function rerunFailureOf(error: Error | null): RerunFailure | null {
   return { kind: 'failed', max: 0 };
 }
 
-export function CaptureRulesView({ runs, canRerun, busy, queued, failure, onRerun }: CaptureRulesViewProps) {
+export function CaptureRulesView({
+  testerEndpointId,
+  runs,
+  canRerun,
+  busy,
+  queued,
+  failure,
+  onRerun,
+}: CaptureRulesViewProps) {
   const { t } = useTranslation();
   const [confirming, setConfirming] = useState(false);
   const failureText = (): string => {
@@ -93,7 +103,7 @@ export function CaptureRulesView({ runs, canRerun, busy, queued, failure, onReru
       {runs.length === 0 ? (
         <p className={styles.muted}>{t('wl.runlogs.run.none')}</p>
       ) : (
-        <RuleRunList runs={runs} label={t('wl.runlogs.section.rules')} />
+        <RuleRunList runs={runs} label={t('wl.runlogs.section.rules')} testerEndpointId={testerEndpointId} />
       )}
       <ConfirmDialog
         open={confirming}
@@ -112,10 +122,17 @@ export function CaptureRulesView({ runs, canRerun, busy, queued, failure, onReru
   );
 }
 
-export function CaptureRulesSection({ endpointId, captureId, runs, canRerun }: CaptureRulesSectionProps) {
+export function CaptureRulesSection({
+  endpointId,
+  captureId,
+  runs,
+  canRerun,
+  testerLinks = false,
+}: CaptureRulesSectionProps) {
   const rerun = useRerunCapture(endpointId, captureId);
   return (
     <CaptureRulesView
+      testerEndpointId={testerLinks ? endpointId : undefined}
       runs={runs}
       canRerun={canRerun}
       busy={rerun.isPending}

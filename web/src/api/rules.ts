@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { requestEmpty, requestJson } from './client';
 import { queryKeys, shouldRetryRequest } from './queries';
-import type { Rule, RuleInput, RuleList, RuleOrderInput } from './rulesTypes';
+import type { Rule, RuleList, RuleOrderInput, RuleWriteBody } from './rulesTypes';
 
 export interface RuleEnabledChange {
   ruleId: string;
@@ -28,7 +28,11 @@ export function listRules(endpointId: string): Promise<RuleList> {
   return requestJson<RuleList>(rulesPath(endpointId), { method: 'GET' });
 }
 
-export function patchRule(endpointId: string, ruleId: string, input: RuleInput): Promise<Rule> {
+export function createRule(endpointId: string, input: RuleWriteBody): Promise<Rule> {
+  return requestJson<Rule>(rulesPath(endpointId), { method: 'POST', body: input });
+}
+
+export function patchRule(endpointId: string, ruleId: string, input: RuleWriteBody): Promise<Rule> {
   return requestJson<Rule>(rulePath(endpointId, ruleId), { method: 'PATCH', body: input });
 }
 
@@ -52,6 +56,10 @@ export function withOrder(list: RuleList, ids: readonly string[]): RuleList {
 
 export function withRule(list: RuleList, rule: Rule): RuleList {
   return { ...list, items: list.items.map((item) => (item.id === rule.id ? rule : item)) };
+}
+
+export function withCreated(list: RuleList, rule: Rule): RuleList {
+  return { ...list, items: [...list.items, rule] };
 }
 
 export function withEnabled(list: RuleList, ruleId: string, enabled: boolean): RuleList {

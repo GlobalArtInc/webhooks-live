@@ -172,6 +172,13 @@ export interface RuleInput {
   steps?: RuleStep[];
 }
 
+export interface RuleWriteBody {
+  name?: string;
+  enabled?: boolean;
+  condition?: unknown;
+  steps?: unknown[];
+}
+
 export interface RuleList {
   items: Rule[];
   version: number;

@@ -99,6 +99,8 @@ export interface StepEditorContext {
   variables: readonly VariableEntry[];
   secrets: readonly string[];
   channels: readonly ChannelOption[];
+  scriptEditor?: boolean;
+  guards?: boolean;
 }
 
 export interface StepRemoval {

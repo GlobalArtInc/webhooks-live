@@ -15,6 +15,7 @@ import { SettingsScreen } from '../routes/settings/SettingsScreen';
 import { SettingsIndexScreen } from '../routes/settings/SettingsIndexScreen';
 import { SettingsSectionScreen } from '../routes/settings/SettingsSectionScreen';
 import { SignInScreen } from '../routes/signin/SignInScreen';
+import { RULE_EDITOR_ROUTE_ID } from '../features/rules/editor/routeId';
 import { createAppRouter, EndpointsRouteScreen } from './router';
 
 const ENDPOINT_ID = '0123456789abcdefghjkmnpq';
@@ -68,5 +69,21 @@ describe('route table', () => {
     expect(leaf).toBeDefined();
     expect(leaf?.params).toEqual(params);
     expect(leaf === undefined ? undefined : router.routesById[leaf.routeId].options.component).toBe(screen);
+  });
+});
+
+describe('rule editor route', () => {
+  it('resolves the rule path to the rule editor route with the rule id and the new rule path alike', () => {
+    for (const ruleId of [CAPTURE_ID, 'new']) {
+      const path = `/e/${ENDPOINT_ID}/settings/rules/${ruleId}`;
+      const router = createAppRouter({
+        history: createMemoryHistory({ initialEntries: [path] }),
+        queryClient: new QueryClient(),
+      });
+      const leaf = router.matchRoutes(path).at(-1);
+
+      expect(leaf?.routeId).toBe(RULE_EDITOR_ROUTE_ID);
+      expect(leaf?.params).toEqual({ id: ENDPOINT_ID, ruleId });
+    }
   });
 });
