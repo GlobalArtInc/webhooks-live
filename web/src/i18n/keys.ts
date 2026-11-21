@@ -2,6 +2,7 @@ import common from './en/common.json';
 import detail from './en/detail.json';
 import diff from './en/diff.json';
 import editor from './en/editor.json';
+import email from './en/email.json';
 import endpoint from './en/endpoint.json';
 import exportMessages from './en/export.json';
 import forwarding from './en/forwarding.json';
@@ -15,6 +16,7 @@ export type SourceMessages = typeof common &
   typeof detail &
   typeof diff &
   typeof editor &
+  typeof email &
   typeof endpoint &
   typeof exportMessages &
   typeof forwarding &

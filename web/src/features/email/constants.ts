@@ -1,0 +1,19 @@
+const KIB = 1024;
+const MIB = KIB * KIB;
+
+export const MAX_FIELD_CHARS = 2000;
+export const MAX_NAME_CHARS = 255;
+export const MAX_LIST_ITEMS = 100;
+export const MAX_PARTS = 200;
+export const MAX_HEADERS = 1000;
+export const MAX_FILE_NAME_CHARS = 120;
+export const MAX_EXTENSION_CHARS = 16;
+export const HEADER_PREVIEW_ROWS = 12;
+export const PREVIEW_MAX_BYTES = 2 * MIB;
+export const PREVIEW_MAX_PIXELS = 16_000_000;
+export const TEXT_LOAD_MAX_BYTES = 8 * MIB;
+export const TEXT_PREVIEW_BYTES = 256 * KIB;
+export const TEXT_LARGE_BYTES = MIB;
+export const ELLIPSIS = '\u2026';
+export const DEFAULT_PART_TYPE = 'application/octet-stream';
+export const EMAIL_KIND = 'email';
