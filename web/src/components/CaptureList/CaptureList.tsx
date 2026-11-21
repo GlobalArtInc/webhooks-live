@@ -1,5 +1,5 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type UIEvent } from 'react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode, type UIEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { CaptureSummary } from '../../api/types';
 import { compareLabelOf } from '../../features/list/compare';
@@ -31,6 +31,13 @@ export interface CaptureListSelection {
   onLongPress?: (captureId: string) => void;
 }
 
+export interface RowExtras {
+  endpoint?: ReactNode;
+  deleteDenied?: string;
+}
+
+const NO_ROW_EXTRAS = (): RowExtras => ({});
+
 export interface CaptureListProps {
   items: CaptureSummary[];
   selectedId: string | null;
@@ -55,6 +62,8 @@ export interface CaptureListProps {
   onAtTopChange: (atTop: boolean) => void;
   onPillActivate: () => void;
   selection?: CaptureListSelection;
+  rowExtras?: (item: CaptureSummary) => RowExtras;
+  compare?: boolean;
 }
 
 export function CaptureList({
@@ -81,6 +90,8 @@ export function CaptureList({
   onAtTopChange,
   onPillActivate,
   selection,
+  rowExtras = NO_ROW_EXTRAS,
+  compare = true,
 }: CaptureListProps) {
   const { t } = useTranslation();
   const idPrefix = useId();
@@ -209,6 +220,7 @@ export function CaptureList({
                   arriving={arrivingIds.has(item.id)}
                   checkable={selection?.active ?? false}
                   checked={selection?.checkedIds.has(item.id) ?? false}
+                  endpoint={rowExtras(item).endpoint}
                   style={{ height: rowHeight, transform: `translateY(${index * rowHeight}px)` }}
                   onSelect={selection?.active === true ? selection.onToggle : onSelect}
                   onLongPress={selection?.onLongPress}
@@ -222,6 +234,8 @@ export function CaptureList({
                   captureId={item.id}
                   compareLabel={compareLabelOf(markedId, item.id)}
                   style={{ height: rowHeight, transform: `translateY(${index * rowHeight}px)` }}
+                  compare={compare}
+                  deleteDenied={rowExtras(item).deleteDenied}
                   onDelete={onDelete}
                   onCompare={onCompare}
                 />

@@ -1,4 +1,4 @@
-import { useEffect, useRef, type CSSProperties } from 'react';
+import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { CaptureSummary } from '../../api/types';
 import { badgeKindOf, captureKindOf } from '../../features/kinds/kinds';
@@ -26,6 +26,7 @@ export interface CaptureRowProps {
   arriving?: boolean;
   checkable?: boolean;
   checked?: boolean;
+  endpoint?: ReactNode;
   style: CSSProperties;
   onSelect: (captureId: string) => void;
   onLongPress?: (captureId: string) => void;
@@ -35,6 +36,8 @@ export interface CaptureRowActionsProps {
   captureId: string;
   compareLabel: CompareLabel;
   style: CSSProperties;
+  compare?: boolean;
+  deleteDenied?: string;
   onDelete: (captureId: string) => void;
   onCompare: (captureId: string) => void;
 }
@@ -56,6 +59,7 @@ export function CaptureRow({
   arriving = false,
   checkable = false,
   checked = false,
+  endpoint,
   style,
   onSelect,
   onLongPress,
@@ -158,6 +162,7 @@ export function CaptureRow({
             </span>
           </>
         )}
+        {endpoint}
         {summary.status_override === null ? null : (
           <span title={t('wl.endpoint.row.overrideTitle', { code: summary.status_override })}>
             <StatusChip code={summary.status_override} kind="override" label={String(summary.status_override)} />
@@ -183,7 +188,15 @@ export function CaptureRow({
   );
 }
 
-export function CaptureRowActions({ captureId, compareLabel, style, onDelete, onCompare }: CaptureRowActionsProps) {
+export function CaptureRowActions({
+  captureId,
+  compareLabel,
+  style,
+  compare = true,
+  deleteDenied,
+  onDelete,
+  onCompare,
+}: CaptureRowActionsProps) {
   const { t } = useTranslation();
   const compareName =
     compareLabel === 'mark'
@@ -197,6 +210,8 @@ export function CaptureRowActions({ captureId, compareLabel, style, onDelete, on
       <button
         type="button"
         className={styles.action}
+        disabled={deleteDenied !== undefined}
+        title={deleteDenied}
         onClick={() => {
           onDelete(captureId);
         }}
@@ -204,16 +219,18 @@ export function CaptureRowActions({ captureId, compareLabel, style, onDelete, on
         <span aria-hidden="true">×</span>
         <span className={styles.visuallyHidden}>{t('wl.endpoint.row.delete')}</span>
       </button>
-      <button
-        type="button"
-        className={styles.action}
-        onClick={() => {
-          onCompare(captureId);
-        }}
-      >
-        <span aria-hidden="true">A/B</span>
-        <span className={styles.visuallyHidden}>{compareName}</span>
-      </button>
+      {compare ? (
+        <button
+          type="button"
+          className={styles.action}
+          onClick={() => {
+            onCompare(captureId);
+          }}
+        >
+          <span aria-hidden="true">A/B</span>
+          <span className={styles.visuallyHidden}>{compareName}</span>
+        </button>
+      ) : null}
     </div>
   );
 }

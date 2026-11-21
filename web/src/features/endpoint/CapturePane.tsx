@@ -23,7 +23,7 @@ export interface CapturePaneProps {
   pager: ListPagerProps | null;
   onBack?: () => void;
   onClose?: () => void;
-  onCompare: () => void;
+  onCompare?: () => void;
 }
 
 function CaptureMissing() {
@@ -99,9 +99,11 @@ export function CapturePane({
         <h2 ref={headingRef} tabIndex={-1} className={styles.heading}>
           {t('wl.endpoint.detail.heading', { id: captureId.slice(0, SHORT_ID_LENGTH) })}
         </h2>
-        <button type="button" className={styles.button} onClick={onCompare}>
-          {compareText}
-        </button>
+        {onCompare === undefined ? null : (
+          <button type="button" className={styles.button} onClick={onCompare}>
+            {compareText}
+          </button>
+        )}
         {onClose === undefined ? null : (
           <button type="button" className={styles.button} onClick={onClose}>
             {t('wl.endpoint.detail.close')}
