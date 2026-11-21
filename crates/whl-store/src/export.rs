@@ -54,7 +54,7 @@ impl Store {
     ) -> Result<Vec<CaptureDetail>, CaptureError> {
         let mut query = QueryBuilder::<Postgres>::new(format!(
             "SELECT {}, c.url, c.host, c.headers::text AS headers, c.query::text AS query, \
-             c.form::text AS form, c.meta::text AS meta FROM captures c",
+             c.form::text AS form, c.meta::text AS meta, c.note FROM captures c",
             summary_columns(None)
         ));
         push_selection(&mut query, endpoint, selection);
@@ -116,6 +116,7 @@ fn export_detail(row: &PgRow) -> Result<CaptureDetail, CaptureError> {
         query,
         form,
         meta: decode(&context, "meta", &meta)?,
+        note: row.try_get("note").map_err(CaptureError::Query)?,
         body: CaptureBody {
             prefix: Vec::new(),
             truncated: false,
