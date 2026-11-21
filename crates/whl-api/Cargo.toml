@@ -18,9 +18,11 @@ whl-auth.workspace = true
 whl-core.workspace = true
 whl-forward.workspace = true
 whl-live.workspace = true
+whl-notify.workspace = true
 whl-secrets.workspace = true
 whl-store.workspace = true
 whl-telemetry.workspace = true
+whl-template.workspace = true
 
 [dev-dependencies]
 futures-util.workspace = true

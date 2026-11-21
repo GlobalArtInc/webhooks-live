@@ -9,6 +9,7 @@ mod input;
 mod limit;
 mod listing;
 mod members;
+mod notify;
 mod policy;
 mod resolve;
 mod secrets;
@@ -25,6 +26,7 @@ use axum::routing::{get, post};
 
 pub use forward::ForwardSettings;
 pub use limit::{ApiLimits, enforce_rate_limit};
+pub use notify::NotifyApiSettings;
 pub use policy::guard_routes;
 pub use settings::ApiSettings;
 pub use state::ApiState;
@@ -47,6 +49,7 @@ pub fn router(state: ApiState) -> Router {
         .merge(members::routes())
         .merge(captures::routes())
         .merge(forward::routes())
+        .merge(notify::routes())
         .merge(secrets::routes());
     let api = guard_routes(api, &state.access)
         .fallback(not_found)

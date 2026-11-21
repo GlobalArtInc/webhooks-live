@@ -6,6 +6,7 @@ use tokio::task::JoinHandle;
 use whl_capture::StorageFull;
 use whl_core::config::Config;
 use whl_core::limiter::Limiters;
+use whl_notify::{NotifyHandle, NotifyWorker};
 use whl_store::Store;
 use whl_store::maintenance::{
     MaintenanceHandle, MaintenanceSettings, exceeds_hard_limit, spawn_maintenance,
@@ -43,6 +44,7 @@ pub(crate) struct Background {
     refresher: JoinHandle<()>,
     cleanup: JoinHandle<()>,
     maintenance: MaintenanceHandle,
+    notify: Option<NotifyHandle>,
 }
 
 impl Background {
@@ -51,6 +53,7 @@ impl Background {
         settings: &BackgroundSettings,
         storage_full: StorageFull,
         limiters: Limiters,
+        notify: Option<NotifyWorker>,
         stop: &watch::Receiver<bool>,
     ) -> Self {
         let refresher = tokio::spawn(refresh_storage(
@@ -70,10 +73,12 @@ impl Background {
             settings.maintenance.clone(),
             until_stopped(stop.clone()),
         );
+        let notify = notify.map(|worker| worker.spawn(until_stopped(stop.clone())));
         Self {
             refresher,
             cleanup,
             maintenance,
+            notify,
         }
     }
 
@@ -87,6 +92,9 @@ impl Background {
             }
         }
         self.maintenance.join().await;
+        if let Some(mut notify) = self.notify {
+            notify.join().await;
+        }
     }
 }
 

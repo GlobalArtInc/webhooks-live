@@ -1,6 +1,7 @@
 mod background;
 mod error;
 mod forward;
+mod notify;
 mod public;
 mod readiness;
 mod rotate;
@@ -42,6 +43,7 @@ pub use signal::shutdown_signal;
 
 use background::Background;
 use forward::ForwardRuntime;
+use notify::NotifyRuntime;
 use readiness::Readiness;
 
 pub struct Bound {
@@ -55,6 +57,7 @@ pub struct Bound {
     api: ApiSettings,
     capture: CaptureSettings,
     forward: ForwardRuntime,
+    notify: NotifyRuntime,
     http: HttpLimits,
     auth: Option<AuthSettings>,
     auth_mode: AuthMode,
@@ -91,6 +94,7 @@ impl Bound {
     ) -> Result<(), ServerError> {
         let readiness = Arc::new(Readiness::default());
         let worker = self.forward.worker(&store)?;
+        let notify_worker = self.notify.worker(&store)?;
         let auth = match self.auth.clone() {
             Some(settings) => {
                 Some(AuthState::new(store.clone(), settings)?.with_proxies(self.proxies.clone()))
@@ -115,7 +119,8 @@ impl Bound {
         let state = ApiState::new(store.clone(), self.api.clone())
             .with_access(access)
             .with_limits(self.api_limits.clone())
-            .with_forward(ForwardSettings::with_system_lookup(self.forward.guard()));
+            .with_forward(ForwardSettings::with_system_lookup(self.forward.guard()))
+            .with_notifications(self.notify.api_settings());
         let state = match &self.secrets {
             Some(keyring) => state.with_secrets(Arc::clone(keyring)),
             None => state,
@@ -209,6 +214,7 @@ impl Bound {
             &self.background,
             storage_full,
             self.limiters,
+            notify_worker,
             &background_stop,
         );
         let mut forward = worker.map(|worker| worker.spawn(until_stopped(worker_stop)));
@@ -287,6 +293,8 @@ pub async fn bind(config: &Config) -> Result<Bound, ServerError> {
     let limiters = Limiters::new(&LimiterSettings::from_config(&config.rate))?;
     let proxies = TrustedProxies::new(config.trusted_proxies.clone());
     let api_limits = ApiLimits::new(limiters.clone(), proxies.clone());
+    let forward = ForwardRuntime::from_config(config)?;
+    let notify = NotifyRuntime::from_config(config, forward.guard(), secrets.clone())?;
 
     Ok(Bound {
         public,
@@ -298,7 +306,8 @@ pub async fn bind(config: &Config) -> Result<Bound, ServerError> {
         retention: config.capture.retention,
         api: ApiSettings::from_config(config),
         capture: CaptureSettings::from_config(config)?,
-        forward: ForwardRuntime::from_config(config)?,
+        forward,
+        notify,
         http: HttpLimits::default(),
         auth: AuthSettings::from_config(config)?,
         auth_mode: config.auth.mode,

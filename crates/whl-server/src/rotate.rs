@@ -58,6 +58,7 @@ pub async fn rotate_secrets(
         cursor = RotationCursor {
             endpoint: last.endpoint.clone(),
             name: last.name.clone(),
+            channel: last.channel,
         };
         let fetched = batch.len();
         for candidate in &batch {
@@ -116,10 +117,15 @@ async fn rotate_one(
         );
         return Ok(Step::Failed);
     }
-    Ok(
-        match store.replace_sealed_secret(stored, &replacement).await? {
-            ReplaceSealedOutcome::Replaced => Step::Rotated,
-            ReplaceSealedOutcome::Changed => Step::Skipped,
-        },
-    )
+    let replaced = if candidate.channel {
+        store
+            .replace_sealed_channel_secret(stored, &replacement)
+            .await?
+    } else {
+        store.replace_sealed_secret(stored, &replacement).await?
+    };
+    Ok(match replaced {
+        ReplaceSealedOutcome::Replaced => Step::Rotated,
+        ReplaceSealedOutcome::Changed => Step::Skipped,
+    })
 }

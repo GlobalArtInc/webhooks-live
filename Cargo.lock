@@ -4810,9 +4810,11 @@ dependencies = [
  "whl-core",
  "whl-forward",
  "whl-live",
+ "whl-notify",
  "whl-secrets",
  "whl-store",
  "whl-telemetry",
+ "whl-template",
  "whl-testkit",
 ]
 
@@ -4933,6 +4935,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "whl-notify"
+version = "0.1.0-dev"
+dependencies = [
+ "bytes",
+ "http",
+ "metrics",
+ "reqwest 0.13.5",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.21",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "whl-core",
+ "whl-forward",
+ "whl-notify",
+ "whl-secrets",
+ "whl-store",
+ "whl-telemetry",
+ "whl-template",
+ "whl-testkit",
+]
+
+[[package]]
 name = "whl-script"
 version = "0.1.0-dev"
 dependencies = [
@@ -4984,12 +5011,14 @@ dependencies = [
  "tower",
  "tower-http 0.7.1",
  "tracing",
+ "url",
  "whl-api",
  "whl-auth",
  "whl-capture",
  "whl-core",
  "whl-forward",
  "whl-live",
+ "whl-notify",
  "whl-secrets",
  "whl-store",
  "whl-telemetry",

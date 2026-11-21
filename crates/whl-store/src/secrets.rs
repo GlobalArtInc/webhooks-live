@@ -87,6 +87,7 @@ pub struct StoredSecret {
 pub struct RotationCandidate {
     pub endpoint: String,
     pub name: String,
+    pub channel: bool,
     pub stored: Option<StoredSecret>,
 }
 
@@ -94,6 +95,7 @@ pub struct RotationCandidate {
 pub struct RotationCursor {
     pub endpoint: String,
     pub name: String,
+    pub channel: bool,
 }
 
 impl RotationCursor {
@@ -101,8 +103,22 @@ impl RotationCursor {
         Self {
             endpoint: String::new(),
             name: String::new(),
+            channel: false,
         }
     }
+}
+
+const CHANNEL_SECRET_NAME_SQL: &str = "'C' || upper(replace(id::text, '-', ''))";
+
+fn rotation_union() -> String {
+    format!(
+        "SELECT endpoint_id, name, 0::int2 AS source, key_id, nonce, ciphertext \
+         FROM endpoint_secrets \
+         UNION ALL \
+         SELECT endpoint_id, {CHANNEL_SECRET_NAME_SQL} AS name, 1::int2 AS source, \
+           secret_key_id AS key_id, secret_nonce AS nonce, secret_ciphertext AS ciphertext \
+         FROM notification_channels WHERE secret_key_id IS NOT NULL"
+    )
 }
 
 fn meta_columns() -> String {
@@ -221,12 +237,15 @@ impl Store {
     }
 
     pub async fn count_secrets_outside_key(&self, active: KeyId) -> Result<u64, SecretStoreError> {
-        let count: i64 =
-            sqlx::query_scalar("SELECT count(*) FROM endpoint_secrets WHERE key_id <> $1")
-                .bind(active.to_column())
-                .fetch_one(self.pool())
-                .await
-                .map_err(classify)?;
+        let sql = format!(
+            "SELECT count(*) FROM ({}) rows WHERE key_id <> $1",
+            rotation_union()
+        );
+        let count: i64 = sqlx::query_scalar(&sql)
+            .bind(active.to_column())
+            .fetch_one(self.pool())
+            .await
+            .map_err(classify)?;
         u64::try_from(count)
             .map_err(|_| SecretStoreError::Invalid("a negative row count".to_owned()))
     }
@@ -237,18 +256,21 @@ impl Store {
         after: &RotationCursor,
         limit: u32,
     ) -> Result<Vec<RotationCandidate>, SecretStoreError> {
-        let rows = sqlx::query(
-            "SELECT endpoint_id, name, key_id, nonce, ciphertext FROM endpoint_secrets \
-             WHERE key_id <> $1 AND (endpoint_id, name) > ($2, $3) \
-             ORDER BY endpoint_id, name LIMIT $4",
-        )
-        .bind(active.to_column())
-        .bind(after.endpoint.as_str())
-        .bind(after.name.as_str())
-        .bind(i64::from(limit))
-        .fetch_all(self.pool())
-        .await
-        .map_err(classify)?;
+        let sql = format!(
+            "SELECT endpoint_id, name, source, key_id, nonce, ciphertext FROM ({}) rows \
+             WHERE key_id <> $1 AND (endpoint_id, name, source) > ($2, $3, $4) \
+             ORDER BY endpoint_id, name, source LIMIT $5",
+            rotation_union()
+        );
+        let rows = sqlx::query(&sql)
+            .bind(active.to_column())
+            .bind(after.endpoint.as_str())
+            .bind(after.name.as_str())
+            .bind(i16::from(after.channel))
+            .bind(i64::from(limit))
+            .fetch_all(self.pool())
+            .await
+            .map_err(classify)?;
         rows.iter().map(candidate_from_row).collect()
     }
 
@@ -272,6 +294,36 @@ impl Store {
         .await
         .map_err(classify)?
         .rows_affected();
+        Ok(if replaced == 1 {
+            ReplaceSealedOutcome::Replaced
+        } else {
+            ReplaceSealedOutcome::Changed
+        })
+    }
+
+    pub async fn replace_sealed_channel_secret(
+        &self,
+        stored: &StoredSecret,
+        replacement: &SealedSecret,
+    ) -> Result<ReplaceSealedOutcome, SecretStoreError> {
+        let sql = format!(
+            "UPDATE notification_channels SET secret_key_id = $4, secret_nonce = $5, \
+             secret_ciphertext = $6 \
+             WHERE endpoint_id = $1 AND {CHANNEL_SECRET_NAME_SQL} = $2 \
+             AND secret_key_id = $3 AND secret_nonce = $7"
+        );
+        let replaced = sqlx::query(&sql)
+            .bind(stored.endpoint.unpack())
+            .bind(stored.name.unpack())
+            .bind(stored.sealed.key_id().to_column())
+            .bind(replacement.key_id().to_column())
+            .bind(replacement.nonce().as_slice())
+            .bind(replacement.ciphertext())
+            .bind(stored.sealed.nonce().as_slice())
+            .execute(self.pool())
+            .await
+            .map_err(classify)?
+            .rows_affected();
         Ok(if replaced == 1 {
             ReplaceSealedOutcome::Replaced
         } else {
@@ -324,10 +376,12 @@ fn sealed_from_row(
 fn candidate_from_row(row: &PgRow) -> Result<RotationCandidate, SecretStoreError> {
     let endpoint: String = row.try_get("endpoint_id").map_err(classify)?;
     let name: String = row.try_get("name").map_err(classify)?;
+    let source: i16 = row.try_get("source").map_err(classify)?;
     let stored = decode_candidate(row, &endpoint, &name);
     Ok(RotationCandidate {
         endpoint,
         name,
+        channel: source == 1,
         stored,
     })
 }

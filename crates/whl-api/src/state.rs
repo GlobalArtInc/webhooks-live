@@ -6,6 +6,7 @@ use whl_store::Store;
 
 use crate::forward::ForwardSettings;
 use crate::limit::ApiLimits;
+use crate::notify::NotifyApiSettings;
 use crate::settings::ApiSettings;
 
 #[derive(Clone)]
@@ -16,6 +17,7 @@ pub struct ApiState {
     pub(crate) forward: ForwardSettings,
     pub(crate) access: AccessControl,
     pub(crate) secrets: Option<Arc<Keyring>>,
+    pub(crate) notifications: NotifyApiSettings,
 }
 
 impl ApiState {
@@ -27,11 +29,17 @@ impl ApiState {
             forward: ForwardSettings::default(),
             access: AccessControl::open(),
             secrets: None,
+            notifications: NotifyApiSettings::default(),
         }
     }
 
     pub fn with_secrets(mut self, keyring: Arc<Keyring>) -> Self {
         self.secrets = Some(keyring);
+        self
+    }
+
+    pub fn with_notifications(mut self, notifications: NotifyApiSettings) -> Self {
+        self.notifications = notifications;
         self
     }
 

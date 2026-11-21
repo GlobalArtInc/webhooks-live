@@ -524,3 +524,24 @@ fn an_unknown_auth_mode_is_refused() {
 
     assert!(matches!(error, ConfigError::Load(_)), "{error:?}");
 }
+
+#[test]
+fn notification_limits_have_defaults_and_read_the_environment() {
+    let defaults = load(&with_required(&[])).expect("the defaults load");
+    assert!(defaults.notify.enabled);
+    assert_eq!(defaults.notify.endpoint_per_hour, 30);
+    assert_eq!(defaults.notify.owner_per_hour, 300);
+    assert_eq!(defaults.notify.network_per_hour, 60);
+    assert_eq!(defaults.notify.global_per_hour, 600);
+    assert!(defaults.notify.vendor_proxy.is_none());
+
+    let set = load(&with_required(&[
+        ("WEBHOOKS_LIVE_NOTIFY_GLOBAL_PER_HOUR", "50"),
+        ("WEBHOOKS_LIVE_VENDOR_PROXY", "http://proxy.test:3128"),
+    ]))
+    .expect("the keys load");
+    assert_eq!(set.notify.global_per_hour, 50);
+    let proxy = set.notify.vendor_proxy.expect("the proxy is set");
+    assert_eq!(proxy.unpack().host_str(), Some("proxy.test"));
+    assert_eq!(format!("{proxy:?}"), "ProxyUrl(<redacted>)");
+}

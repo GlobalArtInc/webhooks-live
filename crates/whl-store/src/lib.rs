@@ -9,6 +9,7 @@ pub mod forward;
 mod kind;
 pub mod maintenance;
 mod members;
+pub mod notify;
 pub mod secrets;
 mod store;
 pub mod stream;

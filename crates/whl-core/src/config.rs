@@ -60,6 +60,15 @@ concurrency = 32
 max_attempts = 3
 allow_cidrs = []
 
+[notify]
+enabled = true
+concurrency = 8
+max_attempts = 3
+endpoint_per_hour = 30
+owner_per_hour = 300
+network_per_hour = 60
+global_per_hour = 600
+
 [shutdown]
 drain = "5s"
 grace = "25s"
@@ -98,6 +107,14 @@ const ENV_KEYS: &[(&str, &str)] = &[
     ("FORWARD_ALLOW_CIDRS", "forward.allow_cidrs"),
     ("SHUTDOWN_DRAIN", "shutdown.drain"),
     ("SHUTDOWN_GRACE", "shutdown.grace"),
+    ("NOTIFY_ENABLED", "notify.enabled"),
+    ("NOTIFY_CONCURRENCY", "notify.concurrency"),
+    ("NOTIFY_MAX_ATTEMPTS", "notify.max_attempts"),
+    ("NOTIFY_ENDPOINT_PER_HOUR", "notify.endpoint_per_hour"),
+    ("NOTIFY_OWNER_PER_HOUR", "notify.owner_per_hour"),
+    ("NOTIFY_NETWORK_PER_HOUR", "notify.network_per_hour"),
+    ("NOTIFY_GLOBAL_PER_HOUR", "notify.global_per_hour"),
+    ("VENDOR_PROXY", "notify.vendor_proxy"),
     ("SECRETS_KEYS", "secrets.keys"),
     ("LOG", "log"),
 ];
@@ -115,6 +132,7 @@ pub struct Config {
     pub capture: CaptureConfig,
     pub rate: RateConfig,
     pub forward: ForwardConfig,
+    pub notify: NotifyConfig,
     #[serde(default)]
     pub secrets: SecretsConfig,
     pub shutdown: ShutdownConfig,
@@ -205,6 +223,18 @@ pub struct ForwardConfig {
     pub allow_cidrs: Vec<IpNet>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct NotifyConfig {
+    pub enabled: bool,
+    pub concurrency: u32,
+    pub max_attempts: u32,
+    pub endpoint_per_hour: u32,
+    pub owner_per_hour: u32,
+    pub network_per_hour: u32,
+    pub global_per_hour: u32,
+    pub vendor_proxy: Option<ProxyUrl>,
+}
+
 #[derive(Debug, Default, Deserialize)]
 pub struct SecretsConfig {
     pub keys: Option<SecretKeys>,
@@ -237,6 +267,22 @@ impl DatabaseUrl {
 impl fmt::Debug for DatabaseUrl {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("DatabaseUrl(<redacted>)")
+    }
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(transparent)]
+pub struct ProxyUrl(Url);
+
+impl ProxyUrl {
+    pub fn unpack(&self) -> &Url {
+        &self.0
+    }
+}
+
+impl fmt::Debug for ProxyUrl {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("ProxyUrl(<redacted>)")
     }
 }
 

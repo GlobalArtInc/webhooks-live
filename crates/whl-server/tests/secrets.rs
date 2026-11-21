@@ -437,3 +437,67 @@ async fn the_rotate_subcommand_reports_progress_and_exits_with_the_outcome() {
     assert!(String::from_utf8_lossy(&second.stdout).contains("done: rotated 0"));
     assert_ne!(invalid.status.code(), Some(0));
 }
+
+#[tokio::test]
+async fn rotation_re_seals_notification_channel_secrets_too() {
+    use sqlx::Row;
+    use whl_store::notify::{ChannelKind, CreateChannelOutcome, NewChannel, Trigger};
+
+    let db = TestDb::new().await;
+    let store = Store::from_pool(db.pool().clone());
+    let target = endpoint(&store).await;
+    let old = ring(&format!("1:{KEY_ONE}"));
+    let rotated = ring(&format!("2:{KEY_TWO},1:{KEY_ONE}"));
+    let id = whl_store::Uuid::now_v7();
+    let name = whl_notify::channel_secret_name(id).expect("a valid name");
+    let value =
+        Secret::new("https://hooks.slack.com/services/T0/B0/xyz".to_owned()).expect("a value");
+    let outcome = store
+        .create_channel(
+            &target,
+            RETENTION,
+            &NewChannel {
+                id,
+                kind: ChannelKind::Slack,
+                name: "c".to_owned(),
+                enabled: true,
+                trigger: Trigger::Capture,
+                config: serde_json::json!({ "url": "masked" }),
+                sealed: Some(old.seal(&target, &name, &value).expect("seals")),
+                template: None,
+                per_hour: 10,
+                created_by: None,
+            },
+        )
+        .await
+        .expect("the channel is stored");
+    assert!(matches!(outcome, CreateChannelOutcome::Created(_)));
+    assert_eq!(
+        store
+            .count_secrets_outside_key(rotated.active_id())
+            .await
+            .expect("counts"),
+        1
+    );
+
+    let (report, _) = run(&store, &rotated, 100).await;
+    assert_eq!(report.rotated, 1);
+
+    let row = sqlx::query(
+        "SELECT secret_key_id, secret_nonce, secret_ciphertext FROM notification_channels",
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("the row is readable");
+    let sealed = whl_secrets::SealedSecret::from_parts(
+        KeyId::from_column(row.get::<i16, _>("secret_key_id")).expect("a key id"),
+        &row.get::<Vec<u8>, _>("secret_nonce"),
+        row.get::<Vec<u8>, _>("secret_ciphertext"),
+    )
+    .expect("a sealed value");
+    let only_new = ring(&format!("2:{KEY_TWO}"));
+    let opened = only_new
+        .open(&target, &name, &sealed)
+        .expect("opens with the new key only");
+    assert_eq!(opened.unpack(), value.unpack());
+}
