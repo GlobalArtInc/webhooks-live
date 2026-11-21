@@ -57,9 +57,9 @@ export function SavedFilters({ endpointId, filterFor, onOpen }: SavedFiltersProp
 
   return (
     <section className={styles.saved} aria-labelledby={headingId}>
-      <h3 id={headingId} className={styles.sectionTitle}>
+      <h2 id={headingId} className={styles.sectionTitle}>
         {t('wl.filterbuilder.saved.title')}
-      </h3>
+      </h2>
       {filters.length === 0 ? (
         <p className={styles.hint}>{t('wl.filterbuilder.saved.empty')}</p>
       ) : (
