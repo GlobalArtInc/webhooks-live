@@ -112,7 +112,7 @@ fn a_worker_that_ignores_the_deadline_is_replaced_and_the_pool_keeps_serving() {
     let stats = pool.stats();
     assert_eq!(stats.stuck_workers, 1);
     assert_eq!(stats.workers, 1);
-    assert_eq!(stats.busy, 0);
+    wait_for("the worker is idle again", || pool.stats().busy == 0);
 }
 
 #[test]
