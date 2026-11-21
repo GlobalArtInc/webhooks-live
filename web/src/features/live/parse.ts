@@ -7,6 +7,7 @@ import type {
   ForwardState,
   ResyncReason,
 } from '../../api/types';
+import { readRuleResult } from '../rules/runlogs/parse';
 import { LIVE_EVENT_NAMES, type LiveEvent, type LiveEventName, type LiveReadyPayload } from './types';
 
 type UnknownRecord = Record<string, unknown>;
@@ -152,6 +153,10 @@ export function readLiveEvent(name: LiveEventName, value: unknown): LiveEvent | 
       return isEndpointView(value) ? { name, data: value } : null;
     case 'forward_result': {
       const data = readForwardResult(value);
+      return data === null ? null : { name, data };
+    }
+    case 'rule_result': {
+      const data = readRuleResult(value);
       return data === null ? null : { name, data };
     }
     case 'resync':

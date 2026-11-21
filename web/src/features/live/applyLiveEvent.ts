@@ -17,6 +17,9 @@ import type {
   ForwardJob,
   ForwardState,
 } from '../../api/types';
+import type { RuleRun } from '../../api/ruleRunTypes';
+import { updateRuleRunLists } from '../rules/runlogs/api';
+import { withRuleRun } from '../rules/runlogs/model';
 import { captureKindOf } from '../kinds/kinds';
 import { withCaptureCount } from '../list/cache';
 import { filtersOfKey, hasActiveFilters, NO_FILTERS, sameActiveFilters, type ActiveFilters } from '../list/listFilters';
@@ -265,6 +268,11 @@ function applyForwardResult(state: LiveCacheState, captureId: string, job: Forwa
   };
 }
 
+function applyRuleResult(state: LiveCacheState, captureId: string, run: RuleRun): LiveOutcome {
+  const detail = state.detail?.id === captureId ? state.detail : undefined;
+  return { ...state, detail: detail === undefined ? state.detail : withRuleRun(detail, run), effects: [] };
+}
+
 export function applyLiveEvent(state: LiveCacheState, event: LiveEvent): LiveOutcome {
   switch (event.name) {
     case 'capture':
@@ -282,6 +290,8 @@ export function applyLiveEvent(state: LiveCacheState, event: LiveEvent): LiveOut
       return { ...state, endpoint: event.data, effects: [] };
     case 'forward_result':
       return applyForwardResult(state, event.data.capture_id, event.data.job);
+    case 'rule_result':
+      return applyRuleResult(state, event.data.capture_id, event.data.run);
     case 'ready':
       return { ...state, effects: [{ kind: 'catchUp', reason: 'ready', ready: event.data }] };
     case 'resync':
@@ -328,10 +338,9 @@ export function applyLiveEventToCache(
     return [];
   }
   const endpoint = queryClient.getQueryData<Endpoint>(queryKeys.endpoint(endpointId));
+  const detailId = event.name === 'forward_result' || event.name === 'rule_result' ? event.data.capture_id : null;
   const detail =
-    event.name === 'forward_result'
-      ? queryClient.getQueryData<Capture>(queryKeys.capture(endpointId, event.data.capture_id))
-      : undefined;
+    detailId === null ? undefined : queryClient.getQueryData<Capture>(queryKeys.capture(endpointId, detailId));
   const lists = queryClient.getQueryCache().findAll({ queryKey: queryKeys.captureLists(endpointId) });
   let shown: LiveEffect[] | null = null;
   let basis: LiveOutcome | null = null;
@@ -355,8 +364,11 @@ export function applyLiveEventToCache(
   if (outcome.endpoint !== undefined && outcome.endpoint !== endpoint) {
     queryClient.setQueryData(queryKeys.endpoint(endpointId), outcome.endpoint);
   }
-  if (outcome.detail !== undefined && outcome.detail !== detail && event.name === 'forward_result') {
-    queryClient.setQueryData(queryKeys.capture(endpointId, event.data.capture_id), outcome.detail);
+  if (outcome.detail !== undefined && outcome.detail !== detail && detailId !== null) {
+    queryClient.setQueryData(queryKeys.capture(endpointId, detailId), outcome.detail);
+  }
+  if (event.name === 'rule_result') {
+    updateRuleRunLists(queryClient, endpointId, event.data.run);
   }
   if (event.name === 'endpoint_updated' || event.name === 'endpoint_deleted') {
     void queryClient.invalidateQueries({ queryKey: queryKeys.endpointLists() });

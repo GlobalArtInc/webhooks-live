@@ -1,0 +1,243 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--color-text);
+  font: var(--text-data);
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.action {
+  min-height: 24px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: var(--text-data);
+  cursor: pointer;
+}
+
+.action:hover:not(:disabled) {
+  background: var(--color-surface-sunken);
+}
+
+.action:disabled {
+  cursor: progress;
+  color: var(--color-text-muted);
+}
+
+.action:focus-visible,
+.filter input:focus-visible,
+.output summary:focus-visible,
+.run summary:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.filter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 24px;
+  font: var(--text-data);
+  cursor: pointer;
+}
+
+.muted {
+  color: var(--color-text-muted);
+  font: var(--text-meta);
+}
+
+.mono {
+  font: var(--mono-data);
+}
+
+.error {
+  color: var(--color-danger);
+  font: var(--text-data);
+  overflow-wrap: anywhere;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  font: var(--text-meta);
+  white-space: nowrap;
+}
+
+.badge[data-tone='ok'] {
+  background: var(--color-surface-sunken);
+  color: var(--color-success);
+}
+
+.badge[data-tone='failed'] {
+  background: var(--color-surface-sunken);
+  color: var(--color-danger);
+}
+
+.badge[data-tone='neutral'] {
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
+}
+
+.matchedOk {
+  color: var(--color-success);
+}
+
+.matchedNone {
+  color: var(--color-text-muted);
+}
+
+.runs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.run {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  min-width: 0;
+}
+
+.runSummary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 24px;
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+  font: var(--text-data);
+}
+
+.run > .error,
+.run > .muted {
+  padding: 0 var(--space-3) var(--space-2);
+}
+
+.rules {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0 var(--space-3) var(--space-3);
+  list-style: none;
+}
+
+.rule {
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border);
+  min-width: 0;
+}
+
+.ruleTitle {
+  margin: 0;
+  font: var(--text-data);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: var(--space-1) 0 0;
+  font: var(--text-meta);
+  color: var(--color-text-muted);
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  padding: 0 0 0 var(--space-3);
+  min-width: 0;
+}
+
+.step {
+  min-width: 0;
+}
+
+.stepHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.stepDetail {
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-muted);
+  font: var(--text-data);
+  overflow-wrap: anywhere;
+}
+
+.output {
+  margin-top: var(--space-1);
+  min-width: 0;
+}
+
+.output summary {
+  min-height: 24px;
+  cursor: pointer;
+  font: var(--text-meta);
+  color: var(--color-text-muted);
+}
+
+.outputText {
+  max-height: 160px;
+  margin: var(--space-1) 0 0;
+  padding: var(--space-2);
+  overflow: auto;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+  font: var(--mono-data);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.facts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  min-width: 0;
+}
+
+.fact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  min-width: 0;
+}
+
+.fact dt {
+  min-width: 120px;
+  font: var(--text-meta);
+}
+
+.fact dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

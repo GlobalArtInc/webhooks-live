@@ -15,6 +15,7 @@ import kinds from './en/kinds.json';
 import inbox from './en/inbox.json';
 import live from './en/live.json';
 import rules from './en/rules.json';
+import runlogs from './en/runlogs.json';
 import rail from './en/rail.json';
 import sample from './en/sample.json';
 import script from './en/script.json';
@@ -43,6 +44,7 @@ export type SourceMessages = typeof access &
   typeof inbox &
   typeof live &
   typeof rules &
+  typeof runlogs &
   typeof rail &
   typeof sample &
   typeof script &

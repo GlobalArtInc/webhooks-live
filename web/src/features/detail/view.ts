@@ -28,6 +28,9 @@ export function visibleSections(capture: Capture): DetailSectionId[] {
   if (capture.forwards.length > 0) {
     sections.push('forward');
   }
+  if ((capture.rule_runs ?? []).length > 0) {
+    sections.push('response', 'rules');
+  }
   if (capture.query.length > 0) {
     sections.push('query');
   }

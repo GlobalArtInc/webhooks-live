@@ -88,6 +88,9 @@ export class LiveSession {
       source.on('forward_result', (data) => {
         this.handle({ name: 'forward_result', data });
       }),
+      source.on('rule_result', (data) => {
+        this.handle({ name: 'rule_result', data });
+      }),
       source.on('resync', (data) => {
         this.handle({ name: 'resync', data });
       }),

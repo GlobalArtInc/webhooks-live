@@ -92,6 +92,7 @@ function createHandlerSets(): HandlerSets {
     endpoint_updated: new Set(),
     endpoint_deleted: new Set(),
     forward_result: new Set(),
+    rule_result: new Set(),
     resync: new Set(),
     bye: new Set(),
     state: new Set(),

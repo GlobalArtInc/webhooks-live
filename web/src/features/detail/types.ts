@@ -1,4 +1,5 @@
-export type DetailSectionId = 'summary' | 'forward' | 'query' | 'form' | 'body' | 'headers' | 'dns';
+export type DetailSectionId =
+  'summary' | 'forward' | 'response' | 'rules' | 'query' | 'form' | 'body' | 'headers' | 'dns';
 
 export type CaptureDetailState = 'loading' | 'ready' | 'large-pending' | 'deleted' | 'error';
 
