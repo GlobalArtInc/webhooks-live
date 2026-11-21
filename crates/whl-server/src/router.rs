@@ -10,18 +10,29 @@ use axum::routing::get;
 use tower_http::trace::TraceLayer;
 use tracing::Span;
 use whl_api::ApiState;
+use whl_auth::AuthState;
 use whl_capture::CaptureState;
 use whl_live::LiveState;
 
 use crate::readiness::Readiness;
 
-pub fn public(live: LiveState, api: ApiState, capture: CaptureState) -> Router {
+pub fn public(
+    live: LiveState,
+    api: ApiState,
+    capture: CaptureState,
+    auth: Option<AuthState>,
+) -> Router {
     let ingest = whl_capture::router_with_fallback(capture, whl_web::router());
-    let routes = Router::new()
-        .merge(whl_live::router(live))
-        .merge(whl_api::router(api))
-        .fallback_service(ingest);
-    with_tracing(routes)
+    let routes = Router::new().merge(whl_live::router(live));
+    let routes = match auth {
+        Some(auth) => routes
+            .merge(whl_api::router(api).layer(auth.origin_check()))
+            .merge(whl_auth::router(auth)),
+        None => routes
+            .merge(whl_api::router(api))
+            .merge(whl_auth::unavailable_router()),
+    };
+    with_tracing(routes.fallback_service(ingest))
 }
 
 pub fn admin(readiness: Arc<Readiness>) -> Router {

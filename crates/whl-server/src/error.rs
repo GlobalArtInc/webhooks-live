@@ -2,6 +2,7 @@ use std::io;
 use std::net::SocketAddr;
 
 use tokio::task::JoinError;
+use whl_auth::AuthError;
 use whl_capture::StateError;
 use whl_store::StoreError;
 
@@ -11,6 +12,8 @@ pub enum ServerError {
     Database(#[from] StoreError),
     #[error("cannot set up the capture path: {0}")]
     Capture(#[from] StateError),
+    #[error("cannot start sso authentication: {0}")]
+    Auth(#[from] AuthError),
     #[error("cannot bind the {listener} listener on {addr}: {source}")]
     Bind {
         listener: &'static str,

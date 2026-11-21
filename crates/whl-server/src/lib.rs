@@ -11,8 +11,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::net::TcpListener;
-use tokio::sync::watch;
+use tokio::sync::{oneshot, watch};
 use whl_api::{ApiSettings, ApiState};
+use whl_auth::{AuthSettings, AuthState};
 use whl_capture::{CaptureSettings, CaptureState};
 use whl_core::config::Config;
 use whl_live::{HUB_CAPACITY, Hub, LiveState, StreamSettings};
@@ -35,6 +36,7 @@ pub struct Bound {
     api: ApiSettings,
     capture: CaptureSettings,
     http: HttpLimits,
+    auth: Option<AuthSettings>,
 }
 
 impl Bound {
@@ -73,26 +75,35 @@ impl Bound {
             Arc::clone(&hub),
             until_stopped(stop_rx.clone()),
         );
-        let public = public::serve(
-            self.public,
-            router::public(live.clone(), state, capture),
-            self.http,
-            until_stopped(stop_rx.clone()),
-        );
+        let (public_ready, public_started) = oneshot::channel();
+        let public = serve_public(PublicParts {
+            listener: self.public,
+            live: live.clone(),
+            api: state,
+            capture,
+            store: store.clone(),
+            auth: self.auth.clone(),
+            http: self.http,
+            stop: stop_rx.clone(),
+            ready: public_ready,
+        });
         let admin = axum::serve(self.admin, router::admin(Arc::clone(&readiness)))
             .with_graceful_shutdown(until_stopped(stop_rx));
 
         let mut serving = tokio::spawn(async move {
-            tokio::try_join!(
-                serve_listener("public", public),
-                serve_listener("admin", admin),
-            )
-            .map(|_| ())
+            tokio::try_join!(public, serve_listener("admin", admin),).map(|_| ())
         });
 
         tokio::pin!(shutdown);
+        let startup = async {
+            let schema = store.check_schema_version().await;
+            if schema.is_ok() && public_started.await.is_err() {
+                std::future::pending::<()>().await;
+            }
+            schema
+        };
         let checked = tokio::select! {
-            outcome = store.check_schema_version() => outcome,
+            outcome = startup => outcome,
             outcome = &mut serving => return joined(outcome),
             () = &mut shutdown => {
                 let _ = stop_tx.send(true);
@@ -150,6 +161,7 @@ pub async fn bind(config: &Config) -> Result<Bound, ServerError> {
         api: ApiSettings::from_config(config),
         capture: CaptureSettings::from_config(config)?,
         http: HttpLimits::default(),
+        auth: AuthSettings::from_config(config)?,
     })
 }
 
@@ -173,6 +185,40 @@ async fn bind_listener(
     let socket = TcpListener::bind(addr).await.map_err(bind_error)?;
     let local = socket.local_addr().map_err(bind_error)?;
     Ok((socket, local))
+}
+
+struct PublicParts {
+    listener: TcpListener,
+    live: LiveState,
+    api: ApiState,
+    capture: CaptureState,
+    store: Store,
+    auth: Option<AuthSettings>,
+    http: HttpLimits,
+    stop: watch::Receiver<bool>,
+    ready: oneshot::Sender<()>,
+}
+
+async fn serve_public(parts: PublicParts) -> Result<(), ServerError> {
+    let auth = match parts.auth {
+        Some(settings) => {
+            let discovery = AuthState::discover(parts.store, settings);
+            tokio::select! {
+                state = discovery => Some(state?),
+                () = until_stopped(parts.stop.clone()) => return Ok(()),
+            }
+        }
+        None => None,
+    };
+    let router = router::public(parts.live, parts.api, parts.capture, auth);
+    let _ = parts.ready.send(());
+    let server = public::serve(
+        parts.listener,
+        router,
+        parts.http,
+        until_stopped(parts.stop),
+    );
+    serve_listener("public", server).await
 }
 
 async fn serve_listener(

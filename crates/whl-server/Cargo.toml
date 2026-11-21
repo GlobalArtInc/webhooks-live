@@ -21,6 +21,7 @@ tower.workspace = true
 tower-http.workspace = true
 tracing.workspace = true
 whl-api.workspace = true
+whl-auth.workspace = true
 whl-capture.workspace = true
 whl-core.workspace = true
 whl-live.workspace = true
@@ -30,5 +31,6 @@ whl-web.workspace = true
 
 [dev-dependencies]
 figment = { workspace = true, features = ["test"] }
+serde_json.workspace = true
 sqlx.workspace = true
 whl-testkit.workspace = true

@@ -23,6 +23,7 @@ whl-testkit = { path = "crates/whl-testkit" }
 whl-web = { path = "crates/whl-web" }
 
 axum = "0.8"
+axum-extra = { version = "0.12", default-features = false, features = ["cookie"] }
 bytes = "1"
 bytesize = "2"
 clap = { version = "4", features = ["derive"] }
@@ -53,6 +54,8 @@ hyper = { version = "1", default-features = false, features = ["http1", "http2",
 hyper-util = { version = "0.1", default-features = false, features = ["http1", "http2", "server-auto", "server-graceful", "tokio"] }
 mime_guess = "2"
 multer = "3"
+openidconnect = { version = "4.1", default-features = false, features = ["reqwest", "rustls-tls"] }
+p256 = { version = "0.14", default-features = false, features = ["ecdsa", "std"] }
 rust-embed = "8"
 sha2 = "0.11"
 tower = { version = "0.5", features = ["util"] }
