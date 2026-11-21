@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -151,6 +152,15 @@ const CAPTURES_AFTER: &str = r#"
 WHERE c.endpoint_id = $1 AND c.seq > $2
 ORDER BY c.seq ASC
 LIMIT $3
+"#;
+
+const EXTEND_LIFETIMES: &str = r#"
+UPDATE endpoints
+SET last_active_at = now()
+WHERE id = ANY($1)
+  AND deleted_at IS NULL
+  AND last_active_at > now() - make_interval(secs => $2)
+RETURNING id, last_seq, capture_count
 "#;
 
 const EXTEND_LIFETIME: &str = r#"
@@ -407,6 +417,28 @@ impl Store {
             created_at: row.try_get("created_at")?,
             finished_at: row.try_get("finished_at")?,
         }))
+    }
+
+    pub async fn extend_endpoints_lifetime(
+        &self,
+        endpoints: &[EndpointId],
+        retention: Duration,
+    ) -> Result<HashMap<String, EndpointLiveState>, StreamError> {
+        let ids: Vec<String> = endpoints
+            .iter()
+            .map(|endpoint| endpoint.unpack().to_owned())
+            .collect();
+        let rows = sqlx::query(EXTEND_LIFETIMES)
+            .bind(ids)
+            .bind(retention.as_secs_f64())
+            .fetch_all(self.pool())
+            .await?;
+        let mut states = HashMap::with_capacity(rows.len());
+        for row in &rows {
+            let id: String = row.try_get("id")?;
+            states.insert(id, live_state_from_row(row)?);
+        }
+        Ok(states)
     }
 
     pub async fn extend_endpoint_lifetime(

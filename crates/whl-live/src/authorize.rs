@@ -49,6 +49,28 @@ pub trait StreamAuthorizer: fmt::Debug + Send + Sync + 'static {
         endpoint: &'a EndpointId,
         request: &'a StreamRequest,
     ) -> VerdictFuture<'a>;
+
+    fn still_allowed_all<'a>(
+        &'a self,
+        endpoints: &'a [EndpointId],
+        request: &'a StreamRequest,
+    ) -> VerdictFuture<'a> {
+        Box::pin(async move {
+            let mut unavailable = false;
+            for endpoint in endpoints {
+                match self.still_allowed(endpoint, request).await {
+                    StreamVerdict::Allowed => {}
+                    StreamVerdict::Denied => return StreamVerdict::Denied,
+                    StreamVerdict::Unavailable => unavailable = true,
+                }
+            }
+            if unavailable {
+                StreamVerdict::Unavailable
+            } else {
+                StreamVerdict::Allowed
+            }
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]

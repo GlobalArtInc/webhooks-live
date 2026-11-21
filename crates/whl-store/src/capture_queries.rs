@@ -110,6 +110,7 @@ pub struct CaptureFilter {
     pub statuses: Vec<StatusFilter>,
     pub kinds: Vec<CaptureKind>,
     pub search: Option<String>,
+    pub search_chars: Option<i32>,
     pub after_seq: Option<i64>,
     pub since: Option<OffsetDateTime>,
     pub until: Option<OffsetDateTime>,
@@ -125,6 +126,9 @@ impl CaptureFilter {
             "since": self.since.map(|since| since.unix_timestamp_nanos()),
             "until": self.until.map(|until| until.unix_timestamp_nanos()),
         });
+        if let Some(chars) = self.search_chars {
+            fingerprint["search_chars"] = serde_json::Value::from(chars);
+        }
         if !self.kinds.is_empty() {
             fingerprint["kinds"] = serde_json::Value::from(
                 self.kinds
@@ -143,6 +147,12 @@ pub struct CaptureQuery {
     pub order: Order,
     pub limit: i64,
     pub position: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CaptureSlice {
+    pub items: Vec<CaptureSummary>,
+    pub next_position: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -183,6 +193,26 @@ impl Store {
         endpoint: &EndpointId,
         query: &CaptureQuery,
     ) -> Result<CapturePage, CaptureError> {
+        let slice = self.captures_slice(endpoint, query).await?;
+        let mut count = QueryBuilder::<Postgres>::new("SELECT count(*) FROM captures c");
+        push_filters(&mut count, endpoint, &query.filter);
+        let total: i64 = count
+            .build_query_scalar()
+            .fetch_one(self.pool())
+            .await
+            .map_err(classify)?;
+        Ok(CapturePage {
+            items: slice.items,
+            next_position: slice.next_position,
+            total,
+        })
+    }
+
+    pub async fn captures_slice(
+        &self,
+        endpoint: &EndpointId,
+        query: &CaptureQuery,
+    ) -> Result<CaptureSlice, CaptureError> {
         let mut page = QueryBuilder::<Postgres>::new(format!(
             "SELECT {} FROM captures c",
             summary_columns(Some(PATH_LIMIT_CHARS))
@@ -211,15 +241,6 @@ impl Store {
             .iter()
             .map(summary_from_row)
             .collect::<Result<Vec<_>, _>>()?;
-
-        let mut count = QueryBuilder::<Postgres>::new("SELECT count(*) FROM captures c");
-        push_filters(&mut count, endpoint, &query.filter);
-        let total: i64 = count
-            .build_query_scalar()
-            .fetch_one(self.pool())
-            .await
-            .map_err(classify)?;
-
         let limit = usize::try_from(query.limit).unwrap_or(usize::MAX);
         let next_position = if items.len() > limit {
             items.truncate(limit);
@@ -227,10 +248,9 @@ impl Store {
         } else {
             None
         };
-        Ok(CapturePage {
+        Ok(CaptureSlice {
             items,
             next_position,
-            total,
         })
     }
 
@@ -379,10 +399,18 @@ fn push_filters(
         query.push(" AND c.kind = ANY(").push_bind(kinds).push(")");
     }
     if let Some(term) = &filter.search {
-        query
-            .push(" AND strpos(b.search_text, lower(")
-            .push_bind(term.clone())
-            .push(")) > 0");
+        match filter.search_chars {
+            Some(chars) => {
+                query
+                    .push(" AND strpos(substr(b.search_text, 1, ")
+                    .push_bind(chars)
+                    .push("), lower(");
+            }
+            None => {
+                query.push(" AND strpos(b.search_text, lower(");
+            }
+        }
+        query.push_bind(term.clone()).push(")) > 0");
     }
     if let Some(since) = filter.since {
         query.push(" AND c.received_at >= ").push_bind(since);

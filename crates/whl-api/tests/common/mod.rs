@@ -318,6 +318,7 @@ pub struct Sse {
     pub status: StatusCode,
     body: axum::body::BodyDataStream,
     buffer: String,
+    pub last_id: Option<String>,
 }
 
 impl SsoHarness {
@@ -326,7 +327,12 @@ impl SsoHarness {
         let mut settings = StreamSettings::new(RETENTION);
         settings.recheck_interval = recheck;
         let live = LiveState::new(self.store.clone(), Arc::clone(&hub), settings)
-            .with_authorizer(whl_api::stream_authorizer(&self.access));
+            .with_authorizer(whl_api::stream_authorizer(&self.access))
+            .with_inbox(whl_api::inbox_selector(
+                &self.access,
+                self.store.clone(),
+                RETENTION,
+            ));
         let (stop, mut stopped) = watch::channel(false);
         let listener = whl_live::spawn_listener(self.store.clone(), hub, async move {
             let _ = stopped.wait_for(|stop| *stop).await;
@@ -343,9 +349,31 @@ impl SsoHarness {
 
 impl LiveApp {
     pub async fn open(&self, actor: Option<&Actor>, endpoint: &str) -> Sse {
-        let mut builder = Request::builder().uri(format!("/api/v1/endpoints/{endpoint}/stream"));
+        self.open_uri(actor, &format!("/api/v1/endpoints/{endpoint}/stream"), None)
+            .await
+    }
+
+    pub async fn open_inbox(
+        &self,
+        actor: Option<&Actor>,
+        query: &str,
+        last_event_id: Option<&str>,
+    ) -> Sse {
+        self.open_uri(
+            actor,
+            &format!("/api/v1/inbox/stream?{query}"),
+            last_event_id,
+        )
+        .await
+    }
+
+    async fn open_uri(&self, actor: Option<&Actor>, uri: &str, last_event_id: Option<&str>) -> Sse {
+        let mut builder = Request::builder().uri(uri);
         if let Some(actor) = actor {
             builder = builder.header(header::COOKIE, &actor.cookie);
+        }
+        if let Some(last_event_id) = last_event_id {
+            builder = builder.header("last-event-id", last_event_id);
         }
         let request = builder.body(Body::empty()).expect("the request is valid");
         let response = self
@@ -359,6 +387,7 @@ impl LiveApp {
             status: parts.status,
             body: body.into_data_stream(),
             buffer: String::new(),
+            last_id: None,
         }
     }
 }
@@ -373,6 +402,9 @@ impl Sse {
                     .find_map(|line| line.strip_prefix("event: "))
                     .map(str::to_owned);
                 if let Some(name) = name {
+                    if let Some(id) = block.lines().find_map(|line| line.strip_prefix("id: ")) {
+                        self.last_id = Some(id.to_owned());
+                    }
                     let data = block
                         .lines()
                         .find_map(|line| line.strip_prefix("data: "))
@@ -396,6 +428,16 @@ impl Sse {
             .unwrap_or_else(|| panic!("the stream ended while waiting for {name}"));
         assert_eq!(event, name, "{data}");
         data
+    }
+
+    pub async fn error_body(&mut self) -> Value {
+        let mut text = String::new();
+        while let Some(chunk) = self.body.next().await {
+            text.push_str(&String::from_utf8_lossy(
+                &chunk.expect("the chunk is readable"),
+            ));
+        }
+        serde_json::from_str(&text).expect("the error body is JSON")
     }
 
     pub async fn expect_end_after_bye(&mut self) {

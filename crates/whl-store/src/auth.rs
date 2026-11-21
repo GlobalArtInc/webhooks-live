@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::time::Duration;
 
@@ -66,6 +67,25 @@ const ENDPOINT_STANDING_SQL: &str = "SELECT e.owner_id IS NOT NULL AS owned, \
     LEFT JOIN endpoint_members m ON m.endpoint_id = e.id AND m.user_id = $2 \
     WHERE e.id = $1 AND e.deleted_at IS NULL \
         AND e.last_active_at > now() - make_interval(secs => $3)";
+
+const ENDPOINT_ROLES_SQL: &str = "SELECT e.id AS endpoint_id, \
+        CASE WHEN e.owner_id = $2 THEN 'owner' ELSE m.role END AS role \
+    FROM endpoints e \
+    LEFT JOIN endpoint_members m ON m.endpoint_id = e.id AND m.user_id = $2 \
+    WHERE e.id = ANY($1) AND e.deleted_at IS NULL \
+        AND e.last_active_at > now() - make_interval(secs => $3) \
+        AND (e.owner_id = $2 OR m.user_id IS NOT NULL)";
+
+const ENDPOINT_STANDINGS_SQL: &str = "SELECT e.id AS endpoint_id, e.owner_id IS NOT NULL AS owned, \
+        CASE WHEN e.owner_id IS NULL OR e.owner_id = $2 THEN 'owner' ELSE m.role END AS role \
+    FROM endpoints e \
+    LEFT JOIN endpoint_members m ON m.endpoint_id = e.id AND m.user_id = $2 \
+    WHERE e.id = ANY($1) AND e.deleted_at IS NULL \
+        AND e.last_active_at > now() - make_interval(secs => $3)";
+
+const LIVE_ENDPOINT_IDS_SQL: &str = "SELECT id FROM endpoints \
+    WHERE id = ANY($1) AND deleted_at IS NULL \
+        AND last_active_at > now() - make_interval(secs => $2)";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EndpointStanding {
@@ -173,6 +193,13 @@ pub enum AuthStoreError {
 pub struct LoginCaps {
     pub total: u32,
     pub per_network: u32,
+}
+
+fn endpoint_texts(endpoints: &[EndpointId]) -> Vec<String> {
+    endpoints
+        .iter()
+        .map(|endpoint| endpoint.unpack().to_owned())
+        .collect()
 }
 
 pub(crate) fn classify(error: sqlx::Error) -> AuthStoreError {
@@ -336,6 +363,76 @@ impl Store {
         EndpointRole::parse(&text)
             .map(Some)
             .ok_or_else(|| AuthStoreError::Invalid(format!("unknown endpoint role {text:?}")))
+    }
+
+    pub async fn endpoint_roles(
+        &self,
+        endpoints: &[EndpointId],
+        user_id: Uuid,
+        retention: Duration,
+    ) -> Result<HashMap<String, EndpointRole>, AuthStoreError> {
+        let rows = sqlx::query(ENDPOINT_ROLES_SQL)
+            .bind(endpoint_texts(endpoints))
+            .bind(user_id)
+            .bind(retention.as_secs_f64())
+            .fetch_all(self.pool())
+            .await
+            .map_err(classify)?;
+        let mut roles = HashMap::with_capacity(rows.len());
+        for row in &rows {
+            let endpoint: String = row.try_get("endpoint_id").map_err(classify)?;
+            let text: String = row.try_get("role").map_err(classify)?;
+            let role = EndpointRole::parse(&text).ok_or_else(|| {
+                AuthStoreError::Invalid(format!("unknown endpoint role {text:?}"))
+            })?;
+            roles.insert(endpoint, role);
+        }
+        Ok(roles)
+    }
+
+    pub async fn endpoint_standings(
+        &self,
+        endpoints: &[EndpointId],
+        user_id: Option<Uuid>,
+        retention: Duration,
+    ) -> Result<HashMap<String, EndpointStanding>, AuthStoreError> {
+        let rows = sqlx::query(ENDPOINT_STANDINGS_SQL)
+            .bind(endpoint_texts(endpoints))
+            .bind(user_id)
+            .bind(retention.as_secs_f64())
+            .fetch_all(self.pool())
+            .await
+            .map_err(classify)?;
+        let mut standings = HashMap::with_capacity(rows.len());
+        for row in &rows {
+            let endpoint: String = row.try_get("endpoint_id").map_err(classify)?;
+            let owned: bool = row.try_get("owned").map_err(classify)?;
+            let text: Option<String> = row.try_get("role").map_err(classify)?;
+            let role = match text {
+                Some(text) => Some(EndpointRole::parse(&text).ok_or_else(|| {
+                    AuthStoreError::Invalid(format!("unknown endpoint role {text:?}"))
+                })?),
+                None => None,
+            };
+            standings.insert(endpoint, EndpointStanding { owned, role });
+        }
+        Ok(standings)
+    }
+
+    pub async fn live_endpoint_ids(
+        &self,
+        endpoints: &[EndpointId],
+        retention: Duration,
+    ) -> Result<HashSet<String>, AuthStoreError> {
+        let rows = sqlx::query(LIVE_ENDPOINT_IDS_SQL)
+            .bind(endpoint_texts(endpoints))
+            .bind(retention.as_secs_f64())
+            .fetch_all(self.pool())
+            .await
+            .map_err(classify)?;
+        rows.iter()
+            .map(|row| row.try_get("id").map_err(classify))
+            .collect()
     }
 
     pub async fn endpoint_standing(

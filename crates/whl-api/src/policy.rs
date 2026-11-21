@@ -15,7 +15,7 @@ const CLAIM_TAIL: &str = "/claim";
 pub fn requirement(mode: AccessMode, method: &Method, pattern: &str) -> Requirement {
     let rest = pattern.strip_prefix(API_PREFIX).unwrap_or(pattern);
     match rest {
-        "/instance" => Requirement::Anyone,
+        "/instance" | "/inbox/captures" | "/inbox/stream" => Requirement::Anyone,
         "/endpoints" if mode == AccessMode::Mixed && *method == Method::POST => Requirement::Anyone,
         "/endpoints" => Requirement::SignedIn,
         _ => match rest.strip_prefix(ENDPOINT_PREFIX) {
@@ -227,6 +227,15 @@ mod tests {
                 requirement(mode, &POST, "/api/v1/endpoints"),
                 Requirement::SignedIn
             );
+        }
+    }
+
+    #[test]
+    fn the_inbox_routes_pass_the_gate_and_are_checked_per_endpoint_by_the_handler() {
+        for mode in MODES {
+            for route in ["/api/v1/inbox/captures", "/api/v1/inbox/stream"] {
+                assert_eq!(requirement(mode, &GET, route), Requirement::Anyone);
+            }
         }
     }
 

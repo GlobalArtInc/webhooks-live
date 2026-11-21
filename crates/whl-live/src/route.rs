@@ -28,6 +28,8 @@ use crate::emit::{self, ConnectionGauge};
 use crate::event::{Event, Outcome, ResyncReason};
 use crate::guard::WRITE_TIMEOUT;
 use crate::hub::{Hub, Subscription};
+use crate::inbox::{self, INBOX_STREAM_PATH, InboxSelector};
+use crate::slots::{INBOX_STREAMS_PER_PRINCIPAL, InboxSlots};
 use crate::{jitter, load, sse};
 
 pub const STREAM_PATH: &str = "/api/v1/endpoints/{id}/stream";
@@ -38,9 +40,9 @@ pub const REPLAY_LIMIT: usize = 100;
 pub const LIFETIME_JITTER: f64 = 0.1;
 pub const DEFAULT_MAX_CAPTURES: u32 = 500;
 
-const OUTBOX_FRAMES: usize = 8;
-const LAST_EVENT_ID_HEADER: &str = "last-event-id";
-const LAST_EVENT_ID_PARAM: &str = "last_event_id";
+pub(crate) const OUTBOX_FRAMES: usize = 8;
+pub(crate) const LAST_EVENT_ID_HEADER: &str = "last-event-id";
+pub(crate) const LAST_EVENT_ID_PARAM: &str = "last_event_id";
 const RETRY_AFTER_SECONDS: &str = "5";
 
 #[derive(Debug, Clone)]
@@ -53,6 +55,7 @@ pub struct StreamSettings {
     pub write_timeout: Duration,
     pub public_url: String,
     pub max_captures: u32,
+    pub inbox_streams_per_principal: usize,
 }
 
 impl StreamSettings {
@@ -66,6 +69,7 @@ impl StreamSettings {
             write_timeout: WRITE_TIMEOUT,
             public_url: String::new(),
             max_captures: DEFAULT_MAX_CAPTURES,
+            inbox_streams_per_principal: INBOX_STREAMS_PER_PRINCIPAL,
         }
     }
 
@@ -82,6 +86,8 @@ pub struct LiveState {
     pub(crate) hub: Arc<Hub>,
     pub(crate) settings: Arc<StreamSettings>,
     pub(crate) authorizer: Arc<dyn StreamAuthorizer>,
+    pub(crate) inbox: Option<Arc<dyn InboxSelector>>,
+    pub(crate) slots: Arc<InboxSlots>,
 }
 
 impl LiveState {
@@ -91,11 +97,18 @@ impl LiveState {
             hub,
             settings: Arc::new(settings),
             authorizer: Arc::new(AllowAll),
+            inbox: None,
+            slots: Arc::default(),
         }
     }
 
     pub fn with_authorizer(mut self, authorizer: Arc<dyn StreamAuthorizer>) -> Self {
         self.authorizer = authorizer;
+        self
+    }
+
+    pub fn with_inbox(mut self, selector: Arc<dyn InboxSelector>) -> Self {
+        self.inbox = Some(selector);
         self
     }
 
@@ -109,9 +122,13 @@ impl LiveState {
 }
 
 pub fn router(state: LiveState) -> Router {
-    Router::new()
-        .route(STREAM_PATH, get(stream_endpoint))
-        .with_state(state)
+    let routes = Router::new().route(STREAM_PATH, get(stream_endpoint));
+    let routes = if state.inbox.is_some() {
+        routes.route(INBOX_STREAM_PATH, get(inbox::stream_inbox))
+    } else {
+        routes
+    };
+    routes.with_state(state)
 }
 
 #[derive(Serialize)]
@@ -150,7 +167,30 @@ struct SummaryBody<'a> {
     kind: &'static str,
 }
 
-fn error_response(status: StatusCode, code: &'static str, message: &'static str) -> Response {
+pub(crate) fn summary_json(capture: &CaptureSummary) -> Result<String, serde_json::Error> {
+    serde_json::to_string(&SummaryBody {
+        id: &capture.id,
+        seq: capture.seq,
+        endpoint_id: &capture.endpoint_id,
+        received_at: &capture.received_at,
+        method: &capture.method,
+        path: &capture.path,
+        query_string: &capture.query_string,
+        client_ip: &capture.client_ip,
+        content_type: capture.content_type.as_deref(),
+        body_size: capture.body_size,
+        status_override: capture.status_override,
+        response_status: capture.response_status,
+        forward_state: capture.forward_state.map(|state| state.as_str()),
+        kind: capture.kind.as_str(),
+    })
+}
+
+pub(crate) fn error_response(
+    status: StatusCode,
+    code: &'static str,
+    message: &'static str,
+) -> Response {
     let body = ErrorBody {
         error: ErrorDetail { code, message },
     };
@@ -162,11 +202,11 @@ fn error_response(status: StatusCode, code: &'static str, message: &'static str)
         .into_response()
 }
 
-fn not_found() -> Response {
+pub(crate) fn not_found() -> Response {
     error_response(StatusCode::NOT_FOUND, "not_found", "not found")
 }
 
-fn gone() -> Response {
+pub(crate) fn gone() -> Response {
     error_response(
         StatusCode::GONE,
         "endpoint_gone",
@@ -174,7 +214,7 @@ fn gone() -> Response {
     )
 }
 
-fn unavailable() -> Response {
+pub(crate) fn unavailable() -> Response {
     let mut response = error_response(
         StatusCode::SERVICE_UNAVAILABLE,
         "store_unavailable",
@@ -232,7 +272,7 @@ async fn stream_endpoint(
     stream_response(Body::from_stream(FrameStream { frames }))
 }
 
-fn stream_response(body: Body) -> Response {
+pub(crate) fn stream_response(body: Body) -> Response {
     let mut response = Response::new(body);
     let headers = response.headers_mut();
     headers.insert(
@@ -278,8 +318,8 @@ fn parse_cursor(source: &'static str, text: &str) -> Option<i64> {
     }
 }
 
-struct FrameStream {
-    frames: mpsc::Receiver<Bytes>,
+pub(crate) struct FrameStream {
+    pub(crate) frames: mpsc::Receiver<Bytes>,
 }
 
 impl Stream for FrameStream {
@@ -291,7 +331,7 @@ impl Stream for FrameStream {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Ending {
+pub(crate) enum Ending {
     Finished,
     Disconnected,
     Stalled,
@@ -375,23 +415,12 @@ impl Viewer {
     }
 
     fn push_capture(&mut self, capture: &CaptureSummary) {
-        let body = SummaryBody {
-            id: &capture.id,
-            seq: capture.seq,
-            endpoint_id: &capture.endpoint_id,
-            received_at: &capture.received_at,
-            method: &capture.method,
-            path: &capture.path,
-            query_string: &capture.query_string,
-            client_ip: &capture.client_ip,
-            content_type: capture.content_type.as_deref(),
-            body_size: capture.body_size,
-            status_override: capture.status_override,
-            response_status: capture.response_status,
-            forward_state: capture.forward_state.map(|state| state.as_str()),
-            kind: capture.kind.as_str(),
-        };
-        self.push_json("capture", Some(capture.seq), &body);
+        match summary_json(capture) {
+            Ok(data) => self.push_frame("capture", Some(capture.seq), &data),
+            Err(error) => {
+                tracing::error!(%error, event = "capture", "cannot encode a stream event")
+            }
+        }
     }
 
     fn push_resolved(&mut self, event: &Event, outcome: &Outcome) {
@@ -488,14 +517,14 @@ impl Viewer {
     }
 
     async fn flush(&mut self, outbox: &mpsc::Sender<Bytes>) -> Option<Ending> {
-        while let Some(frame) = self.queue.pop_front() {
-            match tokio::time::timeout(self.write_timeout, outbox.send(frame)).await {
-                Ok(Ok(())) => self.next_ping = Instant::now() + self.ping_interval,
-                Ok(Err(_)) => return Some(Ending::Disconnected),
-                Err(_) => return Some(Ending::Stalled),
-            }
-        }
-        None
+        flush_frames(
+            &mut self.queue,
+            outbox,
+            self.write_timeout,
+            &mut self.next_ping,
+            self.ping_interval,
+        )
+        .await
     }
 
     async fn run(&mut self, outbox: &mpsc::Sender<Bytes>, state: &LiveState) -> Ending {
@@ -524,6 +553,23 @@ impl Viewer {
             }
         }
     }
+}
+
+pub(crate) async fn flush_frames(
+    queue: &mut VecDeque<Bytes>,
+    outbox: &mpsc::Sender<Bytes>,
+    write_timeout: Duration,
+    next_ping: &mut Instant,
+    ping_interval: Duration,
+) -> Option<Ending> {
+    while let Some(frame) = queue.pop_front() {
+        match tokio::time::timeout(write_timeout, outbox.send(frame)).await {
+            Ok(Ok(())) => *next_ping = Instant::now() + ping_interval,
+            Ok(Err(_)) => return Some(Ending::Disconnected),
+            Err(_) => return Some(Ending::Stalled),
+        }
+    }
+    None
 }
 
 async fn pump(mut viewer: Viewer, outbox: mpsc::Sender<Bytes>, state: LiveState) {

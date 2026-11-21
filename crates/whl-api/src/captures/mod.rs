@@ -7,6 +7,9 @@ mod query;
 use axum::Router;
 use axum::routing::get;
 
+pub(crate) use dto::SummaryDto;
+pub(crate) use query::{ListParams, inbox_query};
+
 use crate::state::ApiState;
 
 pub fn routes() -> Router<ApiState> {

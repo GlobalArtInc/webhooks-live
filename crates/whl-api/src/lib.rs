@@ -5,6 +5,7 @@ mod dto;
 mod error;
 mod forward;
 mod handlers;
+mod inbox;
 mod input;
 mod limit;
 mod listing;
@@ -24,6 +25,7 @@ use axum::response::Response;
 use axum::routing::{get, post};
 
 pub use forward::ForwardSettings;
+pub use inbox::inbox_selector;
 pub use limit::{ApiLimits, enforce_rate_limit};
 pub use policy::guard_routes;
 pub use settings::ApiSettings;
@@ -46,6 +48,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/endpoints/{id}/claim", post(claim::claim))
         .merge(members::routes())
         .merge(captures::routes())
+        .merge(inbox::routes())
         .merge(forward::routes())
         .merge(secrets::routes());
     let api = guard_routes(api, &state.access)

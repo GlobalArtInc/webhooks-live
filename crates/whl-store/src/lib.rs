@@ -9,6 +9,7 @@ pub mod forward;
 mod kind;
 pub mod maintenance;
 mod members;
+pub mod merge;
 pub mod secrets;
 mod store;
 pub mod stream;
@@ -19,7 +20,7 @@ pub use auth::{
 };
 pub use capture_queries::{
     CaptureBody, CaptureDetail, CaptureError, CaptureFilter, CaptureForm, CapturePage,
-    CaptureQuery, DeleteOutcome, FormFile, NameValue, Order, StatusFilter,
+    CaptureQuery, CaptureSlice, DeleteOutcome, FormFile, NameValue, Order, StatusFilter,
 };
 pub use claim::{ClaimOutcome, ClaimRefusal};
 pub use endpoints::{EndpointError, EndpointRecord, EndpointSettings, Overflow};

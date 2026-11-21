@@ -37,6 +37,38 @@ impl StreamAuthorizer for RoleAuthorizer {
             }
         })
     }
+
+    fn still_allowed_all<'a>(
+        &'a self,
+        endpoints: &'a [EndpointId],
+        request: &'a StreamRequest,
+    ) -> VerdictFuture<'a> {
+        Box::pin(async move {
+            let caller = match self.access.caller(request.headers(), request.peer()).await {
+                Ok(caller) => caller,
+                Err(rejection) => {
+                    tracing::warn!(%rejection, "cannot resolve the caller of an open inbox stream");
+                    return StreamVerdict::Unavailable;
+                }
+            };
+            match self.access.roles_on(&caller, endpoints).await {
+                Ok(roles) => {
+                    let all_allowed = roles
+                        .into_iter()
+                        .all(|role| decide_access(role, STREAM_ROLE) == Decision::Allowed);
+                    if all_allowed {
+                        StreamVerdict::Allowed
+                    } else {
+                        StreamVerdict::Denied
+                    }
+                }
+                Err(rejection) => {
+                    tracing::warn!(%rejection, "cannot read the roles of an open inbox stream's viewer");
+                    StreamVerdict::Unavailable
+                }
+            }
+        })
+    }
 }
 
 pub fn stream_authorizer(access: &AccessControl) -> Arc<dyn StreamAuthorizer> {

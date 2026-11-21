@@ -112,6 +112,7 @@ impl Bound {
         }
         .with_proxies(self.proxies.clone());
         let authorizer = whl_api::stream_authorizer(&access);
+        let inbox = whl_api::inbox_selector(&access, store.clone(), self.retention);
         let state = ApiState::new(store.clone(), self.api.clone())
             .with_access(access)
             .with_limits(self.api_limits.clone())
@@ -134,7 +135,8 @@ impl Bound {
             StreamSettings::new(self.retention)
                 .with_instance(self.api.public_url.clone(), self.api.max_captures),
         )
-        .with_authorizer(authorizer);
+        .with_authorizer(authorizer)
+        .with_inbox(inbox);
         let listener = whl_live::spawn_listener(
             store.clone(),
             Arc::clone(&hub),

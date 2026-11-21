@@ -9,6 +9,9 @@ use crate::error::{ApiError, FieldCode, FieldViolation};
 const DEFAULT_LIMIT: i64 = 50;
 const MAX_LIMIT: i64 = 200;
 const MAX_SEARCH_CHARS: usize = 200;
+const INBOX_DEFAULT_LIMIT: i64 = 25;
+const INBOX_MAX_LIMIT: i64 = 50;
+const INBOX_SEARCH_CHARS: i32 = 4096;
 
 #[derive(Debug, Default, Deserialize)]
 pub struct ListParams {
@@ -22,6 +25,62 @@ pub struct ListParams {
     after_seq: Option<String>,
     since: Option<String>,
     until: Option<String>,
+    endpoints: Option<String>,
+    folder: Option<String>,
+}
+
+impl ListParams {
+    pub fn endpoints(&self) -> Option<&str> {
+        self.endpoints.as_deref()
+    }
+
+    pub fn folder(&self) -> Option<&str> {
+        self.folder.as_deref()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct InboxQuery {
+    pub filter: CaptureFilter,
+    pub limit: i64,
+    pub cursor: Option<String>,
+}
+
+pub fn inbox_query(params: &ListParams) -> Result<InboxQuery, ApiError> {
+    let mut violations = Vec::new();
+    if params.order.as_deref().is_some_and(|order| order != "desc") {
+        violations.push(violation(
+            "order",
+            FieldCode::NotAllowed,
+            "the combined inbox lists newest first only",
+        ));
+    }
+    if params.after_seq.is_some() {
+        violations.push(violation(
+            "after_seq",
+            FieldCode::NotAllowed,
+            "after_seq names one endpoint's seq; list that endpoint instead",
+        ));
+    }
+    let limit = parse_inbox_limit(params.limit.as_deref(), &mut violations);
+    let filter = CaptureFilter {
+        methods: parse_methods(params.method.as_deref(), &mut violations),
+        statuses: parse_statuses(params.status.as_deref(), &mut violations),
+        kinds: parse_kinds(params.kind.as_deref(), &mut violations),
+        search: parse_search(params.q.as_deref(), &mut violations),
+        search_chars: Some(INBOX_SEARCH_CHARS),
+        after_seq: None,
+        since: parse_timestamp("since", params.since.as_deref(), &mut violations),
+        until: parse_timestamp("until", params.until.as_deref(), &mut violations),
+    };
+    if !violations.is_empty() {
+        return Err(ApiError::Validation(violations));
+    }
+    Ok(InboxQuery {
+        filter,
+        limit,
+        cursor: params.cursor.clone(),
+    })
 }
 
 pub fn list_query(params: &ListParams) -> Result<CaptureQuery, ApiError> {
@@ -33,6 +92,7 @@ pub fn list_query(params: &ListParams) -> Result<CaptureQuery, ApiError> {
         statuses: parse_statuses(params.status.as_deref(), &mut violations),
         kinds: parse_kinds(params.kind.as_deref(), &mut violations),
         search: parse_search(params.q.as_deref(), &mut violations),
+        search_chars: None,
         after_seq: parse_after_seq(params.after_seq.as_deref(), &mut violations),
         since: parse_timestamp("since", params.since.as_deref(), &mut violations),
         until: parse_timestamp("until", params.until.as_deref(), &mut violations),
@@ -98,6 +158,31 @@ fn parse_limit(text: Option<&str>, violations: &mut Vec<FieldViolation>) -> Opti
                 "must be an integer",
             ));
             None
+        }
+    }
+}
+
+fn parse_inbox_limit(text: Option<&str>, violations: &mut Vec<FieldViolation>) -> i64 {
+    let Some(text) = text else {
+        return INBOX_DEFAULT_LIMIT;
+    };
+    match text.parse::<i64>() {
+        Ok(limit) if (1..=INBOX_MAX_LIMIT).contains(&limit) => limit,
+        Ok(_) => {
+            violations.push(violation(
+                "limit",
+                FieldCode::OutOfRange,
+                "must be between 1 and 50",
+            ));
+            INBOX_DEFAULT_LIMIT
+        }
+        Err(_) => {
+            violations.push(violation(
+                "limit",
+                FieldCode::InvalidFormat,
+                "must be an integer",
+            ));
+            INBOX_DEFAULT_LIMIT
         }
     }
 }

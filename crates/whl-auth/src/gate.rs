@@ -253,6 +253,44 @@ impl AccessControl {
             .and_then(|standing| standing.role))
     }
 
+    pub async fn roles_on(
+        &self,
+        caller: &Caller,
+        endpoints: &[EndpointId],
+    ) -> Result<Vec<Option<EndpointRole>>, AuthRejection> {
+        let user = caller.user().map(|user| user.id);
+        match &self.inner.mode {
+            Mode::Open => Ok(vec![None; endpoints.len()]),
+            Mode::Sso { auth, retention } => match user {
+                Some(user) => {
+                    let roles = auth
+                        .store()
+                        .endpoint_roles(endpoints, user, *retention)
+                        .await?;
+                    Ok(endpoints
+                        .iter()
+                        .map(|endpoint| roles.get(endpoint.unpack()).copied())
+                        .collect())
+                }
+                None => Ok(vec![None; endpoints.len()]),
+            },
+            Mode::Mixed { auth, retention } => {
+                let standings = auth
+                    .store()
+                    .endpoint_standings(endpoints, user, *retention)
+                    .await?;
+                Ok(endpoints
+                    .iter()
+                    .map(|endpoint| {
+                        standings
+                            .get(endpoint.unpack())
+                            .and_then(|standing| standing.role)
+                    })
+                    .collect())
+            }
+        }
+    }
+
     pub fn creation(&self, caller: &Caller) -> Result<Creation, AuthRejection> {
         match (self.mode(), caller.user()) {
             (AccessMode::Open, _) => Ok(Creation::Anonymous { network: None }),
