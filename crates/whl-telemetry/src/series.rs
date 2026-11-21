@@ -28,3 +28,4 @@ pub const VERIFICATIONS_TOTAL: &str = "webhooks_live_verifications_total";
 pub const TEMPLATE_RENDERS_TOTAL: &str = "webhooks_live_template_renders_total";
 pub const TEMPLATE_RENDER_DURATION_SECONDS: &str = "webhooks_live_template_render_duration_seconds";
 pub const TEMPLATE_FALLBACKS_TOTAL: &str = "webhooks_live_template_fallbacks_total";
+pub const SCHEDULE_RUNS_TOTAL: &str = "webhooks_live_schedule_runs_total";

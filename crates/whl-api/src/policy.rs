@@ -15,6 +15,7 @@ const MEMBERS_TAIL: &str = "/members";
 const CLAIM_TAIL: &str = "/claim";
 const TOKENS_PATH: &str = "/tokens";
 const TOKEN_PATH: &str = "/tokens/{token_id}";
+const SCHEDULES_TAIL: &str = "/schedules";
 
 pub fn requirement(mode: AccessMode, method: &Method, pattern: &str) -> Requirement {
     let rest = pattern.strip_prefix(API_PREFIX).unwrap_or(pattern);
@@ -35,6 +36,9 @@ pub fn requirement(mode: AccessMode, method: &Method, pattern: &str) -> Requirem
         _ => match rest.strip_prefix(ENDPOINT_PREFIX) {
             Some(CLAIM_TAIL) if *method == Method::POST => Requirement::SignedIn,
             Some(tail) if is_members_route(tail) => Requirement::OwnedRole(EndpointRole::Owner),
+            Some(SCHEDULES_TAIL) if *method == Method::POST => {
+                Requirement::OwnedRole(EndpointRole::Owner)
+            }
             Some(tail) => Requirement::Role(endpoint_role(method, tail)),
             None => Requirement::Role(EndpointRole::Owner),
         },
@@ -124,6 +128,11 @@ fn endpoint_role(method: &Method, tail: &str) -> EndpointRole {
         }
         "/captures" | "/captures/{capture_id}" if *method == Method::DELETE => EndpointRole::Editor,
         "/captures/{capture_id}" if *method == Method::PATCH => EndpointRole::Editor,
+        "/schedules" | "/schedules/{schedule_id}/runs" if read => EndpointRole::Viewer,
+        "/schedules/{schedule_id}" if matches!(*method, Method::PATCH | Method::DELETE) => {
+            EndpointRole::Editor
+        }
+        "/schedules/{schedule_id}/run" if *method == Method::POST => EndpointRole::Editor,
         "/secrets" if read => EndpointRole::Editor,
         "/secrets/{name}" if matches!(*method, Method::PUT | Method::DELETE) => {
             EndpointRole::Editor
@@ -252,6 +261,47 @@ mod tests {
                 "/captures/{capture_id}/body",
                 Requirement::Role(Viewer),
             ),
+        ];
+        for mode in MODES {
+            for (method, tail, expected) in &table {
+                let pattern = format!("/api/v1/endpoints/{{id}}{tail}");
+                assert_eq!(
+                    requirement(mode, method, &pattern),
+                    *expected,
+                    "{mode:?} {method} {tail}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn schedule_routes_need_the_roles_of_the_api_table() {
+        use EndpointRole::{Editor, Owner, Viewer};
+        let table: [(&Method, &str, Requirement); 8] = [
+            (&GET, "/schedules", Requirement::Role(Viewer)),
+            (&POST, "/schedules", Requirement::OwnedRole(Owner)),
+            (
+                &PATCH,
+                "/schedules/{schedule_id}",
+                Requirement::Role(Editor),
+            ),
+            (
+                &DELETE,
+                "/schedules/{schedule_id}",
+                Requirement::Role(Editor),
+            ),
+            (
+                &POST,
+                "/schedules/{schedule_id}/run",
+                Requirement::Role(Editor),
+            ),
+            (
+                &GET,
+                "/schedules/{schedule_id}/runs",
+                Requirement::Role(Viewer),
+            ),
+            (&GET, "/schedules/{schedule_id}", Requirement::Role(Owner)),
+            (&PUT, "/schedules", Requirement::Role(Owner)),
         ];
         for mode in MODES {
             for (method, tail, expected) in &table {

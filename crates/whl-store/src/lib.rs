@@ -17,6 +17,7 @@ pub mod maintenance;
 mod members;
 pub mod merge;
 pub mod rules;
+pub mod schedules;
 pub mod secrets;
 pub mod stats;
 mod store;

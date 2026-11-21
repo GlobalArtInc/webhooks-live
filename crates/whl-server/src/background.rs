@@ -7,6 +7,7 @@ use whl_capture::StorageFull;
 use whl_core::config::Config;
 use whl_core::limiter::Limiters;
 use whl_dns::DnsHandle;
+use whl_schedule::{RunnerHandle, ScheduleRunner};
 use whl_store::Store;
 use whl_store::maintenance::{
     MaintenanceHandle, MaintenanceSettings, exceeds_hard_limit, spawn_maintenance,
@@ -45,6 +46,7 @@ pub(crate) struct Background {
     cleanup: JoinHandle<()>,
     maintenance: MaintenanceHandle,
     dns: Option<DnsHandle>,
+    schedules: Option<RunnerHandle>,
 }
 
 impl Background {
@@ -54,6 +56,7 @@ impl Background {
         storage_full: StorageFull,
         limiters: Limiters,
         dns: Option<DnsHandle>,
+        schedules: Option<ScheduleRunner>,
         stop: &watch::Receiver<bool>,
     ) -> Self {
         let refresher = tokio::spawn(refresh_storage(
@@ -73,11 +76,13 @@ impl Background {
             settings.maintenance.clone(),
             until_stopped(stop.clone()),
         );
+        let schedules = schedules.map(|runner| runner.spawn(until_stopped(stop.clone())));
         Self {
             refresher,
             cleanup,
             maintenance,
             dns,
+            schedules,
         }
     }
 
@@ -93,6 +98,9 @@ impl Background {
         self.maintenance.join().await;
         if let Some(dns) = self.dns {
             dns.join().await;
+        }
+        if let Some(mut schedules) = self.schedules {
+            schedules.join().await;
         }
     }
 }

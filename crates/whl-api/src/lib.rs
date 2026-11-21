@@ -18,6 +18,7 @@ mod members;
 mod policy;
 mod resolve;
 mod rules;
+mod schedules;
 mod secrets;
 mod settings;
 mod state;
@@ -41,6 +42,7 @@ pub use forward::ForwardSettings;
 pub use inbox::inbox_selector;
 pub use limit::{ApiLimits, enforce_rate_limit};
 pub use policy::guard_routes;
+pub use schedules::ScheduleSettings;
 pub use settings::ApiSettings;
 pub use state::ApiState;
 pub use stream::stream_authorizer;
@@ -66,6 +68,7 @@ pub fn router(state: ApiState) -> Router {
         .merge(inbox::routes())
         .merge(forward::routes())
         .merge(rules::routes())
+        .merge(schedules::routes())
         .merge(secrets::routes())
         .merge(composer::routes())
         .merge(tokens::routes())

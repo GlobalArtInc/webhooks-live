@@ -8,6 +8,7 @@ use crate::composer::ComposerSettings;
 use crate::export::ExportSlots;
 use crate::forward::ForwardSettings;
 use crate::limit::ApiLimits;
+use crate::schedules::ScheduleSettings;
 use crate::settings::ApiSettings;
 
 #[derive(Clone)]
@@ -20,6 +21,7 @@ pub struct ApiState {
     pub(crate) secrets: Option<Arc<Keyring>>,
     pub(crate) exports: ExportSlots,
     pub(crate) composer: ComposerSettings,
+    pub(crate) schedules: ScheduleSettings,
 }
 
 impl ApiState {
@@ -34,11 +36,17 @@ impl ApiState {
             secrets: None,
             exports,
             composer: ComposerSettings::default(),
+            schedules: ScheduleSettings::default(),
         }
     }
 
     pub fn with_secrets(mut self, keyring: Arc<Keyring>) -> Self {
         self.secrets = Some(keyring);
+        self
+    }
+
+    pub fn with_schedules(mut self, schedules: ScheduleSettings) -> Self {
+        self.schedules = schedules;
         self
     }
 

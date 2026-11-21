@@ -20,6 +20,7 @@ const FILE_ENV: &str = "WEBHOOKS_LIVE_CONFIG";
 const ENV_PREFIX: &str = "WEBHOOKS_LIVE_";
 
 pub const MIN_DB_POOL_SIZE: u32 = 2;
+pub const MIN_SCHEDULE_INTERVAL: Duration = Duration::from_secs(60);
 
 const DEFAULTS: &str = r#"
 listen_addr = "0.0.0.0:8080"
@@ -69,6 +70,12 @@ rate_capture_endpoint = "60/m:60"
 
 [export]
 concurrency = 2
+[schedules]
+enabled = true
+max_per_user = 5
+min_interval = "5m"
+runs_per_hour = 120
+workers = 8
 
 [composer]
 enabled = true
@@ -120,6 +127,11 @@ const ENV_KEYS: &[(&str, &str)] = &[
     ("COMPOSER_NETWORK_PER_DAY", "composer.network_per_day"),
     ("COMPOSER_USER_PER_HOUR", "composer.user_per_hour"),
     ("COMPOSER_MAX_IN_FLIGHT", "composer.max_in_flight"),
+    ("SCHEDULES_ENABLED", "schedules.enabled"),
+    ("SCHEDULES_MAX_PER_USER", "schedules.max_per_user"),
+    ("SCHEDULES_MIN_INTERVAL", "schedules.min_interval"),
+    ("SCHEDULES_RUNS_PER_HOUR", "schedules.runs_per_hour"),
+    ("SCHEDULES_WORKERS", "schedules.workers"),
     ("SHUTDOWN_DRAIN", "shutdown.drain"),
     ("SHUTDOWN_GRACE", "shutdown.grace"),
     ("SECRETS_KEYS", "secrets.keys"),
@@ -152,6 +164,7 @@ pub struct Config {
     pub forward: ForwardConfig,
     pub export: ExportConfig,
     pub composer: ComposerConfig,
+    pub schedules: SchedulesConfig,
     #[serde(default)]
     pub secrets: SecretsConfig,
     pub dns: DnsConfig,
@@ -255,6 +268,16 @@ pub struct ComposerConfig {
     pub network_per_day: u32,
     pub user_per_hour: u32,
     pub max_in_flight: u32,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SchedulesConfig {
+    pub enabled: bool,
+    pub max_per_user: u32,
+    #[serde(deserialize_with = "de::duration")]
+    pub min_interval: Duration,
+    pub runs_per_hour: u32,
+    pub workers: u32,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -385,6 +408,8 @@ pub enum Problem {
     MissingForMixed(&'static str),
     MissingForDns(&'static str),
     PoolSizeTooSmall,
+    ScheduleIntervalTooShort,
+    ScheduleRunsPerHourZero,
 }
 
 impl fmt::Display for Problem {
@@ -404,6 +429,14 @@ impl fmt::Display for Problem {
                 f,
                 "{ENV_PREFIX}{key} is required when DNS capture is configured"
             ),
+            Self::ScheduleIntervalTooShort => write!(
+                f,
+                "{ENV_PREFIX}SCHEDULES_MIN_INTERVAL must be at least {}s",
+                MIN_SCHEDULE_INTERVAL.as_secs()
+            ),
+            Self::ScheduleRunsPerHourZero => {
+                write!(f, "{ENV_PREFIX}SCHEDULES_RUNS_PER_HOUR must be at least 1")
+            }
             Self::PoolSizeTooSmall => write!(
                 f,
                 "{ENV_PREFIX}DB_POOL_SIZE must be at least {MIN_DB_POOL_SIZE}"
@@ -540,6 +573,12 @@ impl Config {
         ));
         problems.extend(pool_size_problem(self.database.pool_size));
         problems.extend(self.dns.problems());
+        if self.schedules.min_interval < MIN_SCHEDULE_INTERVAL {
+            problems.push(Problem::ScheduleIntervalTooShort);
+        }
+        if self.schedules.runs_per_hour == 0 {
+            problems.push(Problem::ScheduleRunsPerHourZero);
+        }
 
         if problems.is_empty() {
             Ok(())

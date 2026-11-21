@@ -2,7 +2,7 @@ use sqlx::PgPool;
 use whl_store::{Store, StoreError};
 use whl_testkit::TestDb;
 
-const TABLES: [&str; 18] = [
+const TABLES: [&str; 21] = [
     "api_tokens",
     "capture_bodies",
     "captures",
@@ -17,13 +17,16 @@ const TABLES: [&str; 18] = [
     "forward_rules",
     "login_states",
     "rules",
+    "schedule_quota_windows",
+    "schedule_runs",
+    "schedules",
     "sent_requests",
     "sessions",
     "usage_counters",
     "users",
 ];
 
-const KEY_INDEXES: [&str; 13] = [
+const KEY_INDEXES: [&str; 14] = [
     "api_tokens_user",
     "api_tokens_prefix",
     "users_email",
@@ -37,6 +40,7 @@ const KEY_INDEXES: [&str; 13] = [
     "endpoints_tags",
     "folder_endpoints_endpoint",
     "rules_endpoint_id_position_key",
+    "schedules_due",
 ];
 
 async fn migration_names(store: &Store) -> Vec<String> {
