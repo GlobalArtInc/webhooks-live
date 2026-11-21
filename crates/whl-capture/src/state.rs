@@ -16,6 +16,7 @@ use whl_store::captures::CapturePolicy;
 use crate::client_ip::TrustedProxies;
 use crate::delay::DelaySlots;
 use crate::seams::{Admission, StorageFull, admit_client, admit_endpoint};
+use crate::template::{TemplateEngine, TemplateSettings};
 
 pub const DEFAULT_BODY_READ_TIMEOUT: Duration = Duration::from_secs(30);
 pub const DEFAULT_BUDGET_WAIT: Duration = Duration::from_secs(2);
@@ -173,6 +174,7 @@ struct Inner {
     limiters: Option<Limiters>,
     public_url: String,
     delays: DelaySlots,
+    templates: Arc<TemplateEngine>,
 }
 
 impl CaptureState {
@@ -197,8 +199,26 @@ impl CaptureState {
                 limiters: None,
                 public_url: settings.public_url,
                 delays: DelaySlots::new(settings.max_delayed),
+                templates: Arc::new(TemplateEngine::new(TemplateSettings::default())),
             }),
         })
+    }
+
+    pub fn with_templates(self, settings: TemplateSettings) -> Self {
+        Self {
+            inner: Arc::new(Inner {
+                store: self.inner.store.clone(),
+                limits: self.inner.limits,
+                proxies: self.inner.proxies.clone(),
+                budget: self.inner.budget.clone(),
+                source: Arc::clone(&self.inner.source),
+                storage_full: self.inner.storage_full.clone(),
+                limiters: self.inner.limiters.clone(),
+                public_url: self.inner.public_url.clone(),
+                delays: self.inner.delays.clone(),
+                templates: Arc::new(TemplateEngine::new(settings)),
+            }),
+        }
     }
 
     pub fn with_limiters(self, limiters: Limiters) -> Self {
@@ -213,6 +233,7 @@ impl CaptureState {
                 limiters: Some(limiters),
                 public_url: self.inner.public_url.clone(),
                 delays: self.inner.delays.clone(),
+                templates: Arc::clone(&self.inner.templates),
             }),
         }
     }
@@ -229,6 +250,7 @@ impl CaptureState {
                 limiters: self.inner.limiters.clone(),
                 public_url: self.inner.public_url.clone(),
                 delays: self.inner.delays.clone(),
+                templates: Arc::clone(&self.inner.templates),
             }),
         }
     }
@@ -251,6 +273,10 @@ impl CaptureState {
 
     pub(crate) fn store(&self) -> &Store {
         &self.inner.store
+    }
+
+    pub(crate) fn templates(&self) -> &TemplateEngine {
+        &self.inner.templates
     }
 
     pub(crate) fn proxies(&self) -> &TrustedProxies {

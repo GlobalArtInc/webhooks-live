@@ -255,6 +255,13 @@ impl Template {
         })
     }
 
+    pub fn referenced_store(&self) -> BTreeSet<String> {
+        self.referenced_names(|reference| match reference {
+            Reference::Store(name, _) => Some(name),
+            _ => None,
+        })
+    }
+
     pub fn referenced_secrets(&self) -> BTreeSet<String> {
         self.referenced_names(|reference| match reference {
             Reference::Secret(name) => Some(name),

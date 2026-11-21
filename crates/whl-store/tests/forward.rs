@@ -32,6 +32,7 @@ async fn fixture() -> Fixture {
             &EndpointSettings {
                 title: None,
                 response: ResponseConfig::default(),
+                templating: Default::default(),
                 cors: false,
                 overflow: Overflow::Refuse,
             },
@@ -206,6 +207,7 @@ async fn rules_of_several_endpoints_load_in_one_query_grouped_by_endpoint() {
             &EndpointSettings {
                 title: None,
                 response: ResponseConfig::default(),
+                templating: Default::default(),
                 cors: false,
                 overflow: Overflow::Refuse,
             },

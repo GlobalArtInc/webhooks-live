@@ -17,6 +17,7 @@ use crate::store::Store;
 
 pub(crate) const COLUMNS: &str = "id, title, response_status, response_content_type, \
     response_headers::text AS response_headers, response_body, response_delay_ms, cors, overflow, \
+    response_templated, response_status_template, \
     capture_count, bytes_used, last_seq, created_at, last_active_at";
 
 const GET_SQL: &str = "WITH live AS ( \
@@ -29,7 +30,7 @@ const GET_SQL: &str = "WITH live AS ( \
     ) \
     SELECT e.id, e.title, e.response_status, e.response_content_type, \
         e.response_headers::text AS response_headers, e.response_body, e.response_delay_ms, e.cors, \
-        e.overflow, e.capture_count, e.bytes_used, e.last_seq, e.created_at, \
+        e.overflow, e.response_templated, e.response_status_template, e.capture_count, e.bytes_used, e.last_seq, e.created_at, \
         COALESCE(b.last_active_at, e.last_active_at) AS last_active_at \
     FROM endpoints e LEFT JOIN bumped b ON b.id = e.id \
     WHERE e.id IN (SELECT id FROM live)";
@@ -60,10 +61,17 @@ impl Overflow {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ResponseTemplating {
+    pub enabled: bool,
+    pub status: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct EndpointSettings {
     pub title: Option<String>,
     pub response: ResponseConfig,
+    pub templating: ResponseTemplating,
     pub cors: bool,
     pub overflow: Overflow,
 }
@@ -140,9 +148,10 @@ impl Store {
         let id = EndpointId::generate()?;
         let sql = format!(
             "INSERT INTO endpoints (id, title, response_status, response_content_type, \
-             response_headers, response_body, response_delay_ms, cors, overflow, owner_id, \
-             creator_net) \
-             VALUES ($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9, $10, $11::text::cidr) \
+             response_headers, response_body, response_delay_ms, cors, overflow, \
+             response_templated, response_status_template, owner_id, creator_net) \
+             VALUES ($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9, $10, $11, $12, \
+             $13::text::cidr) \
              RETURNING {COLUMNS}"
         );
         let row = bind_settings(sqlx::query(&sql).bind(id.unpack()), settings)?
@@ -204,7 +213,8 @@ impl Store {
         let update_sql = format!(
             "UPDATE endpoints SET title = $2, response_status = $3, response_content_type = $4, \
              response_headers = $5::text::jsonb, response_body = $6, response_delay_ms = $7, \
-             cors = $8, overflow = $9, last_active_at = now() \
+             cors = $8, overflow = $9, response_templated = $10, response_status_template = $11, \
+             last_active_at = now() \
              WHERE id = $1 RETURNING {COLUMNS}"
         );
         let row = bind_settings(sqlx::query(&update_sql).bind(id.unpack()), &settings)
@@ -266,7 +276,9 @@ fn bind_settings<'q>(
         .bind(settings.response.body())
         .bind(delay)
         .bind(settings.cors)
-        .bind(settings.overflow.as_str()))
+        .bind(settings.overflow.as_str())
+        .bind(settings.templating.enabled)
+        .bind(settings.templating.status.as_deref()))
 }
 
 pub(crate) fn record_from_row(
@@ -296,6 +308,12 @@ pub(crate) fn record_from_row(
         .map_err(EndpointError::Query)?;
     let cors: bool = row.try_get("cors").map_err(EndpointError::Query)?;
     let overflow_text: String = row.try_get("overflow").map_err(EndpointError::Query)?;
+    let templated: bool = row
+        .try_get("response_templated")
+        .map_err(EndpointError::Query)?;
+    let status_template: Option<String> = row
+        .try_get("response_status_template")
+        .map_err(EndpointError::Query)?;
     let capture_count: i32 = row.try_get("capture_count").map_err(EndpointError::Query)?;
     let bytes_used: i64 = row.try_get("bytes_used").map_err(EndpointError::Query)?;
     let last_seq: i64 = row.try_get("last_seq").map_err(EndpointError::Query)?;
@@ -329,6 +347,10 @@ pub(crate) fn record_from_row(
         settings: EndpointSettings {
             title,
             response,
+            templating: ResponseTemplating {
+                enabled: templated,
+                status: status_template,
+            },
             cors,
             overflow,
         },

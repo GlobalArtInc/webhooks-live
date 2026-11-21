@@ -8,6 +8,7 @@ mod refusal;
 mod response;
 mod seams;
 mod state;
+mod template;
 
 use axum::Router;
 use axum::middleware::from_fn_with_state;
@@ -22,6 +23,10 @@ pub use seams::{Admission, StorageFull};
 pub use state::{
     BodyBudget, BudgetExhausted, CaptureLimits, CaptureSettings, CaptureSource, CaptureState,
     StateError, SystemSource,
+};
+pub use template::{
+    BODY_FIELD, ResponseSources, STATUS_FIELD, SourcePosition, TemplateSettings, TemplateViolation,
+    ViolationKind, validate_response_templates,
 };
 
 pub fn router(state: CaptureState) -> Router {

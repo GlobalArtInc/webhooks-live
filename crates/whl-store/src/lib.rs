@@ -12,6 +12,7 @@ mod members;
 pub mod secrets;
 mod store;
 pub mod stream;
+pub mod vars;
 
 pub use auth::{
     AuthStoreError, EndpointRole, EndpointStanding, LoginCaps, LoginRecord, SessionLifetime,
@@ -22,7 +23,9 @@ pub use capture_queries::{
     CaptureQuery, DeleteOutcome, FormFile, NameValue, Order, StatusFilter,
 };
 pub use claim::{ClaimOutcome, ClaimRefusal};
-pub use endpoints::{EndpointError, EndpointRecord, EndpointSettings, Overflow};
+pub use endpoints::{
+    EndpointError, EndpointRecord, EndpointSettings, Overflow, ResponseTemplating,
+};
 pub use error::StoreError;
 pub use kind::CaptureKind;
 pub use members::{

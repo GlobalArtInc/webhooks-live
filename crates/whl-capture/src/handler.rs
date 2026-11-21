@@ -8,18 +8,20 @@ use axum::http::{HeaderMap, Uri};
 use axum::response::Response;
 use bytes::Bytes;
 use whl_core::endpoint_id::{ENDPOINT_ID_LEN, EndpointId};
-use whl_core::status::status_override_from_path;
+use whl_core::status::{HttpStatus, status_override_from_path};
 use whl_store::captures::{
-    CaptureOutcome, CaptureStoreError, EndpointState, NameValue, NewCapture,
+    CaptureOutcome, CaptureStoreError, Endpoint, EndpointState, NameValue, NewCapture,
+    RenderRecord, StoredCapture,
 };
 
 use crate::body::{ReadFailure, read_body};
 use crate::client_ip::{ForwardedRequest, sanitize_host};
 use crate::form::{FormLimits, parse_form, parse_query};
 use crate::refusal::{Failure, Refusal};
-use crate::response::{ReplyRequest, build_response};
+use crate::response::{Content, ReplyRequest, build_content, build_response, is_preflight};
 use crate::seams::Admission;
 use crate::state::CaptureState;
+use crate::template::{RenderInput, Rendering, Served};
 
 pub(crate) async fn capture(State(state): State<CaptureState>, request: Request) -> Response {
     match run(&state, request).await {
@@ -102,13 +104,13 @@ async fn run(state: &CaptureState, request: Request) -> Result<Response, Failure
     let policy = state.policy();
     let reservation = buffered.reservation;
     let job = tokio::spawn(async move {
-        let outcome = store.store_capture(new_capture, policy).await;
-        drop(reservation);
-        outcome
+        let mut new_capture = new_capture;
+        let outcome = store.store_capture_retained(&mut new_capture, policy).await;
+        (outcome, new_capture, reservation)
     });
-    let outcome = match job.await {
-        Ok(Ok(outcome)) => outcome,
-        Ok(Err(error)) => return Err(late(store_refusal(&error))),
+    let (outcome, request, reservation) = match job.await {
+        Ok((Ok(outcome), request, reservation)) => (outcome, request, reservation),
+        Ok((Err(error), _, _)) => return Err(late(store_refusal(&error))),
         Err(error) => {
             tracing::error!(%error, "the capture task failed");
             return Err(late(Refusal::Internal));
@@ -121,7 +123,23 @@ async fn run(state: &CaptureState, request: Request) -> Result<Response, Failure
                 method: &parts.method,
                 headers: &parts.headers,
             };
-            let response = build_response(&endpoint, &capture, status_override, &reply);
+            let response = if endpoint.templated && !is_preflight(&endpoint, &reply) {
+                let response = templated_response(
+                    state,
+                    &endpoint,
+                    &capture,
+                    request,
+                    status_override,
+                    &reply,
+                )
+                .await;
+                drop(reservation);
+                response
+            } else {
+                drop(request);
+                drop(reservation);
+                build_response(&endpoint, &capture, status_override, &reply)
+            };
             state
                 .delays()
                 .wait(Duration::from_millis(u64::from(endpoint.delay_ms)))
@@ -131,6 +149,67 @@ async fn run(state: &CaptureState, request: Request) -> Result<Response, Failure
         CaptureOutcome::Gone => Err(late(Refusal::Gone(id))),
         CaptureOutcome::Full => Err(late(Refusal::Full(id))),
     }
+}
+
+async fn templated_response(
+    state: &CaptureState,
+    endpoint: &Endpoint,
+    capture: &StoredCapture,
+    request: NewCapture,
+    status_override: Option<HttpStatus>,
+    reply: &ReplyRequest<'_>,
+) -> Response {
+    let input = RenderInput {
+        endpoint: endpoint.clone(),
+        capture: capture.clone(),
+        request,
+        public_url: state.public_url().to_owned(),
+        with_status: status_override.is_none(),
+    };
+    let rendering = state.templates().respond(state.store(), input).await;
+    if let Some(code) = rendering.fallback_code() {
+        tracing::warn!(
+            endpoint_id = endpoint.id.unpack(),
+            capture_id = %capture.id,
+            code = code.as_str(),
+            "a templated response fell back to the static one"
+        );
+    }
+    record_rendering(state, capture, &rendering);
+    let content = match rendering.served {
+        Served::Rendered(parts) => Content::Rendered(parts),
+        Served::Fallback(code) => Content::Fallback(code),
+    };
+    build_content(endpoint, capture, status_override, reply, content)
+}
+
+fn record_rendering(state: &CaptureState, capture: &StoredCapture, rendering: &Rendering) {
+    let status = rendering
+        .rendered_status()
+        .filter(|status| *status != capture.response_status);
+    let meta = rendering.meta();
+    if status.is_none() && meta.is_none() {
+        return;
+    }
+    let record = RenderRecord {
+        meta: meta.unwrap_or_else(|| serde_json::json!({})),
+        response_status: status,
+    };
+    let Some(slot) = state.templates().recording_slot() else {
+        tracing::warn!(
+            capture_id = %capture.id,
+            "the template outcome was not recorded because the recorder is saturated"
+        );
+        return;
+    };
+    let store = state.store().clone();
+    let id = capture.id;
+    tokio::spawn(async move {
+        let _slot = slot;
+        if let Err(error) = store.record_render(&id, &record).await {
+            tracing::warn!(%error, capture_id = %id, "the template outcome could not be recorded");
+        }
+    });
 }
 
 pub(crate) fn endpoint_id_of(uri: &Uri) -> Option<EndpointId> {

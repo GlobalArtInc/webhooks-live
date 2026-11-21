@@ -595,6 +595,7 @@ Endpoint (§4.1) gains:
 | `capture_auth` | CaptureAuth \| null | Output: `{kind: "basic", username}` or `{kind: "header", name}`; secrets never returned |
 | `view_protected` | boolean | Read-only; true when a view password is set |
 | `response.templated` | boolean | Default false |
+| `response.status_template` | string \| null | Template for the status, up to 1024 characters; used only when `response.templated` is true; the integer `response.status` stays the fallback status |
 | `verifier` | Verifier \| null | |
 | `email` | `{enabled: boolean, address: string \| null}` | `address` = `<id>@<mail domain>` when the instance has one |
 | `dns` | `{enabled: boolean, name: string \| null}` | `name` = `<id>.<zone>` |
@@ -877,6 +878,9 @@ Capture path (§3) additions:
 |---|---|---|
 | `X-Webhooks-Live-Rule-Error` | Rules failed before the response | `template`, `budget`, `script`, `http`, `quota`, `overloaded`, `internal` |
 | Rule-set headers | Rules ran | From `respond` and `set_header`, subject to the §9 header rules of architecture |
+| `X-Webhooks-Live-Template` | A templated response fell back to the static one | `error`; `X-Webhooks-Live-Template-Error` carries the reason: `invalid`, `render`, `deadline`, `budget`, `status`, `overloaded`, `variables`, `internal` |
+
+When a templated response drops a header or falls back, the capture `meta.template` records `{outcome: "header_dropped" \| "fallback", code, diagnostics: [{field, code, line, column}], truncated}` with at most 20 diagnostics and no request data.
 
 `/a/{alias}[/{rest}]` and `https://{id}.<subdomain host>/{rest}` behave exactly as `/{id}[/{rest}]`.
 

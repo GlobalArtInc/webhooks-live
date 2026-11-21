@@ -15,6 +15,7 @@ thiserror.workspace = true
 time = { workspace = true, features = ["formatting", "macros", "parsing"] }
 tracing.workspace = true
 whl-auth.workspace = true
+whl-capture.workspace = true
 whl-core.workspace = true
 whl-forward.workspace = true
 whl-live.workspace = true

@@ -41,6 +41,7 @@ pub async fn fixture() -> Fixture {
             &EndpointSettings {
                 title: None,
                 response: ResponseConfig::default(),
+                templating: Default::default(),
                 cors: false,
                 overflow: Overflow::Refuse,
             },

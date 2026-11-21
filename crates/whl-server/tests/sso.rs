@@ -249,6 +249,7 @@ fn endpoint_settings() -> whl_store::EndpointSettings {
     whl_store::EndpointSettings {
         title: None,
         response: whl_core::response::ResponseConfig::default(),
+        templating: Default::default(),
         cors: false,
         overflow: whl_store::Overflow::Refuse,
     }

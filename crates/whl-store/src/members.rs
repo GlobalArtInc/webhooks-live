@@ -12,7 +12,7 @@ use crate::store::Store;
 
 const QUALIFIED_COLUMNS: &str = "e.id, e.title, e.response_status, e.response_content_type, \
     e.response_headers::text AS response_headers, e.response_body, e.response_delay_ms, e.cors, \
-    e.overflow, e.capture_count, e.bytes_used, e.last_seq, e.created_at, e.last_active_at";
+    e.overflow, e.response_templated, e.response_status_template, e.capture_count, e.bytes_used, e.last_seq, e.created_at, e.last_active_at";
 
 const LIVE_ENDPOINT_SQL: &str = "SELECT owner_id FROM endpoints \
     WHERE id = $1 AND deleted_at IS NULL \

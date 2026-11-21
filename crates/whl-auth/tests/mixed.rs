@@ -103,6 +103,7 @@ fn defaults() -> EndpointSettings {
     EndpointSettings {
         title: None,
         response: whl_core::response::ResponseConfig::default(),
+        templating: Default::default(),
         cors: false,
         overflow: Overflow::Refuse,
     }
