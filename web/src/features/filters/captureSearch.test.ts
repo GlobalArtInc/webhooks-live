@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { activePartCount, listFiltersOf, rangeSince, toggleToken, validateCaptureSearch } from './captureSearch';
+import {
+  activePartCount,
+  hasCaptureSearch,
+  listFiltersOf,
+  rangeSince,
+  toggleToken,
+  validateCaptureSearch,
+} from './captureSearch';
 
 describe('validateCaptureSearch', () => {
   it('keeps known methods and status classes in upper or lower case and drops the rest', () => {
@@ -69,5 +76,42 @@ describe('listFiltersOf and helpers', () => {
 
   it('computes the start of a range from the given instant', () => {
     expect(rangeSince('15m', Date.parse('2026-11-21T14:00:00Z'))).toBe('2026-11-21T13:45:00.000Z');
+  });
+});
+
+describe('sender and path parameters', () => {
+  it('keeps an IPv4 address or range and an exact IPv6 address in lower case', () => {
+    expect(validateCaptureSearch({ ip: '203.0.113.0/24' })).toEqual({ ip: '203.0.113.0/24' });
+    expect(validateCaptureSearch({ ip: '2001:DB8::7' })).toEqual({ ip: '2001:db8::7' });
+  });
+
+  it('drops a malformed sender, an IPv6 range and an IPv4 range wider than 32 bits', () => {
+    expect(validateCaptureSearch({ ip: '203.0.113' })).toEqual({});
+    expect(validateCaptureSearch({ ip: '203.0.113.0/33' })).toEqual({});
+    expect(validateCaptureSearch({ ip: '2001:db8::/32' })).toEqual({});
+  });
+
+  it('keeps the path prefix with a leading slash and drops a blank one', () => {
+    expect(validateCaptureSearch({ path: 'orders' })).toEqual({ path: '/orders' });
+    expect(validateCaptureSearch({ path: '/hooks/stripe' })).toEqual({ path: '/hooks/stripe' });
+    expect(validateCaptureSearch({ path: '  ' })).toEqual({});
+  });
+
+  it('counts the sender and the path as filter parts', () => {
+    expect(activePartCount({ ip: '203.0.113.7', path: '/orders' })).toBe(2);
+    expect(hasCaptureSearch({ path: '/orders' })).toBe(true);
+  });
+});
+
+describe('starred parameter', () => {
+  it('keeps true and false in either form and drops anything else', () => {
+    expect(validateCaptureSearch({ starred: 'true' })).toEqual({ starred: true });
+    expect(validateCaptureSearch({ starred: false })).toEqual({ starred: false });
+    expect(validateCaptureSearch({ starred: 'yes' })).toEqual({});
+  });
+
+  it('maps the flag onto the list query, including the false value', () => {
+    expect(listFiltersOf(validateCaptureSearch({ starred: 'false' }))).toEqual({ starred: false });
+    expect(activePartCount({ starred: true })).toBe(1);
   });
 });

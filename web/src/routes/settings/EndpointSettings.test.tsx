@@ -41,13 +41,13 @@ describe('endpoint workspace routes', () => {
     await waitFor(() => expect(router.state.location.pathname).toBe(`${BASE_PATH}/settings/forwarding`));
   });
 
-  it('shows sections without an implementation as disabled navigation items', async () => {
+  it('hides sections the instance does not offer from the navigation', async () => {
     seed();
-    renderAppAt(`${BASE_PATH}/settings/notifications`);
+    renderAppAt(`${BASE_PATH}/settings/general`);
 
     const nav = await screen.findByRole('navigation', { name: NAV_LABEL });
-    expect(within(nav).getByText('Notifications').getAttribute('aria-disabled')).toBe('true');
-    expect(await screen.findByText('This section arrives in a later release.')).toBeTruthy();
+    expect(within(nav).getByText('Local forwarding')).toBeTruthy();
+    expect(within(nav).queryByText('Notifications')).toBeNull();
   });
 
   it('saves the status code in one request and clears the unsaved state', async () => {

@@ -1,0 +1,228 @@
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 var(--space-3);
+  font: var(--text-data);
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.trigger:hover {
+  background: var(--color-surface-sunken);
+}
+
+.trigger:focus-visible,
+.primary:focus-visible,
+.secondary:focus-visible,
+.input:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: rgb(0 0 0 / 0.4);
+}
+
+.popover {
+  z-index: 40;
+  display: grid;
+  gap: var(--space-2);
+  width: min(360px, calc(100vw - var(--space-4)));
+  max-height: min(70vh, 640px);
+  padding: var(--space-3);
+  overflow-y: auto;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--elevation-2);
+}
+
+.sheet {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 31;
+  display: grid;
+  gap: var(--space-2);
+  width: 100%;
+  max-height: 85vh;
+  padding: var(--space-3);
+  overflow-y: auto;
+  background: var(--color-surface-raised);
+  border-top: 1px solid var(--color-border);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  box-shadow: var(--elevation-3);
+}
+
+.title {
+  margin: 0;
+  font: var(--text-section);
+  color: var(--color-text);
+}
+
+.description,
+.hint {
+  margin: 0;
+  font: var(--text-meta);
+  color: var(--color-text-muted);
+}
+
+.error {
+  font: var(--text-meta);
+  color: var(--color-danger);
+}
+
+.body {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.field {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.label {
+  font: var(--text-data);
+  color: var(--color-text);
+}
+
+.input {
+  min-height: 32px;
+  min-width: 0;
+  padding: 0 var(--space-3);
+  font: var(--text-data);
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+}
+
+.input[aria-invalid='true'] {
+  border-color: var(--color-danger);
+}
+
+.input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  border: 0;
+}
+
+.legend {
+  padding: 0;
+  margin-bottom: var(--space-1);
+  font: var(--text-data);
+  color: var(--color-text);
+}
+
+.choice {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font: var(--text-data);
+  color: var(--color-text);
+}
+
+.actions,
+.inlineForm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+.actions {
+  justify-content: flex-end;
+}
+
+.grow {
+  display: grid;
+  gap: var(--space-1);
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.primary,
+.secondary,
+.savedName {
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  font: var(--text-data);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.primary {
+  color: var(--color-text-on-accent);
+  background: var(--color-accent);
+  border: 1px solid var(--color-accent);
+}
+
+.primary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.secondary,
+.savedName {
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+}
+
+.savedName {
+  flex: 1 1 120px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: start;
+}
+
+.secondary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.saved {
+  display: grid;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.sectionTitle {
+  margin: 0;
+  font: var(--text-data);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.savedList {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.savedItem {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}

@@ -24,6 +24,7 @@ import { SettingsScreen } from '../routes/settings/SettingsScreen';
 import { EndpointSettingsScreen } from '../routes/settings/EndpointSettingsScreen';
 import { SettingsIndexScreen } from '../routes/settings/SettingsIndexScreen';
 import { SettingsSectionScreen } from '../routes/settings/SettingsSectionScreen';
+import { AccountScreen } from '../routes/account/AccountScreen';
 import { SignInScreen } from '../routes/signin/SignInScreen';
 import { ensureUnlocked } from '../features/access/ensureUnlocked';
 import { installGrantGuard } from '../features/access/grantGuard';
@@ -131,6 +132,12 @@ const settingsRoute = createRoute({
   component: SettingsScreen,
 });
 
+const accountRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/account',
+  component: AccountScreen,
+});
+
 const composeRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/send',
@@ -142,6 +149,12 @@ const tokensRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/settings/tokens',
   component: lazyRouteComponent(() => import('../routes/tokens/TokensScreen'), 'TokensScreen'),
+});
+
+const usageRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/usage',
+  component: lazyRouteComponent(() => import('../routes/usage/UsageScreen'), 'UsageScreen'),
 });
 
 const endpointRoute = createRoute({
@@ -245,6 +258,24 @@ const notFoundRoute = createRoute({
   component: NotFoundScreen,
 });
 
+const emailVerifyRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/email/verify',
+  component: lazyRouteComponent(
+    () => import('../features/notifications/emailpages/EmailVerifyScreen'),
+    'EmailVerifyScreen',
+  ),
+});
+
+const notificationsDisableRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/notifications/disable',
+  component: lazyRouteComponent(
+    () => import('../features/notifications/emailpages/DisableNotificationsScreen'),
+    'DisableNotificationsScreen',
+  ),
+});
+
 const devRoutes = import.meta.env.DEV
   ? [
       createRoute({
@@ -281,8 +312,10 @@ const routeTree = rootRoute.addChildren([
     endpointsRoute,
     signInRoute,
     settingsRoute,
+    accountRoute,
     composeRoute,
     tokensRoute,
+    usageRoute,
     endpointRoute.addChildren([
       captureRoute,
       endpointSettingsRoute.addChildren([settingsIndexRoute, settingsSectionRoute, ruleEditorRoute]),
@@ -293,6 +326,8 @@ const routeTree = rootRoute.addChildren([
     inboxRoute.addChildren([inboxCaptureRoute]),
     notFoundRoute,
   ]),
+  emailVerifyRoute,
+  notificationsDisableRoute,
   ...devRoutes,
 ]);
 

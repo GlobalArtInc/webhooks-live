@@ -15,6 +15,10 @@ pub const UI_ROUTES: &[&str] = &[
     "/inbox",
     "/inbox/{endpoint_id}/{capture_id}",
     "/account",
+    "/usage",
+    "/email/verify",
+    "/notifications/disable",
+    "/e/{endpoint_id}/unlock",
     "/assets/{file}",
 ];
 

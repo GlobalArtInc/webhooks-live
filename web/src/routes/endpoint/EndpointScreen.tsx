@@ -21,6 +21,7 @@ import { RESIZE_STEP_PX } from '../../features/endpoint/constants';
 import { sampleCurl } from '../../features/endpoint/sampleCurl';
 import { useEndpointSelection } from '../../features/endpoint/useSelection';
 import { listFiltersOf } from '../../features/filters/captureSearch';
+import { hasRefinement, refineCaptures } from '../../features/filterbuilder';
 import { useCaptureSearch } from '../../features/filters/useCaptureSearch';
 import { useViewportLayout } from '../../features/endpoint/useViewport';
 import { markEndpointOpened } from '../../features/endpoints';
@@ -38,12 +39,14 @@ import {
 } from '../../features/live';
 import {
   activateCompare,
+  activeFiltersOf,
   hasActiveFilters,
   LIST_WIDTH_MAX,
   LIST_WIDTH_MIN,
   loadListWidth,
   neighbourOf,
   saveListWidth,
+  type CaptureListModel,
   useCaptureList,
   useDeleteWithUndo,
   useVisibleMinuteNow,
@@ -81,8 +84,18 @@ export function EndpointScreen() {
   const loaded = endpoint !== undefined;
   const urlSearch = useCaptureSearch();
   const filters = useMemo(() => listFiltersOf(urlSearch.search), [urlSearch.search]);
-  const filtered = hasActiveFilters(filters);
-  const list = useCaptureList(endpointId, filters);
+  const refining = hasRefinement(urlSearch.search);
+  const filtered = hasActiveFilters(filters) || refining;
+  const captureList = useCaptureList(endpointId, filters);
+  const shownItems = useMemo(
+    () => refineCaptures(captureList.items, urlSearch.search),
+    [captureList.items, urlSearch.search],
+  );
+  const list: CaptureListModel = refining ? { ...captureList, items: shownItems, total: null } : captureList;
+  const liveFilters = useMemo(
+    () => activeFiltersOf({ ...filters, ip: urlSearch.search.ip, path: urlSearch.search.path }),
+    [filters, urlSearch.search.ip, urlSearch.search.path],
+  );
   const layout = useViewportLayout();
   const narrow = layout === 'narrow';
   const wide = layout === 'wide';
@@ -101,7 +114,7 @@ export function EndpointScreen() {
         selection.replace(captureId);
       }
     },
-    filters,
+    filters: liveFilters,
   });
   const matchRoute = useMatchRoute();
   const workspaceOpen = matchRoute({ to: '/e/$id/settings', params: { id: endpointId }, fuzzy: true }) !== false;
@@ -190,7 +203,8 @@ export function EndpointScreen() {
   }
 
   const showEmpty = !filtered && list.hasData && list.total === 0 && list.items.length === 0;
-  const noMatch = filtered && list.hasData && list.total === 0 && list.items.length === 0;
+  const noMatch =
+    filtered && list.hasData && list.items.length === 0 && (refining ? !list.hasNextPage : list.total === 0);
   const curl = sampleCurl(endpoint.url);
 
   const pagerProps: ListPagerProps = {
@@ -365,6 +379,9 @@ export function EndpointScreen() {
               onChange={urlSearch.update}
               onClear={urlSearch.clear}
             />
+            {refining && list.hasData ? (
+              <p className={styles.noMatch}>{t('wl.filterbuilder.shown', { shown: list.items.length })}</p>
+            ) : null}
             {noMatch ? <p className={styles.noMatch}>{t('wl.endpoint.filter.empty')}</p> : null}
             <LiveToolbar
               follow={follow.state}

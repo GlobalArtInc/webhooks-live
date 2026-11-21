@@ -1,3 +1,4 @@
+import type { Alias } from '../../api/general';
 import type {
   Body,
   Capture,
@@ -20,6 +21,7 @@ export interface MockStore {
   members: Map<string, Member[]>;
   users: User[];
   folders: Folder[];
+  aliases: Map<string, Alias[]>;
 }
 
 const ENDPOINT_ID_ALPHABET = '0123456789abcdefghjkmnpqrstvwxyz';
@@ -33,6 +35,7 @@ export const mockStore: MockStore = {
   members: new Map(),
   users: [],
   folders: [],
+  aliases: new Map(),
 };
 
 export function resetMockStore(): void {
@@ -42,6 +45,7 @@ export function resetMockStore(): void {
   mockStore.members.clear();
   mockStore.users = [];
   mockStore.folders = [];
+  mockStore.aliases.clear();
 }
 
 export function storeCaptures(endpointId: string, captures: Capture[]): void {
@@ -133,6 +137,10 @@ export function applyEndpointInput(endpoint: Endpoint, input: EndpointInput): En
     cors: input.cors ?? endpoint.cors,
     overflow: input.overflow ?? endpoint.overflow,
     forward_rules: input.forward_rules === undefined ? endpoint.forward_rules : input.forward_rules.map(toForwardRule),
+    retention: input.retention ?? endpoint.retention,
+    max_captures: input.max_captures ?? endpoint.max_captures,
+    capture_ttl_seconds:
+      input.capture_ttl_seconds === undefined ? endpoint.capture_ttl_seconds : input.capture_ttl_seconds,
   };
 }
 
@@ -161,6 +169,8 @@ export function newEndpoint(input: EndpointInput): Endpoint {
     created_at: now.toISOString(),
     last_active_at: now.toISOString(),
     expires_at: new Date(now.getTime() + RETENTION_MS).toISOString(),
+    retention: { mode: 'sliding', seconds: null },
+    capture_ttl_seconds: null,
     owner: null,
     my_role: null,
   };
