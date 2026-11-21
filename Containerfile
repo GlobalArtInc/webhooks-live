@@ -4,7 +4,7 @@ ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
     CI=true
 
 WORKDIR /src/web
-COPY web/package.json web/pnpm-lock.yaml ./
+COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
 RUN --mount=type=cache,target=/root/.cache/node/corepack,sharing=locked \
     --mount=type=cache,target=/root/.local/share/pnpm/store,sharing=locked \
     corepack pnpm install --frozen-lockfile
