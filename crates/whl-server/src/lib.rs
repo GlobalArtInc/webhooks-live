@@ -6,6 +6,7 @@ mod public;
 mod readiness;
 mod rotate;
 mod router;
+mod schedules;
 mod secrets;
 mod signal;
 
@@ -46,6 +47,7 @@ use background::Background;
 use composer::CaptureDelivery;
 use forward::ForwardRuntime;
 use readiness::Readiness;
+use schedules::ScheduleRuntime;
 
 pub struct Bound {
     public: TcpListener,
@@ -59,6 +61,7 @@ pub struct Bound {
     capture: CaptureSettings,
     forward: ForwardRuntime,
     composer: ComposerSettings,
+    schedules: ScheduleRuntime,
     http: HttpLimits,
     auth: Option<AuthSettings>,
     auth_mode: AuthMode,
@@ -144,7 +147,8 @@ impl Bound {
             .with_access(access)
             .with_limits(self.api_limits.clone())
             .with_forward(ForwardSettings::with_system_lookup(self.forward.guard()))
-            .with_composer(self.composer.with_local(Arc::new(delivery)));
+            .with_composer(self.composer.with_local(Arc::new(delivery)))
+            .with_schedules(self.schedules.settings());
         let state = match &self.secrets {
             Some(keyring) => state.with_secrets(Arc::clone(keyring)),
             None => state,
@@ -152,6 +156,9 @@ impl Bound {
         tracing::info!(public = %self.public_addr, admin = %self.admin_addr, "listening");
 
         let storage_full = capture.storage_full().clone();
+        let schedule_runner =
+            self.schedules
+                .runner(&store, self.secrets.clone(), storage_full.clone())?;
         let (stop_tx, stop_rx) = watch::channel(false);
         let background_stop = stop_rx.clone();
         let hub = Hub::new(HUB_CAPACITY);
@@ -247,6 +254,7 @@ impl Bound {
             storage_full,
             self.limiters,
             dns,
+            schedule_runner,
             &background_stop,
         );
         let mut forward = worker.map(|worker| worker.spawn(until_stopped(worker_stop)));
@@ -342,6 +350,7 @@ pub async fn bind(config: &Config) -> Result<Bound, ServerError> {
         capture: CaptureSettings::from_config(config)?,
         forward: ForwardRuntime::from_config(config)?,
         composer: ComposerSettings::from_config(config),
+        schedules: ScheduleRuntime::from_config(config)?,
         http: HttpLimits::default(),
         auth: AuthSettings::from_config(config)?,
         auth_mode: config.auth.mode,

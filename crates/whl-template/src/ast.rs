@@ -226,7 +226,45 @@ fn expression_references(expression: &Expression) -> Vec<&Reference> {
     found
 }
 
+impl FilterKind {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Default(_) => "default",
+            Self::Upper => "upper",
+            Self::Lower => "lower",
+            Self::Trim => "trim",
+            Self::Truncate(_) => "truncate",
+            Self::Replace(..) => "replace",
+            Self::Length => "length",
+            Self::Json => "json",
+            Self::Url => "url",
+            Self::Html => "html",
+            Self::Base64 => "base64",
+            Self::Base64Decode => "base64_decode",
+            Self::Hex => "hex",
+            Self::Sha256 => "sha256",
+            Self::HmacSha256(_) => "hmac_sha256",
+            Self::Date(_) => "date",
+        }
+    }
+}
+
 impl Template {
+    pub fn filters_over_secrets(&self) -> BTreeSet<&'static str> {
+        let mut names = BTreeSet::new();
+        for part in &self.parts {
+            if let Part::Expression(expression) = part {
+                let touches_secret = expression_references(expression)
+                    .into_iter()
+                    .any(|reference| matches!(reference, Reference::Secret(_)));
+                if touches_secret {
+                    names.extend(expression.filters.iter().map(|filter| filter.kind.name()));
+                }
+            }
+        }
+        names
+    }
+
     fn referenced_names(&self, select: fn(&Reference) -> Option<&Key>) -> BTreeSet<String> {
         let mut names = BTreeSet::new();
         for part in &self.parts {

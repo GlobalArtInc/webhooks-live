@@ -7,6 +7,7 @@ use whl_capture::StateError;
 use whl_core::limiter::LimiterError;
 use whl_dns::DnsError;
 use whl_forward::{ForwardError, WorkerError};
+use whl_schedule::RunnerError;
 use whl_store::StoreError;
 
 use crate::secrets::SecretsSetupError;
@@ -27,6 +28,8 @@ pub enum ServerError {
     Worker(#[from] WorkerError),
     #[error("cannot set up DNS capture: {0}")]
     Dns(#[from] DnsError),
+    #[error("the schedule runner settings are invalid: {0}")]
+    Schedules(#[from] RunnerError),
     #[error("cannot set up secrets: {0}")]
     Secrets(#[from] SecretsSetupError),
     #[error("cannot bind the {listener} listener on {addr}: {source}")]

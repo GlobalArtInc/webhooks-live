@@ -12,6 +12,7 @@ use whl_store::MAX_FOLDERS_PER_USER;
 use whl_store::composer::ComposerStoreError;
 use whl_store::forward::ForwardStoreError;
 use whl_store::rules::RuleStoreError;
+use whl_store::schedules::ScheduleStoreError;
 use whl_store::secrets::SecretStoreError;
 use whl_store::vars::{MAX_VARS_PER_ENDPOINT, VarStoreError};
 use whl_store::{ApiTokenStoreError, EndpointError, FolderError, LifecycleError, MembershipError};
@@ -36,6 +37,9 @@ pub enum FieldCode {
     JsonPathInvalid,
     SecretNotAllowed,
     StepUnknown,
+    CronInvalid,
+    TimezoneInvalid,
+    IntervalTooShort,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -234,6 +238,18 @@ pub enum ApiError {
     RuleStorage(RuleStoreError),
     #[error("the script engine cannot be configured: {0}")]
     RuleEngine(LimitsError),
+    #[error("the schedule is not found in this endpoint")]
+    ScheduleNotFound,
+    #[error("the owner already has the maximum number of schedules")]
+    ScheduleLimit(usize),
+    #[error("the schedule is paused or disabled, enable it before running it")]
+    ScheduleDisabled,
+    #[error("schedules are switched off on this instance")]
+    SchedulesDisabled,
+    #[error("only the owner can change a request that uses secrets")]
+    ScheduleOwnerRequired,
+    #[error("schedule storage failed: {0}")]
+    ScheduleStorage(ScheduleStoreError),
 }
 
 impl From<ApiTokenStoreError> for ApiError {
@@ -252,6 +268,16 @@ impl From<ComposerStoreError> for ApiError {
             Self::StoreUnavailable
         } else {
             Self::ComposerStorage(error)
+        }
+    }
+}
+
+impl From<ScheduleStoreError> for ApiError {
+    fn from(error: ScheduleStoreError) -> Self {
+        if error.is_unavailable() {
+            Self::StoreUnavailable
+        } else {
+            Self::ScheduleStorage(error)
         }
     }
 }
@@ -426,6 +452,7 @@ impl IntoResponse for ApiError {
             Self::RuleLimit => Some(LimitDetail::count("rules", MAX_RULES_PER_ENDPOINT)),
             Self::VarLimit => Some(LimitDetail::count("vars", MAX_VARS_PER_ENDPOINT)),
             Self::ComposerQuota { name, max, .. } => Some(LimitDetail::count(name, *max)),
+            Self::ScheduleLimit(max) => Some(LimitDetail::count("schedules", *max)),
             _ => None,
         };
         let references = match &self {
@@ -773,6 +800,45 @@ impl IntoResponse for ApiError {
             ),
             Self::SecretStorage(error) => {
                 tracing::error!(%error, "secret storage failed");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal_error",
+                    "the request could not be completed".to_owned(),
+                    None,
+                )
+            }
+            Self::ScheduleNotFound => (
+                StatusCode::NOT_FOUND,
+                "schedule_not_found",
+                self.to_string(),
+                None,
+            ),
+            Self::ScheduleLimit(_) => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "limit_reached",
+                self.to_string(),
+                None,
+            ),
+            Self::ScheduleOwnerRequired => (
+                StatusCode::FORBIDDEN,
+                "owner_required",
+                self.to_string(),
+                None,
+            ),
+            Self::ScheduleDisabled => (
+                StatusCode::CONFLICT,
+                "schedule_disabled",
+                self.to_string(),
+                None,
+            ),
+            Self::SchedulesDisabled => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "feature_disabled",
+                self.to_string(),
+                None,
+            ),
+            Self::ScheduleStorage(error) => {
+                tracing::error!(%error, "schedule storage failed");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "internal_error",

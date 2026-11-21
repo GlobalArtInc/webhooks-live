@@ -69,7 +69,7 @@ const INSERT_CAPTURE: &str = "INSERT INTO captures \
       form, content_type, body_size, stored_bytes, status_override, response_status, kind, meta, \
       verification) \
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::inet, $10::text::jsonb, $11::text::jsonb, \
-      $12::text::jsonb, $13, $14, $15, $16, $17, $18, '{}'::jsonb, $19)";
+      $12::text::jsonb, $13, $14, $15, $16, $17, $18, $19::text::jsonb, $20)";
 
 pub(crate) const INSERT_BODY: &str =
     "INSERT INTO capture_bodies (capture_id, data, search_text) VALUES ($1, $2, $3)";
@@ -179,6 +179,25 @@ pub struct NewCapture {
     pub content_type: Option<String>,
     pub body: Bytes,
     pub status_override: Option<HttpStatus>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CaptureShape {
+    pub kind: CaptureKind,
+    pub meta: serde_json::Value,
+    pub response_status: Option<u16>,
+    pub verification: Option<Verification>,
+}
+
+impl Default for CaptureShape {
+    fn default() -> Self {
+        Self {
+            kind: CaptureKind::Http,
+            meta: serde_json::json!({}),
+            response_status: None,
+            verification: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -378,6 +397,15 @@ pub fn capture_event_payload(
     seq: i64,
     response_status: HttpStatus,
 ) -> Result<String, CaptureStoreError> {
+    event_payload(capture, seq, response_status.unpack(), CaptureKind::Http)
+}
+
+fn event_payload(
+    capture: &NewCapture,
+    seq: i64,
+    response_status: u16,
+    kind: CaptureKind,
+) -> Result<String, CaptureStoreError> {
     let received_at = format_timestamp(capture.received_at)?;
     for caps in SUMMARY_TIERS {
         let summary = Summary {
@@ -395,9 +423,9 @@ pub fn capture_event_payload(
                 .map(|value| truncate(value, caps.content_type)),
             body_size: capture.body.len(),
             status_override: capture.status_override.map(|status| status.unpack()),
-            response_status: response_status.unpack(),
+            response_status,
             forward_state: None,
-            kind: CaptureKind::Http.as_str(),
+            kind: kind.as_str(),
         };
         let payload = serde_json::to_string(&Event {
             t: "capture",
@@ -469,16 +497,34 @@ impl Store {
         capture: NewCapture,
         policy: CapturePolicy,
     ) -> Result<CaptureOutcome, CaptureStoreError> {
-        self.store_verified_capture(capture, None, policy).await
+        self.store_capture_as(capture, policy, CaptureShape::default())
+            .await
     }
 
     pub async fn store_verified_capture(
         &self,
-        mut capture: NewCapture,
+        capture: NewCapture,
         verification: Option<Verification>,
         policy: CapturePolicy,
     ) -> Result<CaptureOutcome, CaptureStoreError> {
-        self.store_capture_retained(&mut capture, verification, policy)
+        self.store_capture_as(
+            capture,
+            policy,
+            CaptureShape {
+                verification,
+                ..CaptureShape::default()
+            },
+        )
+        .await
+    }
+
+    pub async fn store_capture_as(
+        &self,
+        mut capture: NewCapture,
+        policy: CapturePolicy,
+        shape: CaptureShape,
+    ) -> Result<CaptureOutcome, CaptureStoreError> {
+        self.store_capture_retained_as(&mut capture, policy, shape)
             .await
     }
 
@@ -488,10 +534,28 @@ impl Store {
         verification: Option<Verification>,
         policy: CapturePolicy,
     ) -> Result<CaptureOutcome, CaptureStoreError> {
+        self.store_capture_retained_as(
+            capture,
+            policy,
+            CaptureShape {
+                verification,
+                ..CaptureShape::default()
+            },
+        )
+        .await
+    }
+
+    async fn store_capture_retained_as(
+        &self,
+        capture: &mut NewCapture,
+        policy: CapturePolicy,
+        shape: CaptureShape,
+    ) -> Result<CaptureOutcome, CaptureStoreError> {
         capture.scrub();
-        let prepared = Prepared::new(capture)?;
+        let meta = shape.meta.to_string();
+        let prepared = Prepared::new(capture, meta)?;
         let tx = self.begin_capture_transaction().await?;
-        let work = execute_capture(tx, capture, prepared, verification, policy);
+        let work = execute_capture(tx, capture, prepared, policy, shape);
         tokio::time::timeout(TRANSACTION_DEADLINE, work)
             .await
             .map_err(|_| CaptureStoreError::DeadlineExceeded)?
@@ -544,13 +608,14 @@ struct Prepared {
     headers: String,
     query: String,
     form: Option<String>,
+    meta: String,
     search_text: String,
     body_size: i32,
     stored_bytes: i32,
 }
 
 impl Prepared {
-    fn new(capture: &NewCapture) -> Result<Self, CaptureStoreError> {
+    fn new(capture: &NewCapture, meta: String) -> Result<Self, CaptureStoreError> {
         let headers = serde_json::to_string(&capture.headers)?;
         let query = serde_json::to_string(&capture.query)?;
         let form = capture
@@ -563,6 +628,7 @@ impl Prepared {
             + headers.len()
             + query.len()
             + form.as_ref().map_or(0, String::len)
+            + meta.len()
             + search_text.len();
         Ok(Self {
             body_size: to_i32(capture.body.len(), "body size")?,
@@ -570,6 +636,7 @@ impl Prepared {
             headers,
             query,
             form,
+            meta,
             search_text,
         })
     }
@@ -598,8 +665,8 @@ async fn execute_capture(
     mut tx: Transaction<'static, Postgres>,
     capture: &NewCapture,
     prepared: Prepared,
-    verification: Option<Verification>,
     policy: CapturePolicy,
+    shape: CaptureShape,
 ) -> Result<CaptureOutcome, CaptureStoreError> {
     let max_captures = i64::from(policy.max_captures);
     attempt!(
@@ -679,10 +746,12 @@ async fn execute_capture(
             .transpose()
             .map_err(|_| CaptureStoreError::OutOfRange("status override"))
     );
+    let stored_status = shape
+        .response_status
+        .unwrap_or_else(|| response_status.unpack());
     let final_status = attempt!(
         tx,
-        i16::try_from(response_status.unpack())
-            .map_err(|_| CaptureStoreError::OutOfRange("response status"))
+        i16::try_from(stored_status).map_err(|_| CaptureStoreError::OutOfRange("response status"))
     );
     attempt!(
         tx,
@@ -704,8 +773,9 @@ async fn execute_capture(
             .bind(prepared.stored_bytes)
             .bind(override_status)
             .bind(final_status)
-            .bind(CaptureKind::Http.as_str())
-            .bind(verification.map(Verification::as_str))
+            .bind(shape.kind.as_str())
+            .bind(prepared.meta.as_str())
+            .bind(shape.verification.map(Verification::as_str))
             .execute(&mut *tx)
             .await
             .map_err(CaptureStoreError::classify)
@@ -722,14 +792,16 @@ async fn execute_capture(
             .map_err(CaptureStoreError::classify)
     );
 
-    attempt!(
-        tx,
-        crate::forward::insert_rule_jobs(&mut tx, &capture.endpoint_id, id, &capture.method)
-            .await
-            .map_err(CaptureStoreError::classify)
-    );
+    if shape.kind == CaptureKind::Http {
+        attempt!(
+            tx,
+            crate::forward::insert_rule_jobs(&mut tx, &capture.endpoint_id, id, &capture.method)
+                .await
+                .map_err(CaptureStoreError::classify)
+        );
+    }
 
-    let payload = attempt!(tx, capture_event_payload(capture, seq, response_status));
+    let payload = attempt!(tx, event_payload(capture, seq, stored_status, shape.kind));
     attempt!(
         tx,
         sqlx::query(NOTIFY)
