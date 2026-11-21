@@ -1,4 +1,5 @@
 mod body;
+mod captures;
 mod dto;
 mod error;
 mod handlers;
@@ -29,6 +30,7 @@ pub fn router(state: ApiState) -> Router {
                 .patch(handlers::update)
                 .delete(handlers::delete),
         )
+        .merge(captures::routes())
         .fallback(not_found)
         .method_not_allowed_fallback(method_not_allowed)
         .with_state(state);

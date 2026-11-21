@@ -109,7 +109,7 @@ struct NameValueDto {
 }
 
 #[derive(Serialize)]
-struct BodyDto {
+pub(crate) struct BodyDto {
     encoding: &'static str,
     data: String,
     truncated: bool,
@@ -117,16 +117,20 @@ struct BodyDto {
 
 impl BodyDto {
     fn from_bytes(bytes: &[u8]) -> Self {
+        Self::from_prefix(bytes, false)
+    }
+
+    pub(crate) fn from_prefix(bytes: &[u8], truncated: bool) -> Self {
         match std::str::from_utf8(bytes) {
             Ok(text) => Self {
                 encoding: "utf8",
                 data: text.to_owned(),
-                truncated: false,
+                truncated,
             },
             Err(_) => Self {
                 encoding: "base64",
                 data: STANDARD.encode(bytes),
-                truncated: false,
+                truncated,
             },
         }
     }

@@ -84,6 +84,10 @@ pub enum ApiError {
     NotFound,
     #[error("the method is not allowed on this route")]
     MethodNotAllowed,
+    #[error("the capture is not found in this endpoint")]
+    CaptureNotFound,
+    #[error("the cursor is malformed or does not match the order and filters")]
+    InvalidCursor,
     #[error("the database is unavailable")]
     StoreUnavailable,
     #[error("endpoint storage failed: {0}")]
@@ -153,6 +157,18 @@ impl IntoResponse for ApiError {
             Self::MethodNotAllowed => (
                 StatusCode::METHOD_NOT_ALLOWED,
                 "method_not_allowed",
+                self.to_string(),
+                None,
+            ),
+            Self::CaptureNotFound => (
+                StatusCode::NOT_FOUND,
+                "capture_not_found",
+                self.to_string(),
+                None,
+            ),
+            Self::InvalidCursor => (
+                StatusCode::BAD_REQUEST,
+                "invalid_cursor",
                 self.to_string(),
                 None,
             ),

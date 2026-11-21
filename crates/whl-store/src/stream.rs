@@ -6,23 +6,9 @@ use whl_core::endpoint_id::EndpointId;
 
 use crate::Store;
 
-const PATH_LIMIT_CHARS: i32 = 1024;
+pub(crate) const PATH_LIMIT_CHARS: i32 = 1024;
 
-const CAPTURES_AFTER: &str = r#"
-SELECT
-  c.id::text AS id,
-  c.seq,
-  c.endpoint_id,
-  to_char(c.received_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS received_at,
-  c.method,
-  left(c.path, $4) AS path,
-  CASE WHEN strpos(c.url, '?') > 0 THEN substr(c.url, strpos(c.url, '?') + 1) ELSE '' END AS query_string,
-  host(c.client_ip) AS client_ip,
-  c.content_type,
-  c.body_size,
-  c.status_override,
-  c.response_status,
-  (
+const FORWARD_STATE: &str = r#"(
     SELECT CASE
       WHEN bool_or(j.state = 'failed') THEN 'failed'
       WHEN bool_or(j.state IN ('pending', 'running')) THEN 'pending'
@@ -31,8 +17,32 @@ SELECT
     FROM forward_jobs j
     WHERE j.capture_id = c.id
     HAVING count(*) > 0
-  ) AS forward_state
-FROM captures c
+  )"#;
+
+pub(crate) fn summary_columns(path_limit: Option<i32>) -> String {
+    let path = match path_limit {
+        Some(limit) => format!("left(c.path, {limit})"),
+        None => "c.path".to_owned(),
+    };
+    format!(
+        r#"
+  c.id::text AS id,
+  c.seq,
+  c.endpoint_id,
+  to_char(c.received_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS received_at,
+  c.method,
+  {path} AS path,
+  CASE WHEN strpos(c.url, '?') > 0 THEN substr(c.url, strpos(c.url, '?') + 1) ELSE '' END AS query_string,
+  host(c.client_ip) AS client_ip,
+  c.content_type,
+  c.body_size,
+  c.status_override,
+  c.response_status,
+  {FORWARD_STATE} AS forward_state"#
+    )
+}
+
+const CAPTURES_AFTER: &str = r#"
 WHERE c.endpoint_id = $1 AND c.seq > $2
 ORDER BY c.seq ASC
 LIMIT $3
@@ -121,11 +131,14 @@ impl Store {
         after_seq: i64,
         limit: i64,
     ) -> Result<Vec<CaptureSummary>, StreamError> {
-        let rows = sqlx::query(CAPTURES_AFTER)
+        let sql = format!(
+            "SELECT {} FROM captures c {CAPTURES_AFTER}",
+            summary_columns(Some(PATH_LIMIT_CHARS))
+        );
+        let rows = sqlx::query(&sql)
             .bind(endpoint.unpack())
             .bind(after_seq)
             .bind(limit)
-            .bind(PATH_LIMIT_CHARS)
             .fetch_all(self.pool())
             .await?;
         rows.iter().map(summary_from_row).collect()
@@ -165,7 +178,7 @@ fn live_state_from_row(row: &PgRow) -> Result<EndpointLiveState, StreamError> {
     })
 }
 
-fn summary_from_row(row: &PgRow) -> Result<CaptureSummary, StreamError> {
+pub(crate) fn summary_from_row(row: &PgRow) -> Result<CaptureSummary, StreamError> {
     let forward_state: Option<String> = row.try_get("forward_state")?;
     Ok(CaptureSummary {
         id: row.try_get("id")?,
