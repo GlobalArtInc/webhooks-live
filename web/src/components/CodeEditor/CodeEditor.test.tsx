@@ -80,6 +80,24 @@ describe('CodeEditor', () => {
     expect(onChange).toHaveBeenCalledTimes(1);
   });
 
+  it('applies an insert requested before the engine has loaded, then takes focus', async () => {
+    const onChange = vi.fn();
+    const ref = createRef<CodeEditorHandle>();
+    const { container } = renderEditor({ onChange, ref, value: '{}' });
+
+    expect(screen.getByText('Loading editor')).toBeTruthy();
+    ref.current?.insertAtCursor('X');
+    ref.current?.focus();
+    expect(onChange).not.toHaveBeenCalled();
+
+    await ready(container);
+    await waitFor(() => {
+      expect(onChange).toHaveBeenCalledTimes(1);
+    });
+    expect(onChange.mock.calls[0]?.[0]).toContain('X');
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
   it('lists errors and warnings with Go buttons and underlines the range', async () => {
     const diagnostics = [
       problem(),
