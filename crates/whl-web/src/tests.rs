@@ -106,6 +106,13 @@ async fn every_ui_route_serves_index() {
         "/e/abc123/settings",
         "/e/abc123/forwarding",
         "/e/abc123/diff/def456/ghi789",
+        "/e/abc123/settings/general",
+        "/e/abc123/settings/general/def456",
+        "/settings/tokens",
+        "/send",
+        "/inbox",
+        "/inbox/abc123/def456",
+        "/account",
     ];
     for uri in routes {
         let response = get(built(), uri).await;
@@ -122,6 +129,22 @@ async fn missing_file_with_extension_is_not_found() {
     );
     assert_eq!(
         get(built(), "/e/abc123.js").await.status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        get(built(), "/e/abc123/settings/general.json")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[tokio::test]
+async fn settings_path_with_too_many_segments_is_not_found() {
+    assert_eq!(
+        get(built(), "/e/abc123/settings/general/extra/more")
+            .await
+            .status(),
         StatusCode::NOT_FOUND
     );
 }

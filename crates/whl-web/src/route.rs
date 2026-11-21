@@ -6,8 +6,15 @@ pub const UI_ROUTES: &[&str] = &[
     "/e/{endpoint_id}",
     "/e/{endpoint_id}/c/{capture_id}",
     "/e/{endpoint_id}/settings",
+    "/e/{endpoint_id}/settings/{section}",
+    "/e/{endpoint_id}/settings/{section}/{item}",
     "/e/{endpoint_id}/forwarding",
     "/e/{endpoint_id}/diff/{a}/{b}",
+    "/settings/tokens",
+    "/send",
+    "/inbox",
+    "/inbox/{endpoint_id}/{capture_id}",
+    "/account",
     "/assets/{file}",
 ];
 
