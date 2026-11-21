@@ -1,0 +1,13 @@
+name: Build image
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    uses: GlobalArtInc/ci-cd/.github/workflows/docker-build.yml@main
+    with:
+      repo_name: webhooks-live
+      images: |
+        app=Containerfile
+    secrets: inherit

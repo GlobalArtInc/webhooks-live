@@ -1,0 +1,51 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0-dev"
+edition = "2024"
+rust-version = "1.98"
+publish = false
+repository = "https://github.com/GlobalArtInc/webhooks-live"
+
+[workspace.dependencies]
+whl-api = { path = "crates/whl-api" }
+whl-auth = { path = "crates/whl-auth" }
+whl-capture = { path = "crates/whl-capture" }
+whl-core = { path = "crates/whl-core" }
+whl-forward = { path = "crates/whl-forward" }
+whl-live = { path = "crates/whl-live" }
+whl-server = { path = "crates/whl-server" }
+whl-store = { path = "crates/whl-store" }
+whl-telemetry = { path = "crates/whl-telemetry" }
+whl-testkit = { path = "crates/whl-testkit" }
+whl-web = { path = "crates/whl-web" }
+
+axum = "0.8"
+bytesize = "2"
+clap = { version = "4", features = ["derive"] }
+figment = { version = "0.10", features = ["env", "toml"] }
+humantime = "2"
+ipnet = "2"
+metrics-exporter-prometheus = { version = "0.17", default-features = false }
+mimalloc = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "net", "io-util", "time", "sync"] }
+tower-http = { version = "0.7", features = ["trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = { version = "2", features = ["serde"] }
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.test]
+debug = "line-tables-only"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

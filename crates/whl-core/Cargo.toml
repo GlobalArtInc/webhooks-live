@@ -1,0 +1,18 @@
+[package]
+name = "whl-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+bytesize.workspace = true
+figment.workspace = true
+humantime.workspace = true
+ipnet.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+figment = { workspace = true, features = ["test"] }
