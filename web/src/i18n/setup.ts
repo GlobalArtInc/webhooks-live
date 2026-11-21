@@ -14,6 +14,7 @@ import exportDialog from './en/exportdialog.json';
 import forwarding from './en/forwarding.json';
 import home from './en/home.json';
 import kinds from './en/kinds.json';
+import inbox from './en/inbox.json';
 import live from './en/live.json';
 import rules from './en/rules.json';
 import rail from './en/rail.json';
@@ -52,6 +53,7 @@ export function createI18nInstance(): I18nInstance {
           ...forwarding,
           ...home,
           ...kinds,
+          ...inbox,
           ...live,
           ...rules,
           ...rail,

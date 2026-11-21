@@ -12,6 +12,7 @@ import exportDialog from './en/exportdialog.json';
 import forwarding from './en/forwarding.json';
 import home from './en/home.json';
 import kinds from './en/kinds.json';
+import inbox from './en/inbox.json';
 import live from './en/live.json';
 import rules from './en/rules.json';
 import rail from './en/rail.json';
@@ -38,6 +39,7 @@ export type SourceMessages = typeof access &
   typeof forwarding &
   typeof home &
   typeof kinds &
+  typeof inbox &
   typeof live &
   typeof rules &
   typeof rail &

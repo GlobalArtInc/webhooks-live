@@ -296,6 +296,13 @@ export interface CaptureExportFile {
   contentDisposition: string | null;
 }
 
+export interface InboxCaptureQuery {
+  endpoints?: string;
+  folder?: string;
+  cursor?: string | null;
+  limit?: number;
+}
+
 export interface CaptureBodyOptions {
   view?: 'text';
   download?: boolean;

@@ -4,6 +4,7 @@ import type {
   CaptureBodyOptions,
   CaptureListQuery,
   CapturePage,
+  CaptureSummary,
   Endpoint,
   EndpointInput,
   EndpointListQuery,
@@ -19,6 +20,7 @@ import type {
   Folder,
   FolderList,
   FolderPatch,
+  InboxCaptureQuery,
   Instance,
   Member,
   MemberInput,
@@ -27,6 +29,7 @@ import type {
   SendResult,
   SentRequestPage,
   SentRequestQuery,
+  Page,
 } from './types';
 
 export const API_PREFIX = '/api/v1';
@@ -412,3 +415,8 @@ export function listSentRequests(query: SentRequestQuery = {}): Promise<SentRequ
 export function deleteSentRequest(sentId: string): Promise<void> {
   return requestEmpty(`/send/history/${encodeURIComponent(sentId)}`, { method: 'DELETE' });
 }
+
+export function listInboxCaptures(query: InboxCaptureQuery = {}): Promise<Page<CaptureSummary>> {
+  return requestJson<Page<CaptureSummary>>('/inbox/captures', { method: 'GET', query: { ...query } });
+}
+

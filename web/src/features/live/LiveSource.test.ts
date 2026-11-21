@@ -382,3 +382,48 @@ describe('LiveSource', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 });
+
+describe('LiveSource with a multiplexed stream', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('resumes from the last event id it received, as the opaque vector id', () => {
+    const fakes = createFakeEventSources();
+    const source = new LiveSource({
+      buildUrl: (lastEventId) =>
+        lastEventId === null ? '/api/v1/inbox/stream' : `/api/v1/inbox/stream?last_event_id=${lastEventId}`,
+      createEventSource: fakes.factory,
+      random: () => MIDDLE,
+    });
+    source.start();
+    fakes.latest().open();
+    fakes.latest().send('capture', summaryFor(1), 'v-7');
+    fakes.latest().fail(false);
+    vi.advanceTimersByTime(backoffDelay(0, MIDDLE));
+    expect(fakes.latest().url).toBe('/api/v1/inbox/stream?last_event_id=v-7');
+    source.close();
+  });
+
+  it('keeps the stream open when one endpoint of the set is deleted', () => {
+    const fakes = createFakeEventSources();
+    const source = new LiveSource({
+      buildUrl: () => '/api/v1/inbox/stream',
+      createEventSource: fakes.factory,
+      finishOnEndpointDeleted: false,
+    });
+    const deleted: string[] = [];
+    source.on('endpoint_deleted', () => deleted.push('deleted'));
+    source.start();
+    fakes.latest().open();
+    fakes.latest().send('endpoint_deleted', {});
+    expect(deleted).toEqual(['deleted']);
+    expect(source.getState()).toBe('open');
+    expect(source.getEndReason()).toBeNull();
+    source.close();
+  });
+});
