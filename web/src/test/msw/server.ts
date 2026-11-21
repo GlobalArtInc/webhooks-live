@@ -3,8 +3,9 @@ import { afterAll, afterEach, beforeAll } from 'vitest';
 import { handlers } from './handlers';
 import { organizeHandlers } from './organize';
 import { resetMockStore } from './store';
+import { resetUsageStore, usageHandlers } from './usage';
 
-export const mockServer = setupServer(...organizeHandlers, ...handlers);
+export const mockServer = setupServer(...organizeHandlers, ...handlers, ...usageHandlers);
 
 export function registerMockServer(): void {
   beforeAll(() => {
@@ -13,6 +14,7 @@ export function registerMockServer(): void {
   afterEach(() => {
     mockServer.resetHandlers();
     resetMockStore();
+    resetUsageStore();
   });
   afterAll(() => {
     mockServer.close();

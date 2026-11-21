@@ -1,6 +1,7 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RouterProvider } from '@tanstack/react-router';
 import { useEffect } from 'react';
+import { refreshUsageOnLimit, usageQueryKeys } from '../api/usage';
 import { shouldRetryRequest } from '../api/queries';
 import { ShortcutProvider } from '../features/shortcuts';
 import { I18nProvider, useLanguage } from '../i18n/provider';
@@ -11,12 +12,25 @@ export interface AppProvidersProps {
   router: AppRouter;
 }
 
+const USAGE_KEY_HEAD = usageQueryKeys.usage()[0];
+
 export function createAppQueryClient(): QueryClient {
-  return new QueryClient({
+  const queryClient: QueryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: shouldRetryRequest },
     },
+    queryCache: new QueryCache({
+      onError: (error, query) => {
+        if (query.queryKey[0] !== USAGE_KEY_HEAD) {
+          refreshUsageOnLimit(queryClient, error);
+        }
+      },
+    }),
+    mutationCache: new MutationCache({
+      onError: (error) => refreshUsageOnLimit(queryClient, error),
+    }),
   });
+  return queryClient;
 }
 
 function LanguageDocumentSync() {
