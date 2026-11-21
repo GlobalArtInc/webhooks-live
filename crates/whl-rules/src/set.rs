@@ -17,6 +17,7 @@ use crate::step::validate_step;
 pub struct References {
     pub secrets: BTreeSet<String>,
     pub forward_rules: BTreeSet<Uuid>,
+    pub channels: BTreeSet<Uuid>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

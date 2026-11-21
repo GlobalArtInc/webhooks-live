@@ -11,6 +11,7 @@ use crate::state::ApiState;
 
 pub(crate) use dto::DeliveryDto;
 pub use email::{EmailApi, EmailApiLimits};
+pub(crate) use handlers::build_channel;
 pub(crate) use input::object_of;
 pub use settings::NotifyApiSettings;
 

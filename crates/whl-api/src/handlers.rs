@@ -12,6 +12,7 @@ use whl_store::{
 
 use crate::access;
 use crate::body::RawBody;
+use crate::cloning;
 use crate::dto::{EndpointDto, InstanceDto};
 use crate::error::{ApiError, FieldViolation};
 use crate::input::{EndpointPatch, ParsedInput, parse_endpoint_input};
@@ -41,6 +42,12 @@ pub async fn create(
         .is_some_and(|grant| grant.endpoint_limit().is_some())
     {
         return Err(AuthRejection::InsufficientScope.into());
+    }
+    if let Some(request) = cloning::split_template_request(&body)? {
+        if caller.token().is_some() {
+            return Err(AuthRejection::SessionRequired.into());
+        }
+        return cloning::create_from_template(&state, &caller, request).await;
     }
     let creation = state.access.creation(&caller)?;
     let parsed = parse_endpoint_input(&body, true)?;
@@ -270,7 +277,7 @@ pub async fn delete(
     }
 }
 
-fn never_expire_limits(settings: &ApiSettings) -> LifecycleLimits {
+pub(crate) fn never_expire_limits(settings: &ApiSettings) -> LifecycleLimits {
     LifecycleLimits {
         never_expire_max: settings.lifecycle_limits(true).never_expire_endpoints,
     }

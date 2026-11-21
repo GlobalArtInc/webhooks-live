@@ -194,6 +194,30 @@ async fn importing_into_a_new_endpoint_draws_on_the_endpoint_creation_limit() {
 }
 
 #[tokio::test]
+async fn cloning_an_endpoint_counts_against_the_creation_limit() {
+    let harness =
+        harness_with_limits(limits("1000/s:1000", "1/m:2", TrustedProxies::default())).await;
+    let created = send(
+        &harness.app,
+        from(Method::POST, "/api/v1/endpoints", CLIENT),
+    )
+    .await;
+    assert_eq!(created.status, StatusCode::CREATED);
+    let id = created.json()["id"]
+        .as_str()
+        .expect("the endpoint has an id")
+        .to_owned();
+    let clone_uri = format!("/api/v1/endpoints/{id}/clone");
+    let cloned = send(&harness.app, from(Method::POST, &clone_uri, CLIENT)).await;
+    assert_eq!(cloned.status, StatusCode::CREATED);
+
+    let limited = send(&harness.app, from(Method::POST, &clone_uri, CLIENT)).await;
+
+    assert_eq!(limited.status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(number(&limited, "ratelimit-limit"), 2);
+}
+
+#[tokio::test]
 async fn a_trusted_proxy_peer_is_limited_per_forwarded_client() {
     let proxies = TrustedProxies::new(vec!["10.0.0.0/8".parse().expect("valid CIDR")]);
     let harness = harness_with_limits(limits("1/m:1", "100/m:100", proxies)).await;

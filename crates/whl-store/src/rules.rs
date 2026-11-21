@@ -240,7 +240,7 @@ fn same_members(mut current: Vec<Uuid>, ids: &[Uuid]) -> bool {
     current == wanted
 }
 
-async fn insert(
+pub(crate) async fn insert(
     conn: &mut PgConnection,
     endpoint: &EndpointId,
     rule: &Rule,
@@ -262,7 +262,7 @@ async fn insert(
     Ok(())
 }
 
-async fn refresh_flags(
+pub(crate) async fn refresh_flags(
     conn: &mut PgConnection,
     endpoint: &EndpointId,
 ) -> Result<(), RuleStoreError> {

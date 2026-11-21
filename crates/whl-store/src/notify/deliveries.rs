@@ -396,7 +396,7 @@ fn claimed_from_row(row: &PgRow) -> Result<ClaimedDelivery, NotifyStoreError> {
     })
 }
 
-fn sealed_from_row(row: &PgRow) -> Result<Option<SealedSecret>, NotifyStoreError> {
+pub(crate) fn sealed_from_row(row: &PgRow) -> Result<Option<SealedSecret>, NotifyStoreError> {
     let key_id: Option<i16> = row.try_get("secret_key_id").map_err(classify)?;
     let nonce: Option<Vec<u8>> = row.try_get("secret_nonce").map_err(classify)?;
     let ciphertext: Option<Vec<u8>> = row.try_get("secret_ciphertext").map_err(classify)?;

@@ -37,21 +37,7 @@ pub async fn create(
     ensure_enabled(&state)?;
     let endpoint = endpoint_id(&raw_id)?;
     live_endpoint(&state, &endpoint).await?;
-    let parsed = parse_rule(&body, true)?;
-    let mut violations = parsed.violations;
-    let fields = parsed.fields;
-    check_target(&state, fields.target_url.as_deref(), &mut violations).await;
-    let Some(target_url) = fields.target_url.filter(|_| violations.is_empty()) else {
-        return Err(ApiError::Validation(violations));
-    };
-    let rule = NewForwardRule {
-        enabled: fields.enabled.unwrap_or(true),
-        target_url,
-        method: fields.method.flatten(),
-        content_type: fields.content_type.flatten(),
-        header_allowlist: fields.header_allowlist.unwrap_or_default(),
-        append_path: fields.append_path.unwrap_or(false),
-    };
+    let rule = build_rule(&state, &body).await?;
     match state
         .store
         .create_forward_rule(&endpoint, state.settings.retention, &rule)
@@ -63,6 +49,24 @@ pub async fn create(
         CreateRuleOutcome::EndpointGone => Err(ApiError::EndpointGone),
         CreateRuleOutcome::LimitReached => Err(ApiError::ForwardRuleLimit),
     }
+}
+
+pub(crate) async fn build_rule(state: &ApiState, body: &[u8]) -> Result<NewForwardRule, ApiError> {
+    let parsed = parse_rule(body, true)?;
+    let mut violations = parsed.violations;
+    let fields = parsed.fields;
+    check_target(state, fields.target_url.as_deref(), &mut violations).await;
+    let Some(target_url) = fields.target_url.filter(|_| violations.is_empty()) else {
+        return Err(ApiError::Validation(violations));
+    };
+    Ok(NewForwardRule {
+        enabled: fields.enabled.unwrap_or(true),
+        target_url,
+        method: fields.method.flatten(),
+        content_type: fields.content_type.flatten(),
+        header_allowlist: fields.header_allowlist.unwrap_or_default(),
+        append_path: fields.append_path.unwrap_or(false),
+    })
 }
 
 pub async fn update(

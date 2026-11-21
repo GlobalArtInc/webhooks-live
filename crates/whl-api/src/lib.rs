@@ -3,6 +3,7 @@ mod aliases;
 mod body;
 mod captures;
 mod claim;
+mod cloning;
 mod composer;
 mod cors;
 mod dto;
@@ -73,6 +74,7 @@ pub fn router(state: ApiState) -> Router {
         .merge(members::routes())
         .merge(captures::routes())
         .merge(folders::routes())
+        .merge(cloning::routes())
         .merge(export::routes())
         .merge(inbox::routes())
         .merge(import::routes())
