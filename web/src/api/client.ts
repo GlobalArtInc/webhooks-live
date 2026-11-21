@@ -16,6 +16,11 @@ import type {
   Member,
   MemberInput,
   MemberList,
+  Schedule,
+  ScheduleInput,
+  ScheduleList,
+  ScheduleRunList,
+  ScheduleRunQueued,
 } from './types';
 
 export const API_PREFIX = '/api/v1';
@@ -280,4 +285,32 @@ export function patchForwardRule(
 
 export function deleteForwardRule(endpointId: string, ruleId: string): Promise<void> {
   return requestEmpty(`${endpointPath(endpointId)}/forward-rules/${encodeURIComponent(ruleId)}`, { method: 'DELETE' });
+}
+
+function schedulePath(endpointId: string, scheduleId: string): string {
+  return `${endpointPath(endpointId)}/schedules/${encodeURIComponent(scheduleId)}`;
+}
+
+export function listSchedules(endpointId: string): Promise<ScheduleList> {
+  return requestJson<ScheduleList>(`${endpointPath(endpointId)}/schedules`, { method: 'GET' });
+}
+
+export function createSchedule(endpointId: string, input: ScheduleInput): Promise<Schedule> {
+  return requestJson<Schedule>(`${endpointPath(endpointId)}/schedules`, { method: 'POST', body: input });
+}
+
+export function patchSchedule(endpointId: string, scheduleId: string, input: ScheduleInput): Promise<Schedule> {
+  return requestJson<Schedule>(schedulePath(endpointId, scheduleId), { method: 'PATCH', body: input });
+}
+
+export function deleteSchedule(endpointId: string, scheduleId: string): Promise<void> {
+  return requestEmpty(schedulePath(endpointId, scheduleId), { method: 'DELETE' });
+}
+
+export function runSchedule(endpointId: string, scheduleId: string): Promise<ScheduleRunQueued> {
+  return requestJson<ScheduleRunQueued>(`${schedulePath(endpointId, scheduleId)}/run`, { method: 'POST' });
+}
+
+export function listScheduleRuns(endpointId: string, scheduleId: string): Promise<ScheduleRunList> {
+  return requestJson<ScheduleRunList>(`${schedulePath(endpointId, scheduleId)}/runs`, { method: 'GET' });
 }

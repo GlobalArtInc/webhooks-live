@@ -115,6 +115,62 @@ export interface ForwardRuleInput {
   append_path?: boolean;
 }
 
+export interface ScheduleHeader {
+  name: string;
+  value: string;
+}
+
+export interface ScheduleRequest {
+  method: string;
+  url: string;
+  headers: ScheduleHeader[];
+  body: string | null;
+}
+
+export interface Schedule {
+  id: Uuid;
+  name: string;
+  cron: string;
+  timezone: string;
+  request: ScheduleRequest;
+  enabled: boolean;
+  paused_reason: string | null;
+  next_run_at: Timestamp | null;
+  last_run_at: Timestamp | null;
+  consecutive_failures: number;
+  created_at: Timestamp;
+}
+
+export interface ScheduleInput {
+  name?: string;
+  cron?: string;
+  timezone?: string;
+  request?: ScheduleRequest;
+  enabled?: boolean;
+}
+
+export interface ScheduleList {
+  items: Schedule[];
+}
+
+export interface ScheduleRun {
+  id: Uuid;
+  started_at: Timestamp;
+  status: number | null;
+  duration_ms: number | null;
+  error: string | null;
+  capture_id: Uuid | null;
+}
+
+export interface ScheduleRunList {
+  items: ScheduleRun[];
+}
+
+export interface ScheduleRunQueued {
+  schedule_id: Uuid;
+  queued_at: Timestamp;
+}
+
 export interface Endpoint {
   id: EndpointId;
   url: string;
@@ -246,12 +302,15 @@ export interface InstanceLimits {
   max_forward_rules: number;
   max_response_body_bytes: number;
   max_response_headers: number;
+  schedules: number;
+  schedule_min_interval_seconds: number;
 }
 
 export interface InstanceFeatures {
   ring_mode_allowed: boolean;
   forwarding: boolean;
   private_forward_targets_allowed: boolean;
+  schedules: boolean;
 }
 
 export interface Instance {
