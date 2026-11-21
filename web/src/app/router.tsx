@@ -7,6 +7,7 @@ import {
   redirect,
   type RouterHistory,
 } from '@tanstack/react-router';
+import { DevConditionsScreen } from '../routes/dev/DevConditionsScreen';
 import { DevEditorsScreen } from '../routes/dev/DevEditorsScreen';
 import { DevTokensScreen } from '../routes/dev/DevTokensScreen';
 import { DiffScreen } from '../routes/diff/DiffScreen';
@@ -179,6 +180,11 @@ const devRoutes = import.meta.env.DEV
         getParentRoute: () => rootRoute,
         path: '/dev/editors',
         component: DevEditorsScreen,
+      }),
+      createRoute({
+        getParentRoute: () => rootRoute,
+        path: '/dev/conditions',
+        component: DevConditionsScreen,
       }),
     ]
   : [];
