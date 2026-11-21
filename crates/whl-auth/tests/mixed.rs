@@ -105,6 +105,7 @@ fn defaults() -> EndpointSettings {
         response: whl_core::response::ResponseConfig::default(),
         cors: false,
         overflow: Overflow::Refuse,
+        tags: Vec::new(),
     }
 }
 

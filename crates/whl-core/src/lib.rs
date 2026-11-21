@@ -12,4 +12,5 @@ pub mod limiter;
 pub mod rate;
 pub mod response;
 pub mod status;
+pub mod tag;
 pub mod validation;

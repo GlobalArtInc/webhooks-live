@@ -4,6 +4,7 @@ mod claim;
 mod cors;
 mod dto;
 mod error;
+mod folders;
 mod forward;
 mod handlers;
 mod input;
@@ -49,6 +50,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/endpoints/{id}/claim", post(claim::claim))
         .merge(members::routes())
         .merge(captures::routes())
+        .merge(folders::routes())
         .merge(forward::routes())
         .merge(secrets::routes())
         .merge(tokens::routes());

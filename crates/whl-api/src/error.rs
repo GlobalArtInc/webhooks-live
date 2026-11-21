@@ -6,9 +6,10 @@ use time::OffsetDateTime;
 use whl_auth::AuthRejection;
 use whl_core::validation::{FieldPath, Violation, ViolationCode};
 use whl_secrets::{MAX_SECRETS_PER_ENDPOINT, SealError};
+use whl_store::MAX_FOLDERS_PER_USER;
 use whl_store::forward::ForwardStoreError;
 use whl_store::secrets::SecretStoreError;
-use whl_store::{ApiTokenStoreError, EndpointError, MembershipError};
+use whl_store::{ApiTokenStoreError, EndpointError, FolderError, MembershipError};
 
 use crate::dto::timestamp;
 use crate::tokens::{MAX_TOKENS_PER_HOUR, MAX_TOKENS_PER_USER};
@@ -140,6 +141,14 @@ pub enum ApiError {
     Internal(EndpointError),
     #[error("forward storage failed: {0}")]
     ForwardStorage(ForwardStoreError),
+    #[error("the folder is not found")]
+    FolderNotFound,
+    #[error("a folder with that name already exists")]
+    FolderNameTaken,
+    #[error("the user already has the maximum number of folders")]
+    FolderLimit,
+    #[error("folder storage failed: {0}")]
+    FolderStorage(FolderError),
     #[error("the secret is not found in this endpoint")]
     SecretNotFound,
     #[error("the endpoint already has the maximum number of secrets")]
@@ -178,6 +187,15 @@ impl From<SecretStoreError> for ApiError {
             Self::StoreUnavailable
         } else {
             Self::SecretStorage(error)
+        }
+    }
+}
+
+impl From<FolderError> for ApiError {
+    fn from(error: FolderError) -> Self {
+        match error {
+            FolderError::Unavailable(_) => Self::StoreUnavailable,
+            other => Self::FolderStorage(other),
         }
     }
 }
@@ -275,6 +293,10 @@ impl IntoResponse for ApiError {
                 max: MAX_TOKENS_PER_HOUR as usize,
                 window: Some("hour"),
                 resets_at: Some(timestamp(*resets_at)),
+            }),
+            Self::FolderLimit => Some(LimitDetail {
+                name: "folders",
+                max: MAX_FOLDERS_PER_USER,
             }),
             _ => None,
         };
@@ -421,6 +443,28 @@ impl IntoResponse for ApiError {
             }
             Self::Internal(error) => {
                 tracing::error!(%error, "endpoint storage failed");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal_error",
+                    "the request could not be completed".to_owned(),
+                    None,
+                )
+            }
+            Self::FolderNotFound => (
+                StatusCode::NOT_FOUND,
+                "folder_not_found",
+                self.to_string(),
+                None,
+            ),
+            Self::FolderNameTaken => (StatusCode::CONFLICT, "name_taken", self.to_string(), None),
+            Self::FolderLimit => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "limit_reached",
+                self.to_string(),
+                None,
+            ),
+            Self::FolderStorage(error) => {
+                tracing::error!(%error, "folder storage failed");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "internal_error",

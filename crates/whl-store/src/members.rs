@@ -4,6 +4,7 @@ use sqlx::types::Uuid;
 use sqlx::{Row, postgres::PgRow};
 use time::OffsetDateTime;
 use whl_core::endpoint_id::EndpointId;
+use whl_core::tag::Tag;
 
 use crate::auth::{EndpointRole, UserRecord, user_from_row};
 use crate::captures::EVENT_CHANNEL;
@@ -12,7 +13,7 @@ use crate::store::Store;
 
 const QUALIFIED_COLUMNS: &str = "e.id, e.title, e.response_status, e.response_content_type, \
     e.response_headers::text AS response_headers, e.response_body, e.response_delay_ms, e.cors, \
-    e.overflow, e.capture_count, e.bytes_used, e.last_seq, e.created_at, e.last_active_at";
+    e.overflow, e.capture_count, e.bytes_used, e.last_seq, e.created_at, e.last_active_at, e.tags";
 
 const LIVE_ENDPOINT_SQL: &str = "SELECT owner_id FROM endpoints \
     WHERE id = $1 AND deleted_at IS NULL \
@@ -63,6 +64,25 @@ impl From<GrantedRole> for EndpointRole {
             GrantedRole::Viewer => Self::Viewer,
             GrantedRole::Editor => Self::Editor,
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EndpointFilter {
+    pub role: RoleFilter,
+    pub tag: Option<Tag>,
+    pub folder: Option<Uuid>,
+}
+
+impl EndpointFilter {
+    pub fn fingerprint(&self) -> String {
+        format!(
+            "{}:{}:{}",
+            self.role.as_str(),
+            self.tag.as_ref().map_or("-", Tag::unpack),
+            self.folder
+                .map_or_else(|| "-".to_owned(), |folder| folder.hyphenated().to_string()),
+        )
     }
 }
 
@@ -297,7 +317,7 @@ impl Store {
         &self,
         user_id: Uuid,
         retention: Duration,
-        filter: RoleFilter,
+        filter: &EndpointFilter,
         after: Option<&ListPosition>,
         limit: u32,
         only: Option<&[EndpointId]>,
@@ -317,6 +337,10 @@ impl Store {
                     OR ($3::text = 'shared' AND e.owner_id IS DISTINCT FROM $1)) \
                 AND ($4::timestamptz IS NULL OR (e.last_active_at, e.id) < ($4::timestamptz, $5::text)) \
                 AND ($7::text[] IS NULL OR e.id = ANY($7::text[])) \
+                AND ($8::text IS NULL OR $8::text = ANY(e.tags)) \
+                AND ($9::uuid IS NULL OR EXISTS (SELECT 1 FROM folder_endpoints fe \
+                    JOIN folders f ON f.id = fe.folder_id \
+                    WHERE fe.folder_id = $9 AND fe.endpoint_id = e.id AND f.user_id = $1)) \
              ORDER BY e.last_active_at DESC, e.id DESC \
              LIMIT $6"
         );
@@ -326,11 +350,13 @@ impl Store {
         let rows = sqlx::query(&sql)
             .bind(user_id)
             .bind(retention.as_secs_f64())
-            .bind(filter.as_str())
+            .bind(filter.role.as_str())
             .bind(after.map(|position| position.last_active_at))
             .bind(after.map(|position| position.id.as_str()))
             .bind(fetch)
             .bind(only)
+            .bind(filter.tag.as_ref().map(Tag::unpack))
+            .bind(filter.folder)
             .fetch_all(self.pool())
             .await
             .map_err(classify)?;
