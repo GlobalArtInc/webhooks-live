@@ -174,13 +174,13 @@ async function send(path: string, options: RequestOptions): Promise<Response> {
   return response;
 }
 
-async function requestJson<T>(path: string, options: RequestOptions): Promise<T> {
+export async function requestJson<T>(path: string, options: RequestOptions): Promise<T> {
   const response = await send(path, options);
   const payload: unknown = await response.json();
   return payload as T;
 }
 
-async function requestEmpty(path: string, options: RequestOptions): Promise<void> {
+export async function requestEmpty(path: string, options: RequestOptions): Promise<void> {
   await send(path, options);
 }
 

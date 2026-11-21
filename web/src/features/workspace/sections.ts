@@ -47,10 +47,12 @@ const ForwardingSection = lazy(() =>
   import('../forwarding/ForwardingSection').then((module) => ({ default: module.ForwardingSection })),
 );
 
+const RulesSection = lazy(() => import('../rules/RulesSection').then((module) => ({ default: module.RulesSection })));
+
 export const WORKSPACE_SECTIONS: readonly WorkspaceSection[] = [
   { id: 'general', labelKey: 'wl.workspace.section.general', Component: GeneralSection },
   { id: 'response', labelKey: 'wl.workspace.section.response', Component: ResponseSection },
-  { id: 'rules', labelKey: 'wl.workspace.section.rules', Component: null },
+  { id: 'rules', labelKey: 'wl.workspace.section.rules', Component: RulesSection },
   {
     id: 'forwarding',
     labelKey: 'wl.workspace.section.forwarding',
