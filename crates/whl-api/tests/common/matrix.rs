@@ -35,13 +35,21 @@ pub struct Fixture {
 }
 
 pub async fn store_capture(store: &Store, endpoint: &str) -> String {
+    store_capture_at(store, endpoint, OffsetDateTime::now_utc()).await
+}
+
+pub async fn store_capture_at(
+    store: &Store,
+    endpoint: &str,
+    received_at: OffsetDateTime,
+) -> String {
     let id = CaptureId::generate().expect("an id is generated");
     let outcome = store
         .store_capture(
             NewCapture {
                 id,
                 endpoint_id: EndpointId::parse(endpoint).expect("a valid endpoint id"),
-                received_at: OffsetDateTime::now_utc(),
+                received_at,
                 method: "POST".to_owned(),
                 url: "http://h/x".to_owned(),
                 path: "/x".to_owned(),

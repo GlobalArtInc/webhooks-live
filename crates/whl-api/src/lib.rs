@@ -8,6 +8,7 @@ mod export;
 mod folders;
 mod forward;
 mod handlers;
+mod inbox;
 mod input;
 mod lifecycle;
 mod limit;
@@ -30,6 +31,7 @@ use axum::routing::{get, post};
 
 pub use cors::api_cors;
 pub use forward::ForwardSettings;
+pub use inbox::inbox_selector;
 pub use limit::{ApiLimits, enforce_rate_limit};
 pub use policy::guard_routes;
 pub use settings::ApiSettings;
@@ -54,6 +56,7 @@ pub fn router(state: ApiState) -> Router {
         .merge(captures::routes())
         .merge(folders::routes())
         .merge(export::routes())
+        .merge(inbox::routes())
         .merge(forward::routes())
         .merge(secrets::routes())
         .merge(tokens::routes());
