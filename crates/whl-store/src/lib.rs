@@ -13,6 +13,7 @@ pub mod folders;
 pub mod forward;
 mod kind;
 pub mod lifecycle;
+pub mod mail;
 pub mod maintenance;
 mod members;
 pub mod merge;

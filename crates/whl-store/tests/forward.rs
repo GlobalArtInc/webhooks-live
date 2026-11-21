@@ -8,7 +8,7 @@ use time::OffsetDateTime;
 use whl_core::capture_id::CaptureId;
 use whl_core::endpoint_id::EndpointId;
 use whl_core::response::ResponseConfig;
-use whl_store::captures::{CaptureOutcome, CapturePolicy, NameValue, NewCapture};
+use whl_store::captures::{CaptureOutcome, CapturePolicy, CaptureShape, NameValue, NewCapture};
 use whl_store::forward::{
     AttemptRecord, ClaimPolicy, CreateRuleOutcome, NewForwardRule, RecordOutcome, Settlement,
 };
@@ -71,10 +71,14 @@ impl Fixture {
     }
 
     async fn capture(&self) -> CaptureId {
+        self.capture_of(whl_store::CaptureKind::Http).await
+    }
+
+    async fn capture_of(&self, kind: whl_store::CaptureKind) -> CaptureId {
         let id = CaptureId::generate().expect("an id is generated");
         let outcome = self
             .store
-            .store_capture(
+            .store_capture_as(
                 NewCapture {
                     id,
                     endpoint_id: self.endpoint.clone(),
@@ -98,6 +102,10 @@ impl Fixture {
                 CapturePolicy {
                     max_captures: 500,
                     retention: RETENTION,
+                },
+                CaptureShape {
+                    kind,
+                    ..CaptureShape::default()
                 },
             )
             .await
@@ -131,6 +139,21 @@ fn record(job_id: whl_store::Uuid, attempt: i16) -> AttemptRecord {
         response_body: Some(b"ok".to_vec()),
         response_truncated: false,
     }
+}
+
+#[tokio::test]
+async fn an_email_capture_queues_no_forward_job() {
+    let fixture = fixture().await;
+    fixture.rule("http://one.test/a", true, None).await;
+
+    let capture = fixture.capture_of(whl_store::CaptureKind::Email).await;
+
+    let jobs: i64 = sqlx::query_scalar("SELECT count(*) FROM forward_jobs WHERE capture_id = $1")
+        .bind(capture.unpack())
+        .fetch_one(fixture.pool())
+        .await
+        .expect("the jobs are counted");
+    assert_eq!(jobs, 0);
 }
 
 #[tokio::test]

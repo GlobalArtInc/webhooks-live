@@ -232,6 +232,7 @@ fn routes() -> Vec<Route> {
         route(Method::GET, "/captures/latest", "", Viewer, 200),
         route(Method::GET, "/captures/{capture}", "", Viewer, 200),
         route(Method::GET, "/captures/{capture}/body", "", Viewer, 200),
+        route(Method::GET, "/captures/{capture}/parts/0", "", Viewer, 404),
         route(Method::DELETE, "/captures/{capture}", "", Editor, 204),
         route(Method::DELETE, "/captures", "", Editor, 204),
         route(

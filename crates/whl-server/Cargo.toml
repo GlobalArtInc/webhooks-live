@@ -31,6 +31,7 @@ whl-forward.workspace = true
 whl-live.workspace = true
 whl-schedule.workspace = true
 whl-notify.workspace = true
+whl-mail.workspace = true
 whl-secrets.workspace = true
 whl-store.workspace = true
 whl-telemetry.workspace = true

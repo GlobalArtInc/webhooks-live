@@ -22,6 +22,7 @@ whl-notify = { path = "crates/whl-notify" }
 whl-rules = { path = "crates/whl-rules" }
 whl-script = { path = "crates/whl-script" }
 whl-schedule = { path = "crates/whl-schedule" }
+whl-mail = { path = "crates/whl-mail" }
 whl-secrets = { path = "crates/whl-secrets" }
 whl-server = { path = "crates/whl-server" }
 whl-store = { path = "crates/whl-store" }
@@ -86,6 +87,12 @@ regex = { version = "1", default-features = false, features = ["std", "perf", "u
 rhai = { version = "=1.27.0", default-features = false, features = ["std", "sync", "no_module", "no_custom_syntax", "no_closure", "no_optimize", "no_time"] }
 croner = { version = "4", default-features = false, features = ["jiff"] }
 jiff = { version = "0.2", default-features = false, features = ["std", "tzdb-bundle-always"] }
+mail-parser = "1.0"
+rcgen = { version = "0.14", default-features = false, features = ["aws_lc_rs", "pem"] }
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "aws_lc_rs"] }
+rustls-pki-types = { version = "1", features = ["std"] }
+smtp-proto = "0.2"
+tokio-rustls = { version = "0.26", default-features = false, features = ["tls12", "aws_lc_rs"] }
 
 [profile.dev]
 debug = 0

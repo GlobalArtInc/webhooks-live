@@ -18,7 +18,7 @@ use crate::state::ApiState;
 const CROSS_ORIGIN_RESOURCE_POLICY: HeaderName =
     HeaderName::from_static("cross-origin-resource-policy");
 const OCTET_STREAM: &str = "application/octet-stream";
-const PLAIN_TEXT: &str = "text/plain; charset=utf-8";
+pub(super) const PLAIN_TEXT: &str = "text/plain; charset=utf-8";
 const SANDBOX_NO_SOURCES: &str = "sandbox; default-src 'none'";
 const NOSNIFF: &str = "nosniff";
 const SAME_ORIGIN: &str = "same-origin";
@@ -35,14 +35,14 @@ pub struct BodyParams {
 }
 
 impl BodyParams {
-    fn content_type(&self) -> &'static str {
+    pub(super) fn content_type(&self) -> &'static str {
         match self.view.as_deref() {
             Some(TEXT_VIEW) => PLAIN_TEXT,
             _ => OCTET_STREAM,
         }
     }
 
-    fn download(&self) -> bool {
+    pub(super) fn download(&self) -> bool {
         self.download.as_deref() == Some(DOWNLOAD_FLAG)
     }
 }
@@ -89,7 +89,11 @@ fn disposition(
     })
 }
 
-fn response(data: Bytes, content_type: &'static str, disposition: HeaderValue) -> Response {
+pub(super) fn response(
+    data: Bytes,
+    content_type: &'static str,
+    disposition: HeaderValue,
+) -> Response {
     let length = data.len();
     let mut response = Response::new(Body::from(data));
     let headers = response.headers_mut();
