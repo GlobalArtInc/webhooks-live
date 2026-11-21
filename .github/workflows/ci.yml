@@ -65,7 +65,7 @@ jobs:
 
       - name: Test
         if: ${{ !cancelled() }}
-        run: cargo test --locked --workspace
+        run: cargo test --locked --workspace --no-fail-fast
 
   deny:
     name: Dependency licences and advisories
