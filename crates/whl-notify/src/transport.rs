@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
-use http::header::{CONTENT_TYPE, HeaderName, HeaderValue};
+use http::header::{AUTHORIZATION, CONTENT_ENCODING, CONTENT_TYPE, HeaderName, HeaderValue};
 use http::{HeaderMap, Method};
 use url::Url;
 use whl_forward::{
@@ -124,14 +124,13 @@ impl Transport {
             Destination::Guarded(url) => self.send_guarded(&self.webhook, url, prepared).await,
             Destination::Vendor(url) => {
                 let resolved = self.hosts.resolve(url).map_err(SendError::NotPinned)?;
-                match &self.vendor {
-                    VendorRoute::Direct(client) => {
-                        self.send_guarded(client, resolved.as_str(), prepared).await
-                    }
-                    VendorRoute::Proxy(client) => send_proxied(client, resolved, prepared).await,
-                }
+                self.send_pinned(resolved, prepared).await
             }
             Destination::Mail(plan) => self.send_mail(plan, prepared).await,
+            Destination::Push(url) => {
+                let resolved = self.hosts.resolve_push(url).map_err(SendError::NotPinned)?;
+                self.send_pinned(resolved, prepared).await
+            }
         }
     }
 
@@ -157,6 +156,15 @@ impl Transport {
         }
     }
 
+    async fn send_pinned(&self, resolved: Url, prepared: &Prepared) -> Result<Reply, SendError> {
+        match &self.vendor {
+            VendorRoute::Direct(client) => {
+                self.send_guarded(client, resolved.as_str(), prepared).await
+            }
+            VendorRoute::Proxy(client) => send_proxied(client, resolved, prepared).await,
+        }
+    }
+
     async fn send_guarded(
         &self,
         client: &GuardedClient,
@@ -164,12 +172,7 @@ impl Transport {
         prepared: &Prepared,
     ) -> Result<Reply, SendError> {
         let target = validate_target_url(url, &self.guard).map_err(classify_forward)?;
-        let mut headers = json_headers();
-        if let Some(delivery) = &prepared.delivery_header
-            && let Ok(value) = HeaderValue::from_str(delivery)
-        {
-            headers.insert(HeaderName::from_static(DELIVERY_HEADER), value);
-        }
+        let headers = request_headers(prepared)?;
         let request = OutboundRequest::new(
             Method::POST,
             target,
@@ -190,14 +193,36 @@ fn mail_failure(error: &MailError) -> String {
     format!("mail_refused: {error}")
 }
 
-fn json_headers() -> HeaderMap {
+fn request_headers(prepared: &Prepared) -> Result<HeaderMap, SendError> {
     let mut headers = HeaderMap::new();
+    if let Some(push) = &prepared.push {
+        headers.insert(
+            CONTENT_TYPE,
+            HeaderValue::from_static("application/octet-stream"),
+        );
+        headers.insert(CONTENT_ENCODING, HeaderValue::from_static("aes128gcm"));
+        headers.insert(
+            HeaderName::from_static("ttl"),
+            HeaderValue::from(push.ttl_seconds),
+        );
+        let mut authorization = HeaderValue::from_str(&push.authorization).map_err(|_| {
+            SendError::Configuration("the push authorization header is not valid".to_owned())
+        })?;
+        authorization.set_sensitive(true);
+        headers.insert(AUTHORIZATION, authorization);
+        return Ok(headers);
+    }
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
     headers.insert(
         HeaderName::from_static(HOP_HEADER),
         HeaderValue::from_static(HOP_VALUE),
     );
-    headers
+    if let Some(delivery) = &prepared.delivery_header
+        && let Ok(value) = HeaderValue::from_str(delivery)
+    {
+        headers.insert(HeaderName::from_static(DELIVERY_HEADER), value);
+    }
+    Ok(headers)
 }
 
 fn classify_forward(error: ForwardError) -> SendError {
@@ -243,8 +268,7 @@ async fn send_proxied(
     };
     let mut response = client
         .post(url)
-        .header(CONTENT_TYPE, "application/json")
-        .header(HOP_HEADER, HOP_VALUE)
+        .headers(request_headers(prepared)?)
         .body(prepared.body.clone())
         .send()
         .await

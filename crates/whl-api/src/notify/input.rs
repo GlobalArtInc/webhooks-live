@@ -26,12 +26,13 @@ const CREATE_KEYS: &[&str] = &[
     "template",
     "per_hour",
 ];
-const AVAILABLE_KINDS: [ChannelKind; 5] = [
+const AVAILABLE_KINDS: [ChannelKind; 6] = [
     ChannelKind::Webhook,
     ChannelKind::Slack,
     ChannelKind::Discord,
     ChannelKind::Telegram,
     ChannelKind::Email,
+    ChannelKind::Push,
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,6 +45,7 @@ pub enum ChannelConfig {
     Email {
         address_id: Uuid,
     },
+    Push,
 }
 
 #[derive(Debug, Default)]
@@ -120,7 +122,7 @@ pub fn url_violation(field: &str, refusal: TargetRefusal) -> FieldViolation {
     FieldViolation::new(field, code, refusal.to_string())
 }
 
-fn object_of(bytes: &[u8]) -> Result<Map<String, Value>, ApiError> {
+pub(crate) fn object_of(bytes: &[u8]) -> Result<Map<String, Value>, ApiError> {
     if bytes.is_empty() {
         return Err(ApiError::InvalidJson("the request body is empty"));
     }
@@ -278,6 +280,7 @@ impl Walk {
         let known: &[&str] = match kind {
             ChannelKind::Telegram => &["token_secret", "chat_id"],
             ChannelKind::Email => &["address_id"],
+            ChannelKind::Push => &[],
             _ => &["url"],
         };
         for key in object.keys().filter(|key| !known.contains(&key.as_str())) {
@@ -290,6 +293,7 @@ impl Walk {
         match kind {
             ChannelKind::Telegram => self.telegram(object),
             ChannelKind::Email => self.email(object),
+            ChannelKind::Push => Some(ChannelConfig::Push),
             _ => self.url(kind, object),
         }
     }

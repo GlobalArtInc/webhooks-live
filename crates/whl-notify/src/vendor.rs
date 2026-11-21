@@ -1,5 +1,6 @@
 use url::Url;
 
+use crate::push::PushHosts;
 use crate::target::{DISCORD_HOSTS, SLACK_HOST, TELEGRAM_HOST};
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -14,6 +15,7 @@ pub enum PinError {
 
 #[derive(Debug, Clone, Default)]
 pub struct VendorHosts {
+    push: PushHosts,
     #[cfg(any(test, feature = "test-support"))]
     overrides: Vec<(String, Url)>,
 }
@@ -23,6 +25,11 @@ impl VendorHosts {
         Self::default()
     }
 
+    pub fn with_push_hosts(mut self, push: PushHosts) -> Self {
+        self.push = push;
+        self
+    }
+
     #[cfg(any(test, feature = "test-support"))]
     pub fn with_override(mut self, host: &str, origin: Url) -> Self {
         self.overrides.push((host.to_owned(), origin));
@@ -30,16 +37,16 @@ impl VendorHosts {
     }
 
     pub fn resolve(&self, url: &str) -> Result<Url, PinError> {
-        let parsed = Url::parse(url).map_err(|_| PinError::Invalid)?;
-        if parsed.scheme() != "https"
-            || parsed.port().is_some()
-            || !parsed.username().is_empty()
-            || parsed.password().is_some()
-        {
-            return Err(PinError::Shape);
-        }
-        let host = parsed.host_str().ok_or(PinError::Invalid)?.to_owned();
+        let (parsed, host) = pinned_shape(url)?;
         if !is_pinned(&host) {
+            return Err(PinError::Host(host));
+        }
+        Ok(self.redirect(parsed, &host))
+    }
+
+    pub fn resolve_push(&self, url: &str) -> Result<Url, PinError> {
+        let (parsed, host) = pinned_shape(url)?;
+        if !self.push.allows(&host) {
             return Err(PinError::Host(host));
         }
         Ok(self.redirect(parsed, &host))
@@ -60,6 +67,19 @@ impl VendorHosts {
     fn redirect(&self, parsed: Url, _host: &str) -> Url {
         parsed
     }
+}
+
+fn pinned_shape(url: &str) -> Result<(Url, String), PinError> {
+    let parsed = Url::parse(url).map_err(|_| PinError::Invalid)?;
+    if parsed.scheme() != "https"
+        || parsed.port().is_some()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+    {
+        return Err(PinError::Shape);
+    }
+    let host = parsed.host_str().ok_or(PinError::Invalid)?.to_owned();
+    Ok((parsed, host))
 }
 
 fn is_pinned(host: &str) -> bool {
@@ -90,6 +110,28 @@ mod tests {
         ] {
             assert!(hosts.resolve(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn push_urls_resolve_only_on_the_push_list_and_chat_hosts_stay_apart() {
+        let hosts = VendorHosts::production();
+        assert!(
+            hosts
+                .resolve_push("https://fcm.googleapis.com/fcm/send/x")
+                .is_ok()
+        );
+        assert!(
+            hosts
+                .resolve_push("https://hooks.slack.com/services/T/B/x")
+                .is_err()
+        );
+        assert!(
+            hosts
+                .resolve("https://fcm.googleapis.com/fcm/send/x")
+                .is_err()
+        );
+        assert!(hosts.resolve_push("https://evil.test/x").is_err());
+        assert!(hosts.resolve_push("http://fcm.googleapis.com/x").is_err());
     }
 
     #[test]

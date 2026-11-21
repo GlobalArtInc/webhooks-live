@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use whl_auth::{AccessControl, ViewAccess};
+use whl_notify::PushService;
 use whl_secrets::Keyring;
 use whl_store::Store;
 
@@ -30,6 +31,7 @@ pub struct ApiState {
     pub(crate) import_cooldown: ImportCooldown,
     pub(crate) alias_quarantine: Duration,
     pub(crate) email: Option<EmailApi>,
+    pub(crate) push: Option<PushService>,
 }
 
 impl ApiState {
@@ -52,6 +54,7 @@ impl ApiState {
             import_cooldown: ImportCooldown::new(IMPORT_COOLDOWN),
             alias_quarantine: DEFAULT_ALIAS_QUARANTINE,
             email: None,
+            push: None,
         }
     }
 
@@ -62,6 +65,11 @@ impl ApiState {
 
     pub fn with_alias_quarantine(mut self, quarantine: Duration) -> Self {
         self.alias_quarantine = quarantine;
+        self
+    }
+
+    pub fn with_push(mut self, push: PushService) -> Self {
+        self.push = Some(push);
         self
     }
 

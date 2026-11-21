@@ -745,3 +745,30 @@ fn email_settings_are_off_by_default_and_the_smtp_url_is_never_printed() {
     assert_eq!(set.notify.email_verifications_per_day_global, 9);
     assert!(!format!("{set:?}").contains("placeholder-value"));
 }
+
+#[test]
+fn web_push_settings_default_to_nothing_and_read_the_environment() {
+    let defaults = load(&with_required(&[])).expect("the defaults load");
+    assert_eq!(defaults.notify.vapid_subject, None);
+    assert!(defaults.notify.push_extra_hosts.is_empty());
+
+    let set = load(&with_required(&[
+        (
+            "WEBHOOKS_LIVE_VAPID_SUBJECT",
+            "mailto:ops@hooks.example.test",
+        ),
+        (
+            "WEBHOOKS_LIVE_PUSH_EXTRA_HOSTS",
+            "push.example.test, *.relay.example.test",
+        ),
+    ]))
+    .expect("the keys load");
+    assert_eq!(
+        set.notify.vapid_subject.as_deref(),
+        Some("mailto:ops@hooks.example.test")
+    );
+    assert_eq!(
+        set.notify.push_extra_hosts,
+        ["push.example.test", "*.relay.example.test"]
+    );
+}

@@ -102,6 +102,7 @@ email_verifications_per_day = 5
 email_verifications_per_address_per_day = 3
 email_verifications_per_domain_per_day = 200
 email_verifications_per_day_global = 2000
+push_extra_hosts = []
 
 [shutdown]
 drain = "5s"
@@ -185,6 +186,8 @@ const ENV_KEYS: &[(&str, &str)] = &[
     ("NOTIFY_FROM", "notify.from"),
     ("VENDOR_PROXY", "notify.vendor_proxy"),
     ("ALIAS_QUARANTINE", "alias.quarantine"),
+    ("VAPID_SUBJECT", "notify.vapid_subject"),
+    ("PUSH_EXTRA_HOSTS", "notify.push_extra_hosts"),
     ("SECRETS_KEYS", "secrets.keys"),
     ("DNS_LISTEN_ADDR", "dns.listen_addr"),
     ("DNS_ZONE", "dns.zone"),
@@ -358,6 +361,9 @@ pub struct NotifyConfig {
     pub smtp_url: Option<SmtpUrl>,
     pub from: Option<String>,
     pub vendor_proxy: Option<ProxyUrl>,
+    pub vapid_subject: Option<String>,
+    #[serde(deserialize_with = "de::list")]
+    pub push_extra_hosts: Vec<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]

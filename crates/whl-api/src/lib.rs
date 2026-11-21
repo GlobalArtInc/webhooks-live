@@ -20,6 +20,7 @@ mod listing;
 mod members;
 mod notify;
 mod policy;
+mod push;
 mod resolve;
 mod rules;
 mod schedules;
@@ -79,6 +80,7 @@ pub fn router(state: ApiState) -> Router {
         .merge(rules::routes())
         .merge(schedules::routes())
         .merge(notify::routes())
+        .merge(push::routes())
         .merge(secrets::routes())
         .merge(composer::routes())
         .merge(tokens::routes())

@@ -115,12 +115,13 @@ impl Bound {
     }
 
     pub async fn serve(
-        self,
+        mut self,
         store: Store,
         shutdown: impl Future<Output = ()> + Send + 'static,
     ) -> Result<(), ServerError> {
         credentials::warn_unusable_capture_credentials(&store, self.secrets.as_deref()).await;
         let readiness = Arc::new(Readiness::default());
+        self.notify.prepare_push(&store).await?;
         let worker = self.forward.worker(&store)?;
         let notify_worker = self.notify.worker(&store)?;
         let auth = match self.auth.clone() {
@@ -165,6 +166,10 @@ impl Bound {
         };
         let state = match &self.secrets {
             Some(keyring) => state.with_secrets(Arc::clone(keyring)),
+            None => state,
+        };
+        let state = match self.notify.push() {
+            Some(push) => state.with_push(push),
             None => state,
         };
         let authorizer = whl_api::stream_authorizer(state.access());

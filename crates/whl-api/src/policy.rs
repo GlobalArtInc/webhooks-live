@@ -45,6 +45,8 @@ pub fn requirement(mode: AccessMode, method: &Method, pattern: &str) -> Requirem
             Requirement::Role(EndpointRole::Viewer)
         }
         "/folders/{folder_id}/endpoints/{id}" => Requirement::SignedIn,
+        "/push/public-key" => Requirement::Anyone,
+        "/push/subscriptions" | "/push/subscriptions/{subscription_id}" => Requirement::SignedIn,
         _ => match rest.strip_prefix(ENDPOINT_PREFIX) {
             Some(CLAIM_TAIL) if *method == Method::POST => Requirement::SignedIn,
             Some(IMPORT_TAIL) if *method == Method::POST => {
@@ -445,6 +447,27 @@ mod tests {
                         "{mode:?} {pattern}"
                     );
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn the_push_key_is_public_and_the_subscription_routes_need_sign_in_in_every_mode() {
+        for mode in MODES {
+            assert_eq!(
+                requirement(mode, &GET, "/api/v1/push/public-key"),
+                Requirement::Anyone
+            );
+            for (method, pattern) in [
+                (&GET, "/api/v1/push/subscriptions"),
+                (&POST, "/api/v1/push/subscriptions"),
+                (&DELETE, "/api/v1/push/subscriptions/{subscription_id}"),
+            ] {
+                assert_eq!(
+                    requirement(mode, method, pattern),
+                    Requirement::SignedIn,
+                    "{mode:?} {method} {pattern}"
+                );
             }
         }
     }

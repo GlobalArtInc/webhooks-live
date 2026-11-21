@@ -94,12 +94,15 @@ pub fn verification_mail(
 
 #[cfg(test)]
 mod tests {
+    use whl_store::notify::DeliveryKind;
+
     use super::*;
 
     fn notice(text: &str) -> Notice {
         Notice {
             endpoint_id: "7k2m9q4xw8c1d5f3h6j0n2p4".to_owned(),
             text: text.to_owned(),
+            delivery_kind: DeliveryKind::Single,
             capture: None,
         }
     }

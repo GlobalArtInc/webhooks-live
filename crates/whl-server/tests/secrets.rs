@@ -504,3 +504,40 @@ async fn rotation_re_seals_notification_channel_secrets_too() {
         .expect("opens with the new key only");
     assert_eq!(opened.unpack(), value.unpack());
 }
+
+#[tokio::test]
+async fn rotation_re_seals_the_vapid_key_too_and_keeps_its_public_half() {
+    use whl_notify::{VapidSubject, load_or_create_vapid};
+
+    let db = TestDb::new().await;
+    let store = Store::from_pool(db.pool().clone());
+    let old = ring(&format!("1:{KEY_ONE}"));
+    let rotated = ring(&format!("2:{KEY_TWO},1:{KEY_ONE}"));
+    let subject = VapidSubject::parse("mailto:ops@hooks.example").expect("a subject");
+    let before = load_or_create_vapid(&store, &old, &subject)
+        .await
+        .expect("a key is created");
+    assert_eq!(
+        store
+            .count_secrets_outside_key(rotated.active_id())
+            .await
+            .expect("counts"),
+        1
+    );
+
+    let (report, _) = run(&store, &rotated, 100).await;
+    assert_eq!(report.rotated, 1);
+    assert_eq!(
+        store
+            .count_secrets_outside_key(rotated.active_id())
+            .await
+            .expect("counts"),
+        0
+    );
+
+    let only_new = ring(&format!("2:{KEY_TWO}"));
+    let after = load_or_create_vapid(&store, &only_new, &subject)
+        .await
+        .expect("opens with the new key only");
+    assert_eq!(after.public_bytes(), before.public_bytes());
+}

@@ -2,6 +2,7 @@ mod channels;
 mod deliveries;
 mod email;
 mod model;
+mod push;
 mod quota;
 mod wake;
 
@@ -19,6 +20,11 @@ pub use email::{
     AddressLimits, AddressOutcome, AddressRequest, AddressUndo, EmailAddress, MailRecipient,
 };
 pub use model::{Channel, ChannelKind, Delivery, DeliveryKind, DeliveryState, ParseError, Trigger};
+pub use push::{
+    MAX_PUSH_ENDPOINT_BYTES, MAX_PUSH_SUBSCRIPTIONS_PER_USER, MAX_REJECTED_ATTEMPTS,
+    MAX_USER_AGENT_CHARS, NewPushSubscription, PushResults, PushSubscription, PushSubscriptionInfo,
+    SavePushOutcome, SavedPushSubscription, StoredVapid, VAPID_SCOPE, VAPID_SECRET,
+};
 pub use quota::{DAY_SECS, HOUR_SECS, QuotaCap, QuotaVerdict};
 pub use wake::NotifyWakeListener;
 

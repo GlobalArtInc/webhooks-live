@@ -17,10 +17,12 @@ use whl_store::notify::{
 };
 use whl_telemetry::series::{NOTIFICATION_QUEUE_DEPTH, NOTIFICATIONS_TOTAL};
 
-use crate::adapter::{AdapterInput, Destination, MailContext, adapter_for};
+use crate::adapter::{Adapter, AdapterInput, Destination, MailContext, adapter_for};
 use crate::address::address_digest;
 use crate::disable::issue_disable_token;
-use crate::notice::{ComposeInput, compose};
+use crate::notice::{ComposeInput, Notice, compose};
+use crate::push::PushService;
+use crate::push_delivery::{PushOutcome, PushRoute, deliver};
 use crate::secret::channel_secret_name;
 use crate::settings::{MAX_CLAIM_BATCH, NotifySettings, SUMMARY_LOOK_BACK_HOURS, SettingsError};
 use crate::target::targets_instance;
@@ -61,6 +63,7 @@ pub struct NotifyWorker {
     keyring: Arc<Keyring>,
     transport: Transport,
     settings: NotifySettings,
+    push: Option<PushService>,
 }
 
 struct Shared {
@@ -68,6 +71,7 @@ struct Shared {
     keyring: Arc<Keyring>,
     transport: Transport,
     settings: NotifySettings,
+    push: Option<PushService>,
     wake: Notify,
     slots: Arc<Semaphore>,
 }
@@ -85,7 +89,13 @@ impl NotifyWorker {
             keyring,
             transport,
             settings,
+            push: None,
         })
+    }
+
+    pub fn with_push(mut self, push: PushService) -> Self {
+        self.push = Some(push);
+        self
     }
 
     pub fn spawn(self, shutdown: impl Future<Output = ()> + Send + 'static) -> NotifyHandle {
@@ -101,6 +111,7 @@ impl NotifyWorker {
             keyring: self.keyring,
             transport: self.transport,
             settings: self.settings,
+            push: self.push,
             wake: Notify::new(),
         });
         let listener = tokio::spawn(listen_for_wakeups(Arc::clone(&shared)));
@@ -479,6 +490,9 @@ async fn process(shared: &Shared, delivery: &ClaimedDelivery) -> Option<Finished
             disable_token: token,
             public_url: &shared.settings.public_url,
         });
+    if delivery.channel.kind == ChannelKind::Push {
+        return process_push(shared, delivery, adapter, &notice).await;
+    }
     let prepared = adapter.prepare(&AdapterInput {
         config: &delivery.channel.config,
         url: opened.url.as_ref().map(Secret::unpack),
@@ -486,6 +500,7 @@ async fn process(shared: &Shared, delivery: &ClaimedDelivery) -> Option<Finished
         mail,
         notice: &notice,
         delivery: delivery.id,
+        push: None,
     });
     let prepared = match prepared {
         Ok(prepared) => prepared,
@@ -500,6 +515,48 @@ async fn process(shared: &Shared, delivery: &ClaimedDelivery) -> Option<Finished
     }
     let sent = shared.transport.send(&prepared).await;
     Some(conclude(shared, delivery, &opened, sent))
+}
+
+async fn process_push(
+    shared: &Shared,
+    delivery: &ClaimedDelivery,
+    adapter: &dyn Adapter,
+    notice: &Notice,
+) -> Option<Finished> {
+    let Some(service) = shared.push.as_ref() else {
+        return Some(Finished::failed(
+            "push_unavailable: web push is not configured on this instance",
+        ));
+    };
+    let route = PushRoute {
+        store: &shared.store,
+        transport: &shared.transport,
+        service,
+        adapter,
+    };
+    let finished = |status: Option<u16>, error: Option<String>, settlement, outcome| Finished {
+        status: status.and_then(|status| i16::try_from(status).ok()),
+        error,
+        settlement,
+        outcome,
+    };
+    Some(match deliver(&route, delivery, notice).await {
+        PushOutcome::Delivered { status } => {
+            finished(Some(status), None, Settlement::Succeeded, Outcome::Sent)
+        }
+        PushOutcome::Retry { status, detail } => {
+            let settlement = next_step(&shared.settings, delivery.attempt, None);
+            let outcome = match settlement {
+                Settlement::RetryIn(_) => Outcome::Retrying,
+                _ => Outcome::Failed,
+            };
+            finished(status, Some(detail), settlement, outcome)
+        }
+        PushOutcome::Failed { status, detail } => {
+            finished(status, Some(detail), Settlement::Failed, Outcome::Failed)
+        }
+        PushOutcome::Deferred => return None,
+    })
 }
 
 async fn open_secrets(
@@ -580,19 +637,8 @@ fn conclude(
     opened: &Opened,
     sent: Result<Reply, SendError>,
 ) -> Finished {
-    let policy = RetryPolicy::new(shared.settings.max_attempts);
-    let attempt = u32::try_from(delivery.attempt).unwrap_or(u32::MAX);
-    let retry = |delay_hint: Option<Duration>| {
-        if policy.has_attempts_left(attempt) {
-            let delay = delay_hint.map_or_else(
-                || policy.delay_after(attempt),
-                |hint| hint.min(MAX_RETRY_AFTER),
-            );
-            Settlement::RetryIn(delay)
-        } else {
-            Settlement::Failed
-        }
-    };
+    let retry =
+        |delay_hint: Option<Duration>| next_step(&shared.settings, delivery.attempt, delay_hint);
     let finished = |status, error: Option<String>, settlement| Finished {
         status,
         error: error.map(|text| redact(&text, opened)),
@@ -630,6 +676,20 @@ fn conclude(
         }
         Err(error) if error.is_retryable() => finished(None, Some(error.to_string()), retry(None)),
         Err(error) => finished(None, Some(error.to_string()), Settlement::Failed),
+    }
+}
+
+fn next_step(settings: &NotifySettings, attempt: i16, delay_hint: Option<Duration>) -> Settlement {
+    let policy = RetryPolicy::new(settings.max_attempts);
+    let attempt = u32::try_from(attempt).unwrap_or(u32::MAX);
+    if policy.has_attempts_left(attempt) {
+        let delay = delay_hint.map_or_else(
+            || policy.delay_after(attempt),
+            |hint| hint.min(MAX_RETRY_AFTER),
+        );
+        Settlement::RetryIn(delay)
+    } else {
+        Settlement::Failed
     }
 }
 

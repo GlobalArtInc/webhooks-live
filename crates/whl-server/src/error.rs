@@ -8,7 +8,7 @@ use whl_core::limiter::LimiterError;
 use whl_dns::DnsError;
 use whl_forward::{ForwardError, WorkerError};
 use whl_mail::MailSetupError;
-use whl_notify::{MailConfigError, SendError, SettingsError};
+use whl_notify::{HostPatternError, MailConfigError, SendError, SettingsError, VapidError};
 use whl_schedule::RunnerError;
 use whl_store::StoreError;
 
@@ -40,6 +40,10 @@ pub enum ServerError {
     EmailConfig(#[from] MailConfigError),
     #[error("WEBHOOKS_LIVE_SMTP_URL and WEBHOOKS_LIVE_NOTIFY_FROM must be set together")]
     MailIncomplete,
+    #[error("the push host list is invalid: {0}")]
+    PushHosts(#[from] HostPatternError),
+    #[error("cannot set up web push: {0}")]
+    Push(#[from] VapidError),
     #[error("cannot set up secrets: {0}")]
     Secrets(#[from] SecretsSetupError),
     #[error("cannot set up the mail receiver: {0}")]
