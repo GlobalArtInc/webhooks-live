@@ -2,12 +2,16 @@ use axum::Json;
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
+use time::OffsetDateTime;
 use whl_auth::AuthRejection;
 use whl_core::validation::{FieldPath, Violation, ViolationCode};
 use whl_secrets::{MAX_SECRETS_PER_ENDPOINT, SealError};
 use whl_store::forward::ForwardStoreError;
 use whl_store::secrets::SecretStoreError;
-use whl_store::{EndpointError, MembershipError};
+use whl_store::{ApiTokenStoreError, EndpointError, MembershipError};
+
+use crate::dto::timestamp;
+use crate::tokens::{MAX_TOKENS_PER_HOUR, MAX_TOKENS_PER_USER};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -146,6 +150,26 @@ pub enum ApiError {
     SecretStorage(SecretStoreError),
     #[error("a secret could not be sealed: {0}")]
     SecretSeal(SealError),
+    #[error("the API token is not found")]
+    TokenNotFound,
+    #[error("the maximum number of active API tokens is reached")]
+    TokenLimit,
+    #[error("too many API tokens were created recently")]
+    TokenCreationRate { resets_at: OffsetDateTime },
+    #[error("a token could not be generated")]
+    EntropyUnavailable,
+    #[error("API token storage failed: {0}")]
+    TokenStorage(ApiTokenStoreError),
+}
+
+impl From<ApiTokenStoreError> for ApiError {
+    fn from(error: ApiTokenStoreError) -> Self {
+        if error.is_unavailable() {
+            Self::StoreUnavailable
+        } else {
+            Self::TokenStorage(error)
+        }
+    }
 }
 
 impl From<SecretStoreError> for ApiError {
@@ -211,6 +235,26 @@ struct ErrorDetail {
 struct LimitDetail {
     name: &'static str,
     max: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    window: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    resets_at: Option<String>,
+}
+
+impl LimitDetail {
+    fn count(name: &'static str, max: usize) -> Self {
+        Self {
+            name,
+            max,
+            window: None,
+            resets_at: None,
+        }
+    }
+}
+
+fn seconds_until(moment: OffsetDateTime) -> u64 {
+    let remaining = (moment - OffsetDateTime::now_utc()).whole_seconds();
+    u64::try_from(remaining).unwrap_or(0).max(1)
 }
 
 impl IntoResponse for ApiError {
@@ -220,12 +264,17 @@ impl IntoResponse for ApiError {
         }
         let retry_after = match &self {
             Self::RateLimited { retry_after_secs } => Some(*retry_after_secs),
+            Self::TokenCreationRate { resets_at } => Some(seconds_until(*resets_at)),
             _ => None,
         };
         let limit = match &self {
-            Self::SecretLimit => Some(LimitDetail {
-                name: "secrets",
-                max: MAX_SECRETS_PER_ENDPOINT,
+            Self::SecretLimit => Some(LimitDetail::count("secrets", MAX_SECRETS_PER_ENDPOINT)),
+            Self::TokenLimit => Some(LimitDetail::count("tokens", MAX_TOKENS_PER_USER as usize)),
+            Self::TokenCreationRate { resets_at } => Some(LimitDetail {
+                name: "token_creation",
+                max: MAX_TOKENS_PER_HOUR as usize,
+                window: Some("hour"),
+                resets_at: Some(timestamp(*resets_at)),
             }),
             _ => None,
         };
@@ -381,6 +430,42 @@ impl IntoResponse for ApiError {
             }
             Self::ForwardStorage(error) => {
                 tracing::error!(%error, "forward storage failed");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal_error",
+                    "the request could not be completed".to_owned(),
+                    None,
+                )
+            }
+            Self::TokenNotFound => (
+                StatusCode::NOT_FOUND,
+                "token_not_found",
+                self.to_string(),
+                None,
+            ),
+            Self::TokenLimit => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "limit_reached",
+                self.to_string(),
+                None,
+            ),
+            Self::TokenCreationRate { .. } => (
+                StatusCode::TOO_MANY_REQUESTS,
+                "quota_exceeded",
+                self.to_string(),
+                None,
+            ),
+            Self::EntropyUnavailable => {
+                tracing::error!("the operating system random source failed");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal_error",
+                    "the request could not be completed".to_owned(),
+                    None,
+                )
+            }
+            Self::TokenStorage(error) => {
+                tracing::error!(%error, "API token storage failed");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "internal_error",

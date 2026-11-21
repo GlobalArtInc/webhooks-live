@@ -46,6 +46,7 @@ pub async fn list(
             query.filter,
             query.after.as_ref(),
             query.limit,
+            caller.token().and_then(|grant| grant.endpoint_limit()),
         )
         .await?;
     let ids: Vec<EndpointId> = page

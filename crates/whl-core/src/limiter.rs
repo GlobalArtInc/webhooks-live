@@ -13,6 +13,7 @@ use governor::nanos::Nanos;
 use governor::state::StateStore;
 use governor::state::keyed::ShrinkableKeyedStateStore;
 use governor::{Quota, RateLimiter};
+use uuid::Uuid;
 
 use crate::config::RateConfig;
 use crate::endpoint_id::EndpointId;
@@ -254,6 +255,7 @@ struct Inner {
     capture_ip: KeyedLimiter<ClientKey>,
     capture_endpoint: KeyedLimiter<EndpointId>,
     api_ip: KeyedLimiter<ClientKey>,
+    api_token: KeyedLimiter<Uuid>,
     create_ip: KeyedLimiter<ClientKey>,
 }
 
@@ -267,6 +269,7 @@ pub struct TrackedKeys {
     pub capture_ip: usize,
     pub capture_endpoint: usize,
     pub api_ip: usize,
+    pub api_token: usize,
     pub create_ip: usize,
 }
 
@@ -277,6 +280,7 @@ impl Limiters {
                 capture_ip: KeyedLimiter::new(settings.capture_ip, settings.max_keys)?,
                 capture_endpoint: KeyedLimiter::new(settings.capture_endpoint, settings.max_keys)?,
                 api_ip: KeyedLimiter::new(settings.api_ip, settings.max_keys)?,
+                api_token: KeyedLimiter::new(settings.api_ip, settings.max_keys)?,
                 create_ip: KeyedLimiter::new(settings.create_ip, settings.max_keys)?,
             }),
         })
@@ -294,6 +298,10 @@ impl Limiters {
         self.inner.api_ip.check(&ClientKey::from_ip(address))
     }
 
+    pub fn check_api_token(&self, token: Uuid) -> Verdict {
+        self.inner.api_token.check(&token)
+    }
+
     pub fn check_create_ip(&self, address: IpAddr) -> Verdict {
         self.inner.create_ip.check(&ClientKey::from_ip(address))
     }
@@ -302,6 +310,7 @@ impl Limiters {
         self.inner.capture_ip.cleanup();
         self.inner.capture_endpoint.cleanup();
         self.inner.api_ip.cleanup();
+        self.inner.api_token.cleanup();
         self.inner.create_ip.cleanup();
     }
 
@@ -310,6 +319,7 @@ impl Limiters {
             capture_ip: self.inner.capture_ip.tracked_keys(),
             capture_endpoint: self.inner.capture_endpoint.tracked_keys(),
             api_ip: self.inner.api_ip.tracked_keys(),
+            api_token: self.inner.api_token.tracked_keys(),
             create_ip: self.inner.create_ip.tracked_keys(),
         }
     }

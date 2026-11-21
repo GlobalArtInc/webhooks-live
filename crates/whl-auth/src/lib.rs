@@ -1,4 +1,5 @@
 mod access;
+mod api_token;
 mod cookies;
 mod current_user;
 mod error;
@@ -19,10 +20,15 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, post};
 
 pub use access::{Decision, decide_access};
+pub use api_token::{
+    ApiTokenHash, ApiTokenSecret, LAST_USED_INTERVAL, LOOKUP_PREFIX_CHARS, TOKEN_PREFIX, TokenGrant,
+};
 pub use cookies::{CookiePolicy, LoginCookie};
 pub use current_user::CurrentUser;
 pub use error::{AccessDenied, AuthError, AuthRejection, LoginFailure};
-pub use gate::{Access, AccessControl, AccessMode, Caller, Creation, EndpointParam, Requirement};
+pub use gate::{
+    Access, AccessControl, AccessMode, Caller, Creation, EndpointParam, Requirement, TokenPolicy,
+};
 pub use origin::{OriginCheck, OriginCheckService};
 pub use provider::CLOCK_LEEWAY;
 pub use return_to::sanitize as sanitize_return_to;
@@ -31,7 +37,7 @@ pub use settings::{
     SessionLimits,
 };
 pub use state::{AuthState, DiscoveryBackoff};
-pub use whl_store::EndpointRole;
+pub use whl_store::{EndpointRole, TokenScope};
 
 pub fn router(state: AuthState) -> Router {
     let origin = state.origin_check();

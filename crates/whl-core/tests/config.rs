@@ -258,6 +258,16 @@ fn ring_mode_is_allowed_by_default_and_can_be_switched_off() {
 }
 
 #[test]
+fn api_cors_is_on_by_default_and_can_be_switched_off() {
+    let default = load(&[PUBLIC_URL, DATABASE_URL]).expect("required keys are enough");
+    let disabled = load(&with_required(&[("WEBHOOKS_LIVE_API_CORS", "false")]))
+        .expect("the flag is a valid boolean");
+
+    assert!(default.api_cors);
+    assert!(!disabled.api_cors);
+}
+
+#[test]
 fn oidc_provider_name_is_optional_and_read_from_env() {
     let default = load(&[PUBLIC_URL, DATABASE_URL]).expect("required keys are enough");
     let named = load(&with_required(&[(

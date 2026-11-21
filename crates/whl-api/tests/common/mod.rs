@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 pub mod matrix;
+pub mod tokens;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -348,6 +349,28 @@ impl LiveApp {
             builder = builder.header(header::COOKIE, &actor.cookie);
         }
         let request = builder.body(Body::empty()).expect("the request is valid");
+        let response = self
+            .app
+            .clone()
+            .oneshot(request)
+            .await
+            .expect("the router does not fail");
+        let (parts, body) = response.into_parts();
+        Sse {
+            status: parts.status,
+            body: body.into_data_stream(),
+            buffer: String::new(),
+        }
+    }
+}
+
+impl LiveApp {
+    pub async fn open_bearer(&self, token: &str, endpoint: &str) -> Sse {
+        let request = Request::builder()
+            .uri(format!("/api/v1/endpoints/{endpoint}/stream"))
+            .header(header::AUTHORIZATION, format!("Bearer {token}"))
+            .body(Body::empty())
+            .expect("the request is valid");
         let response = self
             .app
             .clone()

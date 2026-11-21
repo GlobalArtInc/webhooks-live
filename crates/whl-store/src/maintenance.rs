@@ -15,6 +15,7 @@ pub const LEADER_LOCK_KEY: i64 = 0x7768_6c5f_6d61_696e;
 pub const HARD_LIMIT_PERCENT: u128 = 110;
 pub const CAP_PERCENT: u128 = 100;
 pub const DEFAULT_DELETED_GRACE: Duration = Duration::from_secs(10);
+pub const API_TOKEN_GRACE: Duration = Duration::from_secs(30 * 24 * 3600);
 pub const DEFAULT_SESSION_IDLE: Duration = Duration::from_secs(12 * 3600);
 pub const DEFAULT_PURGE_BATCH: u32 = 50;
 pub const DEFAULT_EVICT_BATCH: u32 = 5;
@@ -462,6 +463,11 @@ async fn expire_logins(store: &Store, settings: &MaintenanceSettings) {
         Ok(0) => {}
         Ok(deleted) => tracing::info!(deleted, "deleted expired login states"),
         Err(error) => tracing::warn!(%error, "deleting expired login states failed"),
+    }
+    match store.delete_stale_api_tokens(API_TOKEN_GRACE).await {
+        Ok(0) => {}
+        Ok(deleted) => tracing::info!(deleted, "deleted expired and revoked API tokens"),
+        Err(error) => tracing::warn!(%error, "deleting stale API tokens failed"),
     }
 }
 
