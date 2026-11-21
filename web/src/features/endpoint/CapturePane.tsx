@@ -1,4 +1,3 @@
-import { useNavigate } from '@tanstack/react-router';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ApiError } from '../../api/client';
@@ -7,6 +6,7 @@ import { prepareCopyAs } from '../../components/CopyAsMenu/prepareCopyAs';
 import { ListPager, type ListPagerProps } from '../../components/ListPager/ListPager';
 import type { BodyViewMode } from '../body';
 import { CaptureDetailPanel, type DetailSectionId } from '../detail';
+import { ResendDialog } from '../forwarding/ResendDialog';
 import { compareLabelOf } from '../list/compare';
 import { useShortcutHandlers } from '../shortcuts';
 import styles from './CapturePane.module.css';
@@ -47,13 +47,13 @@ export function CapturePane({
   onCompare,
 }: CapturePaneProps) {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const headingRef = useRef<HTMLHeadingElement>(null);
   const query = useCapture(endpointId, captureId);
   const capture = query.data;
   const [bodyMode, setBodyMode] = useState<BodyViewMode>('pretty');
   const [wrap, setWrap] = useState(false);
   const [collapsed, setCollapsed] = useState<readonly DetailSectionId[]>([]);
+  const [resendOpen, setResendOpen] = useState(false);
   const missing = query.error instanceof ApiError && query.error.status === NOT_FOUND;
   const compareLabel = compareLabelOf(markedId, captureId);
 
@@ -122,11 +122,14 @@ export function CapturePane({
             collapsedSections={collapsed}
             onCollapsedSectionsChange={setCollapsed}
             onResend={() => {
-              void navigate({ to: '/e/$id/forwarding', params: { id: endpointId } });
+              setResendOpen(true);
             }}
             onDownloadFormFile={ignore}
             onCopied={ignore}
           />
+        )}
+        {missing ? null : (
+          <ResendDialog endpointId={endpointId} captureId={captureId} open={resendOpen} onOpenChange={setResendOpen} />
         )}
       </div>
       {pager === null ? null : <ListPager {...pager} />}

@@ -192,10 +192,11 @@ export interface ForwardJob {
 }
 
 export interface ForwardRequest {
-  target_url: string;
-  method?: string;
-  content_type?: string;
-  header_allowlist?: string[];
+  rule_id?: Uuid;
+  target_url?: string;
+  method?: string | null;
+  content_type?: string | null;
+  header_allowlist?: string[] | null;
 }
 
 export interface Capture extends CaptureSummary {

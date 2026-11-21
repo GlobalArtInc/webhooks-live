@@ -209,15 +209,16 @@ describe('endpoint view', () => {
     expect(optionsOf()).toHaveLength(3);
   });
 
-  it('settings opens as a sheet over the list, and closing it keeps the selected capture', async () => {
+  it('settings replaces the list with the workspace, and going back keeps the selected capture', async () => {
     seed(3);
     const { router } = await openEndpoint(`${ENDPOINT_PATH}/c/${captureIdFor(2)}`);
 
     fireEvent.click(screen.getByRole('link', { name: 'Settings' }));
-    const sheet = await screen.findByRole('dialog', { name: 'Endpoint settings' });
-    expect(router.state.location.pathname).toBe(`${ENDPOINT_PATH}/settings`);
+    expect(await screen.findByRole('heading', { name: 'General' })).toBeTruthy();
+    await waitFor(() => expect(router.state.location.pathname).toBe(`${ENDPOINT_PATH}/settings/general`));
+    expect(screen.queryByRole('listbox', { name: 'Captures' })).toBeNull();
 
-    fireEvent.click(within(sheet).getByRole('button', { name: 'Close' }));
+    fireEvent.click(screen.getByRole('link', { name: 'Back to captures' }));
     await waitFor(() => expect(router.state.location.pathname).toBe(`${ENDPOINT_PATH}/c/${captureIdFor(2)}`));
     expect(optionAt(2).getAttribute('aria-selected')).toBe('true');
   });

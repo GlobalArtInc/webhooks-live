@@ -5,6 +5,8 @@ import type {
   EndpointInput,
   ForwardJob,
   ForwardRequest,
+  ForwardRule,
+  ForwardRuleInput,
   Member,
   MemberInput,
 } from '../../api/types';
@@ -42,6 +44,14 @@ const LATEST = '/api/v1/endpoints/:endpointId/captures/latest';
 const CAPTURE = '/api/v1/endpoints/:endpointId/captures/:captureId';
 const CAPTURE_BODY = '/api/v1/endpoints/:endpointId/captures/:captureId/body';
 const CAPTURE_FORWARD = '/api/v1/endpoints/:endpointId/captures/:captureId/forward';
+const FORWARD_RULES = '/api/v1/endpoints/:endpointId/forward-rules';
+const FORWARD_RULE = '/api/v1/endpoints/:endpointId/forward-rules/:ruleId';
+const MOCK_RULE_LIMIT = 5;
+const REFUSED_TARGET_PREFIX = 'http://10.';
+
+interface RulePath extends EndpointPath {
+  ruleId: string;
+}
 
 function endpointMissing(): Response {
   return errorResponse(404, 'endpoint_not_found', 'Endpoint not found.');
@@ -215,6 +225,36 @@ function newForwardJob(capture: Capture, input: ForwardRequest, targetUrl: strin
     created_at: new Date().toISOString(),
     finished_at: null,
   };
+}
+
+function ruleTargetRefusal(targetUrl: string): Response | null {
+  return targetUrl.startsWith(REFUSED_TARGET_PREFIX)
+    ? errorResponse(422, 'validation_failed', 'target_url target resolves only to refused addresses', [
+        { field: 'target_url', code: 'target_refused', message: '10.0.0.5 is a private address' },
+      ])
+    : null;
+}
+
+function ruleFrom(input: ForwardRuleInput, existing: ForwardRule | undefined): ForwardRule {
+  return {
+    id: existing?.id ?? input.id ?? randomUuid(),
+    enabled: input.enabled ?? existing?.enabled ?? true,
+    target_url: input.target_url ?? existing?.target_url ?? '',
+    method: input.method === undefined ? (existing?.method ?? null) : input.method,
+    content_type: input.content_type === undefined ? (existing?.content_type ?? null) : input.content_type,
+    header_allowlist: input.header_allowlist ?? existing?.header_allowlist ?? [],
+    append_path: input.append_path ?? existing?.append_path ?? false,
+  };
+}
+
+function withRules(endpointId: string, rules: ForwardRule[]): Endpoint | undefined {
+  const endpoint = mockStore.endpoints.get(endpointId);
+  if (endpoint === undefined) {
+    return undefined;
+  }
+  const updated = { ...endpoint, forward_rules: rules };
+  mockStore.endpoints.set(endpointId, updated);
+  return updated;
 }
 
 function streamReady(endpoint: Endpoint): Response {
@@ -402,13 +442,91 @@ export const handlers: HttpHandler[] = [
     if (typeof input.target_url !== 'string') {
       return validationError('target_url', 'is required');
     }
-    const job = newForwardJob(capture, input, input.target_url);
+    const rule =
+      input.rule_id === undefined
+        ? undefined
+        : mockStore.endpoints.get(params.endpointId)?.forward_rules.find((item) => item.id === input.rule_id);
+    if (input.rule_id !== undefined && rule === undefined) {
+      return errorResponse(404, 'forward_rule_not_found', 'Forward rule not found.');
+    }
+    const targetUrl = rule?.target_url ?? input.target_url;
+    if (typeof targetUrl !== 'string') {
+      return validationError('target_url', 'is required');
+    }
+    const job: ForwardJob = {
+      ...newForwardJob(capture, input, targetUrl),
+      kind: rule === undefined ? 'manual' : 'rule',
+      rule_id: rule?.id ?? null,
+    };
     replaceCapture(params.endpointId, {
       ...capture,
       forward_state: 'pending',
       forwards: [job, ...capture.forwards],
     });
     return jsonResponse(job, 202);
+  }),
+
+  http.post<EndpointPath>(FORWARD_RULES, async ({ params, request }) => {
+    const endpoint = mockStore.endpoints.get(params.endpointId);
+    if (endpoint === undefined) {
+      return endpointMissing();
+    }
+    const input = await readJsonBody<ForwardRuleInput>(request);
+    if (input === null) {
+      return invalidJson();
+    }
+    if (endpoint.forward_rules.length >= MOCK_RULE_LIMIT) {
+      return errorResponse(422, 'forward_rule_limit', 'Endpoint already has the maximum number of rules.');
+    }
+    const refusal = ruleTargetRefusal(input.target_url ?? '');
+    if (refusal !== null) {
+      return refusal;
+    }
+    const rule = ruleFrom(input, undefined);
+    withRules(params.endpointId, [...endpoint.forward_rules, rule]);
+    return jsonResponse(rule, 201);
+  }),
+
+  http.patch<RulePath>(FORWARD_RULE, async ({ params, request }) => {
+    const endpoint = mockStore.endpoints.get(params.endpointId);
+    if (endpoint === undefined) {
+      return endpointMissing();
+    }
+    const existing = endpoint.forward_rules.find((rule) => rule.id === params.ruleId);
+    if (existing === undefined) {
+      return errorResponse(404, 'forward_rule_not_found', 'Forward rule not found.');
+    }
+    const input = await readJsonBody<ForwardRuleInput>(request);
+    if (input === null) {
+      return invalidJson();
+    }
+    if (input.target_url !== undefined) {
+      const refusal = ruleTargetRefusal(input.target_url);
+      if (refusal !== null) {
+        return refusal;
+      }
+    }
+    const rule = ruleFrom(input, existing);
+    withRules(
+      params.endpointId,
+      endpoint.forward_rules.map((item) => (item.id === rule.id ? rule : item)),
+    );
+    return jsonResponse(rule);
+  }),
+
+  http.delete<RulePath>(FORWARD_RULE, ({ params }) => {
+    const endpoint = mockStore.endpoints.get(params.endpointId);
+    if (endpoint === undefined) {
+      return endpointMissing();
+    }
+    if (!endpoint.forward_rules.some((rule) => rule.id === params.ruleId)) {
+      return errorResponse(404, 'forward_rule_not_found', 'Forward rule not found.');
+    }
+    withRules(
+      params.endpointId,
+      endpoint.forward_rules.filter((rule) => rule.id !== params.ruleId),
+    );
+    return emptyResponse();
   }),
 
   http.get<EndpointPath>(STREAM, ({ params }) => {

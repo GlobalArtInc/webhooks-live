@@ -1,0 +1,132 @@
+.item {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.target {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font: var(--mono-data);
+  color: var(--color-text);
+}
+
+.switch {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 36px;
+  padding: 0 var(--space-2);
+  font: var(--text-meta);
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.switch:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.knob {
+  position: relative;
+  width: 28px;
+  height: 16px;
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+}
+
+.knob::after {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  content: '';
+  background: var(--color-text-muted);
+  border-radius: var(--radius-pill);
+}
+
+.on .knob {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.on .knob::after {
+  left: 14px;
+  background: var(--color-text-on-accent);
+}
+
+.on {
+  color: var(--color-text);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.button,
+.danger {
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  font: var(--text-data);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.button {
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+}
+
+.danger {
+  color: var(--color-danger);
+  background: var(--color-surface);
+  border: 1px solid var(--color-danger);
+}
+
+.button:disabled,
+.danger:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.switch:focus-visible,
+.button:focus-visible,
+.danger:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.note,
+.error {
+  margin: 0;
+  font: var(--text-meta);
+}
+
+.note {
+  color: var(--color-text-muted);
+}
+
+.error {
+  color: var(--color-danger);
+}

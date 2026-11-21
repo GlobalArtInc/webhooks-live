@@ -32,6 +32,15 @@
   border-right: 1px solid var(--color-border);
 }
 
+.workspace {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  background: var(--color-surface);
+}
+
 .detail {
   display: flex;
   flex: 1;
