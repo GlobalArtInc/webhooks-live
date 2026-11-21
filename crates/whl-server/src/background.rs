@@ -6,6 +6,7 @@ use tokio::task::JoinHandle;
 use whl_capture::StorageFull;
 use whl_core::config::Config;
 use whl_core::limiter::Limiters;
+use whl_dns::DnsHandle;
 use whl_store::Store;
 use whl_store::maintenance::{
     MaintenanceHandle, MaintenanceSettings, exceeds_hard_limit, spawn_maintenance,
@@ -43,6 +44,7 @@ pub(crate) struct Background {
     refresher: JoinHandle<()>,
     cleanup: JoinHandle<()>,
     maintenance: MaintenanceHandle,
+    dns: Option<DnsHandle>,
 }
 
 impl Background {
@@ -51,6 +53,7 @@ impl Background {
         settings: &BackgroundSettings,
         storage_full: StorageFull,
         limiters: Limiters,
+        dns: Option<DnsHandle>,
         stop: &watch::Receiver<bool>,
     ) -> Self {
         let refresher = tokio::spawn(refresh_storage(
@@ -74,6 +77,7 @@ impl Background {
             refresher,
             cleanup,
             maintenance,
+            dns,
         }
     }
 
@@ -87,6 +91,9 @@ impl Background {
             }
         }
         self.maintenance.join().await;
+        if let Some(dns) = self.dns {
+            dns.join().await;
+        }
     }
 }
 

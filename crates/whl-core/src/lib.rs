@@ -9,6 +9,7 @@ pub mod entropy;
 pub mod filename;
 pub mod header;
 pub mod limiter;
+pub mod proxy_protocol;
 pub mod rate;
 pub mod response;
 pub mod status;

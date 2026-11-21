@@ -524,3 +524,77 @@ fn an_unknown_auth_mode_is_refused() {
 
     assert!(matches!(error, ConfigError::Load(_)), "{error:?}");
 }
+
+#[test]
+fn dns_capture_is_off_unless_configured() {
+    let config = load(&[PUBLIC_URL, DATABASE_URL]).expect("required keys are enough");
+
+    assert!(!config.dns.enabled());
+    assert!(config.dns.listen_addr.is_none());
+    assert!(config.dns.answer_a.is_none());
+}
+
+#[test]
+fn dns_keys_reach_their_fields_and_blank_answers_mean_none() {
+    let config = load(&with_required(&[
+        ("WEBHOOKS_LIVE_DNS_LISTEN_ADDR", "0.0.0.0:5353"),
+        ("WEBHOOKS_LIVE_DNS_ZONE", "dns.example.test"),
+        ("WEBHOOKS_LIVE_DNS_NS_NAME", "ns.example.test"),
+        ("WEBHOOKS_LIVE_DNS_SOA_EMAIL", "hostmaster@example.test"),
+        (
+            "WEBHOOKS_LIVE_DNS_TRUSTED_PROXIES",
+            "10.0.0.0/8, 192.168.0.0/16",
+        ),
+        ("WEBHOOKS_LIVE_DNS_ANSWER_A", "192.0.2.7"),
+        ("WEBHOOKS_LIVE_DNS_ANSWER_AAAA", ""),
+        ("WEBHOOKS_LIVE_DNS_RATE_SOURCE", "5/s:7"),
+    ]))
+    .expect("the DNS keys load");
+
+    assert!(config.dns.enabled());
+    assert_eq!(config.dns.listen_addr, Some(socket("0.0.0.0:5353")));
+    assert_eq!(config.dns.zone.as_deref(), Some("dns.example.test"));
+    assert_eq!(config.dns.trusted_proxies.len(), 2);
+    assert_eq!(
+        config.dns.answer_a,
+        Some("192.0.2.7".parse().expect("literal"))
+    );
+    assert_eq!(config.dns.answer_aaaa, None);
+    assert_eq!(
+        config.dns.rate_source,
+        RateSpec {
+            count: 5,
+            period: RatePeriod::Second,
+            burst: 7
+        }
+    );
+}
+
+#[test]
+fn a_half_configured_dns_responder_reports_every_missing_key() {
+    let error = load(&with_required(&[(
+        "WEBHOOKS_LIVE_DNS_LISTEN_ADDR",
+        "0.0.0.0:5353",
+    )]))
+    .expect_err("the zone, name server and contact are missing");
+
+    assert_eq!(
+        problems_of(error),
+        vec![
+            Problem::MissingForDns("DNS_ZONE"),
+            Problem::MissingForDns("DNS_NS_NAME"),
+            Problem::MissingForDns("DNS_SOA_EMAIL"),
+        ]
+    );
+}
+
+#[test]
+fn an_invalid_dns_answer_address_fails_the_load() {
+    let error = load(&with_required(&[(
+        "WEBHOOKS_LIVE_DNS_ANSWER_A",
+        "not-an-address",
+    )]))
+    .expect_err("the address is invalid");
+
+    assert!(matches!(error, ConfigError::Load(_)), "{error:?}");
+}

@@ -14,6 +14,7 @@ whl-api = { path = "crates/whl-api" }
 whl-auth = { path = "crates/whl-auth" }
 whl-capture = { path = "crates/whl-capture" }
 whl-core = { path = "crates/whl-core" }
+whl-dns = { path = "crates/whl-dns" }
 whl-forward = { path = "crates/whl-forward" }
 whl-live = { path = "crates/whl-live" }
 whl-secrets = { path = "crates/whl-secrets" }
@@ -63,6 +64,7 @@ tower = { version = "0.5", features = ["util"] }
 dashmap = "6"
 governor = { version = "0.10", default-features = false, features = ["std"] }
 metrics = "0.24"
+hickory-proto = { version = "0.26", default-features = false, features = ["std"] }
 hmac = "0.13"
 chacha20poly1305 = { version = "0.11", default-features = false, features = ["alloc", "zeroize"] }
 hkdf = "0.13"
