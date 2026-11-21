@@ -8,6 +8,7 @@ import endpoint from './en/endpoint.json';
 import exportMessages from './en/export.json';
 import forwarding from './en/forwarding.json';
 import home from './en/home.json';
+import kinds from './en/kinds.json';
 import live from './en/live.json';
 import sample from './en/sample.json';
 import script from './en/script.json';
@@ -34,6 +35,7 @@ export function createI18nInstance(): I18nInstance {
           ...exportMessages,
           ...forwarding,
           ...home,
+          ...kinds,
           ...live,
           ...sample,
           ...script,

@@ -63,6 +63,21 @@
   white-space: nowrap;
 }
 
+.headline {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font: var(--text-data);
+  color: var(--color-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.headline[data-empty='true'] {
+  font-style: italic;
+  color: var(--color-text-muted);
+}
+
 .size,
 .time,
 .forward {

@@ -3,6 +3,9 @@ import type { CaptureListFilters } from '../../api/types';
 export const METHOD_OPTIONS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'] as const;
 export type MethodOption = (typeof METHOD_OPTIONS)[number];
 
+export const KIND_OPTIONS = ['http', 'email', 'dns'] as const;
+export type KindOption = (typeof KIND_OPTIONS)[number];
+
 export const STATUS_OPTIONS = ['1xx', '2xx', '3xx', '4xx', '5xx', 'none'] as const;
 export type StatusOption = (typeof STATUS_OPTIONS)[number];
 
@@ -23,6 +26,7 @@ const RANGE_MS: Readonly<Record<RangeOption, number>> = {
 export interface CaptureSearch {
   q?: string;
   method?: string;
+  kind?: string;
   status?: string;
   range?: RangeOption;
   since?: string;
@@ -32,6 +36,10 @@ export type CaptureSearchPatch = Partial<CaptureSearch>;
 
 function isMethodOption(token: string): token is MethodOption {
   return (METHOD_OPTIONS as readonly string[]).includes(token);
+}
+
+function isKindOption(token: string): token is KindOption {
+  return (KIND_OPTIONS as readonly string[]).includes(token);
 }
 
 function isStatusOption(token: string): token is StatusOption {
@@ -87,6 +95,10 @@ export function validateCaptureSearch(search: Record<string, unknown>): CaptureS
   if (methods.length > 0) {
     result.method = methods.join(',');
   }
+  const kinds = tokensOf(search.kind, (token) => token.toLowerCase(), isKindOption);
+  if (kinds.length > 0) {
+    result.kind = kinds.join(',');
+  }
   const statuses = tokensOf(search.status, (token) => token.toLowerCase(), isStatusOption);
   if (statuses.length > 0) {
     result.status = statuses.join(',');
@@ -105,6 +117,9 @@ export function listFiltersOf(search: CaptureSearch): CaptureListFilters {
   const filters: CaptureListFilters = {};
   if (search.method !== undefined) {
     filters.method = search.method;
+  }
+  if (search.kind !== undefined) {
+    filters.kind = search.kind;
   }
   if (search.status !== undefined) {
     filters.status = search.status;
@@ -130,14 +145,16 @@ export function toggleToken(list: string | undefined, token: string): string | u
 
 export function activePartCount(search: CaptureSearch): number {
   const methods = search.method?.split(',').length ?? 0;
+  const kinds = search.kind?.split(',').length ?? 0;
   const statuses = search.status?.split(',').length ?? 0;
-  return methods + statuses + (search.range === undefined ? 0 : 1);
+  return methods + kinds + statuses + (search.range === undefined ? 0 : 1);
 }
 
 export function hasCaptureSearch(search: CaptureSearch): boolean {
   return (
     search.q !== undefined ||
     search.method !== undefined ||
+    search.kind !== undefined ||
     search.status !== undefined ||
     search.range !== undefined ||
     search.since !== undefined

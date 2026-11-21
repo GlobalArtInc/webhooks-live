@@ -1,8 +1,9 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ApiError, fetchCaptureBody } from '../../api/client';
-import { useCapture } from '../../api/queries';
-import type { Capture } from '../../api/types';
+import { queryKeys, useCapture } from '../../api/queries';
+import type { Capture, Endpoint } from '../../api/types';
 import { downloadBlob } from '../../components/CopyAsMenu/download';
 import type { Bytes } from '../body';
 import { CaptureDetail, type CaptureDetailProps } from './CaptureDetail';
@@ -38,6 +39,8 @@ function stateOf(capture: Capture | undefined, error: Error | null): CaptureDeta
 export function CaptureDetailPanel({ endpointId, captureId, ...rest }: CaptureDetailPanelProps) {
   const { t } = useTranslation();
   const query = useCapture(endpointId, captureId);
+  const queryClient = useQueryClient();
+  const dnsName = queryClient.getQueryData<Endpoint>(queryKeys.endpoint(endpointId))?.dns?.name ?? null;
   const [downloadFailed, setDownloadFailed] = useState(false);
 
   const loadBody = useCallback(
@@ -62,6 +65,7 @@ export function CaptureDetailPanel({ endpointId, captureId, ...rest }: CaptureDe
       {downloadFailed ? <p role="alert">{t('wl.detail.state.downloadFailed')}</p> : null}
       <CaptureDetail
         {...rest}
+        dnsName={dnsName}
         state={stateOf(query.data, query.error)}
         capture={query.data ?? null}
         loadBody={loadBody}

@@ -17,6 +17,7 @@ import type {
   ForwardJob,
   ForwardState,
 } from '../../api/types';
+import { captureKindOf } from '../kinds/kinds';
 import { withCaptureCount } from '../list/cache';
 import { filtersOfKey, hasActiveFilters, NO_FILTERS, sameActiveFilters, type ActiveFilters } from '../list/listFilters';
 import { flattenCaptures, restoreCaptureInPages } from '../list/listModel';
@@ -56,6 +57,9 @@ export function matchesActiveFilter(filters: ActiveFilters, summary: CaptureSumm
     filters.method !== undefined &&
     !filters.method.split(',').some((method) => method.toUpperCase() === summary.method.toUpperCase())
   ) {
+    return false;
+  }
+  if (filters.kind !== undefined && !filters.kind.split(',').includes(captureKindOf(summary))) {
     return false;
   }
   if (

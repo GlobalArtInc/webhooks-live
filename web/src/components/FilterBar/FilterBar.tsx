@@ -5,6 +5,7 @@ import {
   activePartCount,
   hasCaptureSearch,
   isRangeOption,
+  KIND_OPTIONS,
   METHOD_OPTIONS,
   MAX_TEXT_LENGTH,
   RANGE_OPTIONS,
@@ -133,6 +134,17 @@ export function FilterBar({ search, layout, hiddenCount, onChange, onClear, sear
     return option === 'none' ? t('wl.endpoint.filter.statusNone') : option;
   }
 
+  function kindLabel(option: string): string {
+    switch (option) {
+      case 'email':
+        return t('wl.kinds.filter.email');
+      case 'dns':
+        return t('wl.kinds.filter.dns');
+      default:
+        return t('wl.kinds.filter.http');
+    }
+  }
+
   function rangeLabel(range: RangeOption): string {
     switch (range) {
       case '15m':
@@ -191,6 +203,15 @@ export function FilterBar({ search, layout, hiddenCount, onChange, onClear, sear
         className={styles.panel}
         hidden={!expanded}
       >
+        <ChipGroup
+          label={t('wl.kinds.filter.label')}
+          options={KIND_OPTIONS}
+          selected={search.kind}
+          labelOf={kindLabel}
+          onToggle={(option) => {
+            onChange({ kind: toggleToken(search.kind, option) });
+          }}
+        />
         <ChipGroup
           label={t('wl.endpoint.filter.method')}
           options={METHOD_OPTIONS}

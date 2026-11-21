@@ -1,9 +1,14 @@
-import type { Body, Capture, NameValue } from '../../api/types';
+import type { Body, Capture, CaptureKind, NameValue } from '../../api/types';
 import type { BodyContent, Bytes } from '../body';
+import { captureKindOf } from '../kinds/kinds';
 import type { DetailSectionId } from './types';
 
 const QUERY_SEPARATOR = '&';
 const VALUE_SEPARATOR = '=';
+
+const KIND_SECTIONS: Partial<Readonly<Record<CaptureKind, readonly DetailSectionId[]>>> = {
+  dns: ['dns'],
+};
 
 function decodeBase64(data: string): Bytes {
   const binary = atob(data);
@@ -15,6 +20,10 @@ function decodeBase64(data: string): Bytes {
 }
 
 export function visibleSections(capture: Capture): DetailSectionId[] {
+  const kindSections = KIND_SECTIONS[captureKindOf(capture)];
+  if (kindSections !== undefined) {
+    return [...kindSections];
+  }
   const sections: DetailSectionId[] = ['summary'];
   if (capture.forwards.length > 0) {
     sections.push('forward');

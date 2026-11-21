@@ -78,6 +78,9 @@ export function summaryOf(capture: Capture): CaptureSummary {
     status_override: capture.status_override,
     response_status: capture.response_status,
     forward_state: capture.forward_state,
+    kind: capture.kind,
+    subject: capture.subject,
+    imported: capture.imported,
   };
 }
 

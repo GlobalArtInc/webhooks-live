@@ -35,6 +35,10 @@
   --method-head-bg: #e6ebf0;
   --method-other-text: #4f5a6b;
   --method-other-bg: #eceae4;
+  --kind-mail-text: #9a2f63;
+  --kind-mail-bg: #fbe5ef;
+  --kind-dns-text: #52601a;
+  --kind-dns-bg: #eef1da;
 
   --elevation-0: none;
   --elevation-1: 0 4px 12px rgb(14 20 27 / 0.12);
@@ -110,6 +114,10 @@
   --method-head-bg: #1f2b37;
   --method-other-text: #a3aebd;
   --method-other-bg: #232d39;
+  --kind-mail-text: #ff9cc8;
+  --kind-mail-bg: #3a1528;
+  --kind-dns-text: #c3d36b;
+  --kind-dns-bg: #262c0e;
 
   --elevation-0: none;
   --elevation-1: 0 0 0 1px var(--color-border), 0 4px 12px rgb(0 0 0 / 0.5);
@@ -155,6 +163,10 @@
     --method-head-bg: #1f2b37;
     --method-other-text: #a3aebd;
     --method-other-bg: #232d39;
+    --kind-mail-text: #ff9cc8;
+    --kind-mail-bg: #3a1528;
+    --kind-dns-text: #c3d36b;
+    --kind-dns-bg: #262c0e;
 
     --elevation-0: none;
     --elevation-1: 0 0 0 1px var(--color-border), 0 4px 12px rgb(0 0 0 / 0.5);

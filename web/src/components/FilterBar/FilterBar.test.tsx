@@ -46,6 +46,17 @@ describe('FilterBar', () => {
     expect(props.onChange).toHaveBeenCalledWith({ q: 'invoice' });
   });
 
+  it('toggles a kind chip in and out of the kind list and reports its state', () => {
+    const props = renderBar({}, { kind: 'email' });
+    const email = screen.getByRole('button', { name: 'Email' });
+
+    expect(email.getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'DNS' }));
+    expect(props.onChange).toHaveBeenLastCalledWith({ kind: 'email,dns' });
+    fireEvent.click(email);
+    expect(props.onChange).toHaveBeenLastCalledWith({ kind: undefined });
+  });
+
   it('toggles a method chip in and out of the method list and reports its state', () => {
     const props = renderBar({}, { method: 'GET' });
     const get = screen.getByRole('button', { name: 'GET' });
