@@ -1,0 +1,7 @@
+{
+  "wl.sample.newCaptures_few": "{{count}} перехвата",
+  "wl.sample.newCaptures_many": "{{count}} перехватов",
+  "wl.sample.newCaptures_one": "{{count}} перехват",
+  "wl.sample.newCaptures_other": "{{count}} перехвата",
+  "wl.sample.title": "Токены дизайна"
+}

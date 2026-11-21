@@ -1,0 +1,6 @@
+{
+  "wl.sample.newCaptures_one": "{{count}} new capture",
+  "wl.sample.newCaptures_other": "{{count}} new captures",
+  "wl.sample.plurals.heading": "Plurals",
+  "wl.sample.title": "Design tokens"
+}

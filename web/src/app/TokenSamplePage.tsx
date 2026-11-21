@@ -1,4 +1,6 @@
+import { useTranslation } from 'react-i18next';
 import { MethodBadge } from '../components/MethodBadge/MethodBadge';
+import { LanguageControl } from '../i18n/LanguageControl';
 import { ThemeControl } from './ThemeControl';
 import styles from './TokenSamplePage.module.css';
 
@@ -62,6 +64,8 @@ const TYPE_SAMPLES: TypeSample[] = [
 
 const METHOD_SAMPLES = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD', 'TRACE'];
 
+const PLURAL_SAMPLE_COUNTS = [1, 2, 5];
+
 const HTTP_STATUS_SAMPLES: StatusSample[] = [
   { token: 'color-success', label: '2xx' },
   { token: 'color-info', label: '3xx' },
@@ -100,10 +104,13 @@ const MOTION_SAMPLES: MotionSample[] = [
 ];
 
 export function TokenSamplePage() {
+  const { t } = useTranslation();
+
   return (
     <main className={styles.page}>
       <header className={styles.header}>
-        <h1 className={styles.title}>Design tokens</h1>
+        <h1 className={styles.title}>{t('wl.sample.title')}</h1>
+        <LanguageControl />
         <ThemeControl />
       </header>
 
@@ -149,6 +156,7 @@ export function TokenSamplePage() {
 
       <section className={styles.section}>
         <h2 className={styles.heading}>Status</h2>
+        <p className={styles.caption}>{t('wl.state.gone.title')}</p>
         <p className={styles.caption}>HTTP status</p>
         <ul className={styles.row}>
           {HTTP_STATUS_SAMPLES.map((sample) => (
@@ -168,10 +176,21 @@ export function TokenSamplePage() {
       </section>
 
       <section className={styles.section}>
+        <h2 className={styles.heading}>{t('wl.sample.plurals.heading')}</h2>
+        <ul className={styles.list}>
+          {PLURAL_SAMPLE_COUNTS.map((count) => (
+            <li key={count} className={styles.caption}>
+              {t('wl.sample.newCaptures', { count })}
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className={styles.section}>
         <h2 className={styles.heading}>Focus and buttons</h2>
         <div className={styles.row}>
           <button type="button" className={styles.button}>
-            Create endpoint
+            {t('wl.common.createEndpoint')}
           </button>
           <span className={styles.caption}>Focus ring: 2 px, 2 px offset, Tab to see it</span>
         </div>
