@@ -442,6 +442,9 @@ impl InboxViewer {
             Event::CaptureDeleted { data } => {
                 self.push_tagged("capture_deleted", lane, data.unpack());
             }
+            Event::CapturesImported { data } => {
+                self.push_tagged("captures_imported", lane, data.unpack());
+            }
             Event::CapturesCleared => self.push_tagged("captures_cleared", lane, "{}"),
             Event::EndpointDeleted => self.push_tagged("endpoint_deleted", lane, "{}"),
             Event::EndpointUpdated { .. } => {}

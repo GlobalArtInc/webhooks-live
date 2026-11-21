@@ -7,6 +7,7 @@ use whl_store::Store;
 use crate::composer::ComposerSettings;
 use crate::export::ExportSlots;
 use crate::forward::ForwardSettings;
+use crate::import::{IMPORT_COOLDOWN, ImportCooldown, import_slots};
 use crate::limit::ApiLimits;
 use crate::notify::NotifyApiSettings;
 use crate::schedules::ScheduleSettings;
@@ -24,6 +25,8 @@ pub struct ApiState {
     pub(crate) composer: ComposerSettings,
     pub(crate) schedules: ScheduleSettings,
     pub(crate) notifications: NotifyApiSettings,
+    pub(crate) imports: ExportSlots,
+    pub(crate) import_cooldown: ImportCooldown,
 }
 
 impl ApiState {
@@ -40,7 +43,14 @@ impl ApiState {
             composer: ComposerSettings::default(),
             schedules: ScheduleSettings::default(),
             notifications: NotifyApiSettings::default(),
+            imports: import_slots(),
+            import_cooldown: ImportCooldown::new(IMPORT_COOLDOWN),
         }
+    }
+
+    pub fn with_import_cooldown(mut self, window: std::time::Duration) -> Self {
+        self.import_cooldown = ImportCooldown::new(window);
+        self
     }
 
     pub fn with_secrets(mut self, keyring: Arc<Keyring>) -> Self {

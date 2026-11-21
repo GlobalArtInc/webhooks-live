@@ -105,6 +105,9 @@ pub enum Event {
         data: JsonText,
     },
     CapturesCleared,
+    CapturesImported {
+        data: JsonText,
+    },
     EndpointUpdated {
         lookup: Arc<Lookup>,
     },
@@ -156,6 +159,9 @@ impl Notification {
                 data: object(&envelope, "capture_deleted")?,
             },
             "captures_cleared" => Event::CapturesCleared,
+            "captures_imported" => Event::CapturesImported {
+                data: object(&envelope, "captures_imported")?,
+            },
             "endpoint_updated" => Event::EndpointUpdated {
                 lookup: Arc::default(),
             },
@@ -174,6 +180,7 @@ impl Event {
             Self::Capture { .. } => "capture",
             Self::CaptureDeleted { .. } => "capture_deleted",
             Self::CapturesCleared => "captures_cleared",
+            Self::CapturesImported { .. } => "captures_imported",
             Self::EndpointUpdated { .. } => "endpoint_updated",
             Self::EndpointDeleted => "endpoint_deleted",
             Self::ForwardResult { .. } => "forward_result",
@@ -193,7 +200,9 @@ impl Event {
     pub fn data(&self) -> Option<String> {
         match self {
             Self::Capture { summary, .. } => Some(summary.unpack().to_owned()),
-            Self::CaptureDeleted { data } => Some(data.unpack().to_owned()),
+            Self::CaptureDeleted { data } | Self::CapturesImported { data } => {
+                Some(data.unpack().to_owned())
+            }
             Self::EndpointUpdated { lookup } | Self::ForwardResult { lookup, .. } => {
                 match lookup.resolved() {
                     Some(Outcome::Data(data)) => Some(data.unpack().to_owned()),
@@ -327,6 +336,19 @@ mod tests {
         assert_eq!(
             decoded(&without_data("access_changed")),
             Event::AccessChanged
+        );
+    }
+
+    #[test]
+    fn decodes_a_captures_imported_event_with_its_count() {
+        let imported = format!(r#"{{"t":"captures_imported","e":"{ID}","d":{{"imported":12}}}}"#);
+        assert_eq!(decoded(&imported).name(), "captures_imported");
+        assert_eq!(
+            decoded(&imported).data().as_deref(),
+            Some(r#"{"imported":12}"#)
+        );
+        assert!(
+            Notification::decode(&format!(r#"{{"t":"captures_imported","e":"{ID}"}}"#)).is_err()
         );
     }
 

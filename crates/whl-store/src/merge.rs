@@ -71,6 +71,7 @@ mod tests {
             starred: false,
             has_note: false,
             verification: None,
+            imported: false,
         }
     }
 

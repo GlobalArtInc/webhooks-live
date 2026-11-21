@@ -10,6 +10,7 @@ mod folders;
 mod forward;
 mod handlers;
 mod inbox;
+mod import;
 mod input;
 mod lifecycle;
 mod limit;
@@ -68,6 +69,7 @@ pub fn router(state: ApiState) -> Router {
         .merge(folders::routes())
         .merge(export::routes())
         .merge(inbox::routes())
+        .merge(import::routes())
         .merge(forward::routes())
         .merge(rules::routes())
         .merge(schedules::routes())

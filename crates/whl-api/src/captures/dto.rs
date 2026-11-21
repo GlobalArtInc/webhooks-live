@@ -27,6 +27,7 @@ pub struct SummaryDto {
     starred: bool,
     has_note: bool,
     verification: Option<&'static str>,
+    imported: bool,
 }
 
 impl From<&CaptureSummary> for SummaryDto {
@@ -51,6 +52,7 @@ impl From<&CaptureSummary> for SummaryDto {
             verification: summary
                 .verification
                 .map(|verification| verification.as_str()),
+            imported: summary.imported,
         }
     }
 }

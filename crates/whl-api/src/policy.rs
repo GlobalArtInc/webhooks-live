@@ -13,6 +13,8 @@ const ENDPOINT_PREFIX: &str = "/endpoints/{id}";
 const ENDPOINT_PARAM: &str = "id";
 const MEMBERS_TAIL: &str = "/members";
 const CLAIM_TAIL: &str = "/claim";
+const IMPORT_TAIL: &str = "/import";
+const IMPORT_PATH: &str = "/endpoints/import";
 const TOKENS_PATH: &str = "/tokens";
 const TOKEN_PATH: &str = "/tokens/{token_id}";
 const SCHEDULES_TAIL: &str = "/schedules";
@@ -26,6 +28,7 @@ pub fn requirement(mode: AccessMode, method: &Method, pattern: &str) -> Requirem
             Requirement::SignedIn
         }
         "/send" | "/send/history" | "/send/history/{sent_id}" => Requirement::Anyone,
+        IMPORT_PATH => Requirement::SignedIn,
         "/endpoints" if mode == AccessMode::Mixed && *method == Method::POST => Requirement::Anyone,
         "/endpoints" => Requirement::SignedIn,
         "/folders" | "/folders/{folder_id}" => Requirement::SignedIn,
@@ -35,6 +38,9 @@ pub fn requirement(mode: AccessMode, method: &Method, pattern: &str) -> Requirem
         "/folders/{folder_id}/endpoints/{id}" => Requirement::SignedIn,
         _ => match rest.strip_prefix(ENDPOINT_PREFIX) {
             Some(CLAIM_TAIL) if *method == Method::POST => Requirement::SignedIn,
+            Some(IMPORT_TAIL) if *method == Method::POST => {
+                Requirement::OwnedRole(EndpointRole::Editor)
+            }
             Some(tail) if is_members_route(tail) => Requirement::OwnedRole(EndpointRole::Owner),
             Some(SCHEDULES_TAIL) if *method == Method::POST => {
                 Requirement::OwnedRole(EndpointRole::Owner)
@@ -480,6 +486,26 @@ mod tests {
     }
 
     #[test]
+    fn importing_needs_sign_in_for_a_new_endpoint_and_an_owned_editor_role_for_an_existing_one() {
+        for mode in MODES {
+            for method in [&POST, &GET, &PUT, &DELETE] {
+                assert_eq!(
+                    requirement(mode, method, "/api/v1/endpoints/import"),
+                    Requirement::SignedIn
+                );
+            }
+            assert_eq!(
+                requirement(mode, &POST, "/api/v1/endpoints/{id}/import"),
+                Requirement::OwnedRole(EndpointRole::Editor)
+            );
+            assert_eq!(
+                requirement(mode, &GET, "/api/v1/endpoints/{id}/import"),
+                Requirement::Role(EndpointRole::Owner)
+            );
+        }
+    }
+
+    #[test]
     fn the_claim_route_needs_a_signed_in_caller_in_every_mode() {
         for mode in MODES {
             assert_eq!(
@@ -672,6 +698,8 @@ mod tests {
             (&DELETE, "/api/v1/endpoints"),
             (&GET, "/api/v1/unknown"),
             (&GET, ""),
+            (&POST, "/api/v1/endpoints/import"),
+            (&POST, "/api/v1/endpoints/{id}/import"),
         ] {
             assert_eq!(
                 token_policy(method, pattern),

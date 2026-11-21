@@ -75,6 +75,7 @@ fn settings(forwarding: bool) -> ApiSettings {
         private_forward_targets_allowed: false,
         ring_mode_allowed: true,
         export_concurrency: 2,
+        storage_cap_bytes: 20 * 1024 * 1024 * 1024,
     }
 }
 

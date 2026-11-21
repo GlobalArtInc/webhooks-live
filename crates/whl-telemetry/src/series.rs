@@ -34,3 +34,5 @@ pub const SCHEDULE_RUNS_TOTAL: &str = "webhooks_live_schedule_runs_total";
 pub const MAIL_SESSIONS: &str = "webhooks_live_mail_sessions";
 pub const MAIL_MESSAGES_TOTAL: &str = "webhooks_live_mail_messages_total";
 pub const MAIL_REFUSED_TOTAL: &str = "webhooks_live_mail_refused_total";
+pub const CAPTURES_IMPORTED_TOTAL: &str = "webhooks_live_captures_imported_total";
+pub const IMPORT_STOPS_TOTAL: &str = "webhooks_live_import_stops_total";

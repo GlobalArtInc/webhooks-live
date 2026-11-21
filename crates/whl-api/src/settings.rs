@@ -23,6 +23,7 @@ pub struct ApiSettings {
     pub private_forward_targets_allowed: bool,
     pub ring_mode_allowed: bool,
     pub export_concurrency: u32,
+    pub storage_cap_bytes: u64,
 }
 
 impl ApiSettings {
@@ -36,6 +37,7 @@ impl ApiSettings {
             private_forward_targets_allowed: !config.forward.allow_cidrs.is_empty(),
             ring_mode_allowed: config.capture.ring_mode_allowed,
             export_concurrency: config.export.concurrency,
+            storage_cap_bytes: config.capture.storage_cap_bytes.as_u64(),
         }
     }
 

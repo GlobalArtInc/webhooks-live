@@ -519,7 +519,7 @@ pub(crate) fn decode<T: DeserializeOwned>(
     })
 }
 
-async fn lock_live_endpoint(
+pub(crate) async fn lock_live_endpoint(
     tx: &mut Transaction<'_, Postgres>,
     endpoint: &EndpointId,
     retention: Duration,
@@ -533,7 +533,7 @@ async fn lock_live_endpoint(
     Ok(row.is_some())
 }
 
-async fn notify(
+pub(crate) async fn notify(
     tx: &mut Transaction<'_, Postgres>,
     payload: &serde_json::Value,
 ) -> Result<(), CaptureError> {
