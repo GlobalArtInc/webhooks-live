@@ -43,6 +43,22 @@ describe('composer send failures', () => {
     });
   });
 
+  it('keeps the outbound limit window so the sentence can tell an hour from a day', () => {
+    const failure = failureOf(
+      apiError({
+        status: 429,
+        code: 'quota_exceeded',
+        limit: { name: 'outbound', max: 30, window: 'hour', resets_at: null },
+      }),
+    );
+
+    expect(failure).toEqual({
+      kind: 'quota',
+      limit: { name: 'outbound', max: 30, window: 'hour', resets_at: null },
+      retryAfter: null,
+    });
+  });
+
   it('reports a disabled composer only for the not_found answer', () => {
     expect(failureOf(apiError({ status: 404, code: 'not_found' }))).toEqual({ kind: 'disabled' });
     expect(failureOf(apiError({ status: 404, code: 'capture_not_found' }))).toEqual({ kind: 'failed' });

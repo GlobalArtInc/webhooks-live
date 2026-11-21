@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import { useInstance } from '../../api/queries';
 import type { ApiLimit } from '../../api/types';
 import { TARGET_MAX_CHARS } from '../forwarding/ruleDraft';
 import { BODY_MAX_BYTES } from './draft';
@@ -8,6 +9,19 @@ const BODY_LIMIT_LABEL = `${BODY_MAX_BYTES / (1024 * 1024)} MiB`;
 
 export function useComposerMessages() {
   const { t } = useTranslation();
+  const signedIn = Boolean(useInstance().data?.user);
+
+  function outboundSentence(limit: ApiLimit): string {
+    if (limit.window === 'day') {
+      return t('wl.composer.error.quota.networkDay', { max: limit.max });
+    }
+    if (limit.window === 'hour') {
+      return signedIn
+        ? t('wl.composer.error.quota.userHour', { max: limit.max })
+        : t('wl.composer.error.quota.endpointHour', { max: limit.max });
+    }
+    return t('wl.composer.error.quota.other');
+  }
 
   function quotaSentence(limit: ApiLimit | null): string {
     switch (limit?.name) {
@@ -17,6 +31,8 @@ export function useComposerMessages() {
         return t('wl.composer.error.quota.networkDay', { max: limit.max });
       case 'composer_endpoint_hour':
         return t('wl.composer.error.quota.endpointHour', { max: limit.max });
+      case 'outbound':
+        return outboundSentence(limit);
       default:
         return t('wl.composer.error.quota.other');
     }
