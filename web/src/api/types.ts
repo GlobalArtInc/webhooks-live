@@ -1,7 +1,7 @@
 export type Timestamp = string;
 export type Uuid = string;
 export type EndpointId = string;
-export type AuthMode = 'open' | 'sso';
+export type AuthMode = 'open' | 'sso' | 'mixed';
 export type BodyEncoding = 'utf8' | 'base64';
 export type Overflow = 'refuse' | 'ring';
 export type EndpointRole = 'owner' | 'editor' | 'viewer';
@@ -69,10 +69,18 @@ export interface FieldError {
   message: string;
 }
 
+export interface ApiLimit {
+  name: string;
+  max: number;
+  window: string | null;
+  resets_at: Timestamp | null;
+}
+
 export interface ErrorDetail {
   code: string;
   message: string;
   fields?: FieldError[];
+  limit?: ApiLimit;
 }
 
 export interface ErrorBody {

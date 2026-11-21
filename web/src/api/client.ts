@@ -1,4 +1,5 @@
 import type {
+  ApiLimit,
   Capture,
   CaptureBodyOptions,
   CaptureListQuery,
@@ -20,7 +21,7 @@ import type {
 
 export const API_PREFIX = '/api/v1';
 
-type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 type QueryValue = string | number | boolean | null | undefined;
 type QueryParams = Record<string, QueryValue>;
 type UnknownRecord = Record<string, unknown>;
@@ -38,6 +39,7 @@ interface ApiErrorInit {
   message: string;
   details: FieldError[];
   retryAfter: number | null;
+  limit?: ApiLimit | null;
 }
 
 export class ApiError extends Error {
@@ -45,6 +47,7 @@ export class ApiError extends Error {
   readonly code: string | null;
   readonly details: FieldError[];
   readonly retryAfter: number | null;
+  readonly limit: ApiLimit | null;
 
   constructor(init: ApiErrorInit) {
     super(init.message);
@@ -53,19 +56,22 @@ export class ApiError extends Error {
     this.code = init.code;
     this.details = init.details;
     this.retryAfter = init.retryAfter;
+    this.limit = init.limit ?? null;
   }
 }
 
-interface RequestOptions {
+export interface RequestOptions {
   method: HttpMethod;
   query?: QueryParams;
   body?: unknown;
+  signal?: AbortSignal;
 }
 
 interface ParsedError {
   code: string | null;
   message: string | null;
   fields: FieldError[];
+  limit: ApiLimit | null;
 }
 
 let rateLimitObserver: RateLimitObserver | null = null;
@@ -107,6 +113,18 @@ function readFieldErrors(value: unknown): FieldError[] {
   return fields;
 }
 
+function readLimit(value: unknown): ApiLimit | null {
+  if (!isRecord(value) || typeof value.name !== 'string' || typeof value.max !== 'number') {
+    return null;
+  }
+  return {
+    name: value.name,
+    max: value.max,
+    window: typeof value.window === 'string' ? value.window : null,
+    resets_at: typeof value.resets_at === 'string' ? value.resets_at : null,
+  };
+}
+
 function parseErrorBody(text: string): ParsedError | null {
   let parsed: unknown;
   try {
@@ -122,6 +140,7 @@ function parseErrorBody(text: string): ParsedError | null {
     code: typeof error.code === 'string' ? error.code : null,
     message: typeof error.message === 'string' ? error.message : null,
     fields: readFieldErrors(error.fields),
+    limit: readLimit(error.limit),
   };
 }
 
@@ -134,6 +153,7 @@ async function readApiError(response: Response): Promise<ApiError> {
     message: parsed?.message ?? `Request failed with status ${response.status}`,
     details: parsed?.fields ?? [],
     retryAfter: parseNonNegativeInteger(response.headers.get('Retry-After')),
+    limit: parsed?.limit ?? null,
   });
 }
 
@@ -161,6 +181,7 @@ async function send(path: string, options: RequestOptions): Promise<Response> {
     headers,
     body,
     credentials: 'same-origin',
+    signal: options.signal,
   });
   observeRateLimit(response.headers);
   if (!response.ok) {
@@ -169,13 +190,13 @@ async function send(path: string, options: RequestOptions): Promise<Response> {
   return response;
 }
 
-async function requestJson<T>(path: string, options: RequestOptions): Promise<T> {
+export async function requestJson<T>(path: string, options: RequestOptions): Promise<T> {
   const response = await send(path, options);
   const payload: unknown = await response.json();
   return payload as T;
 }
 
-async function requestEmpty(path: string, options: RequestOptions): Promise<void> {
+export async function requestEmpty(path: string, options: RequestOptions): Promise<void> {
   await send(path, options);
 }
 

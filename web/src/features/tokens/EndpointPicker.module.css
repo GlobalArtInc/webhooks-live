@@ -1,0 +1,101 @@
+.root {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.list {
+  display: grid;
+  max-height: 220px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 36px;
+  padding: var(--space-1) var(--space-3);
+  font: var(--text-data);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.item:hover {
+  background: var(--color-surface-sunken);
+}
+
+.checkbox {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--color-accent);
+}
+
+.checkbox:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.id {
+  margin-left: auto;
+  font: var(--mono-data);
+  color: var(--color-text-muted);
+}
+
+.note {
+  margin: 0;
+  font: var(--text-data);
+  color: var(--color-text-muted);
+}
+
+.message {
+  margin: 0 0 var(--space-2);
+  color: var(--color-text);
+}
+
+.count {
+  margin: 0;
+  font: var(--text-meta);
+  color: var(--color-text-muted);
+}
+
+.button {
+  justify-self: start;
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  font: var(--text-data);
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+@media (max-width: 767px) {
+  .item {
+    min-height: 44px;
+  }
+}

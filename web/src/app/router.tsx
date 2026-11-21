@@ -2,6 +2,7 @@ import type { QueryClient } from '@tanstack/react-query';
 import {
   createRoute,
   createRootRouteWithContext,
+  lazyRouteComponent,
   createRouter,
   notFound,
   redirect,
@@ -103,6 +104,12 @@ const settingsRoute = createRoute({
   component: SettingsScreen,
 });
 
+const tokensRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/settings/tokens',
+  component: lazyRouteComponent(() => import('../routes/tokens/TokensScreen'), 'TokensScreen'),
+});
+
 const endpointRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/e/$id',
@@ -189,6 +196,7 @@ const routeTree = rootRoute.addChildren([
     endpointsRoute,
     signInRoute,
     settingsRoute,
+    tokensRoute,
     endpointRoute.addChildren([
       captureRoute,
       endpointSettingsRoute.addChildren([settingsIndexRoute, settingsSectionRoute]),

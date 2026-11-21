@@ -9,6 +9,7 @@ import home from './en/home.json';
 import live from './en/live.json';
 import sample from './en/sample.json';
 import state from './en/state.json';
+import tokens from './en/tokens.json';
 import workspace from './en/workspace.json';
 
 export type SourceMessages = typeof common &
@@ -22,6 +23,7 @@ export type SourceMessages = typeof common &
   typeof live &
   typeof sample &
   typeof state &
+  typeof tokens &
   typeof workspace;
 
 export type SourceKey = keyof SourceMessages;

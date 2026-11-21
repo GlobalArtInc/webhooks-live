@@ -1,0 +1,29 @@
+.notice {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-danger);
+  border-left-width: 3px;
+  border-radius: var(--radius-md);
+}
+
+.message {
+  margin: 0;
+  font: var(--text-data);
+}
+
+.fields {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding-left: var(--space-4);
+  font: var(--text-meta);
+  color: var(--color-text-muted);
+}
+
+.fields code {
+  font: var(--mono-data);
+  color: var(--color-text);
+}
