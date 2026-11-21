@@ -1,5 +1,9 @@
 [advisories]
 yanked = "deny"
+ignore = [
+    { id = "RUSTSEC-2023-0071", reason = "Marvin timing attack on RSA decryption and signing with a private key; the only use here is public-key ID token signature verification inside openidconnect, which has no fix available" },
+    { id = "RUSTSEC-2026-0543", reason = "chrono is unmaintained, reached only through oauth2 and openidconnect; no vulnerability, replace when openidconnect moves off it" },
+]
 
 [licenses]
 allow = [
