@@ -7,6 +7,7 @@ use whl_capture::StateError;
 use whl_core::limiter::LimiterError;
 use whl_dns::DnsError;
 use whl_forward::{ForwardError, WorkerError};
+use whl_mail::MailSetupError;
 use whl_notify::{SendError, SettingsError};
 use whl_schedule::RunnerError;
 use whl_store::StoreError;
@@ -37,6 +38,8 @@ pub enum ServerError {
     NotifyTransport(#[from] SendError),
     #[error("cannot set up secrets: {0}")]
     Secrets(#[from] SecretsSetupError),
+    #[error("cannot set up the mail receiver: {0}")]
+    Mail(#[from] MailSetupError),
     #[error("cannot bind the {listener} listener on {addr}: {source}")]
     Bind {
         listener: &'static str,

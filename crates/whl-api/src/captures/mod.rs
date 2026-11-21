@@ -3,6 +3,7 @@ mod body;
 mod cursor;
 mod dto;
 mod handlers;
+mod parts;
 pub(crate) mod query;
 mod stats;
 
@@ -25,6 +26,10 @@ pub fn routes() -> Router<ApiState> {
         .route(
             "/endpoints/{id}/captures/{capture_id}/body",
             get(body::download),
+        )
+        .route(
+            "/endpoints/{id}/captures/{capture_id}/parts/{index}",
+            get(parts::download),
         )
         .route(
             "/endpoints/{id}/captures/{capture_id}",

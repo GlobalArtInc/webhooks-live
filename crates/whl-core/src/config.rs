@@ -162,6 +162,11 @@ const ENV_KEYS: &[(&str, &str)] = &[
     ("DNS_RATE_SOURCE", "dns.rate_source"),
     ("DNS_RATE_GLOBAL", "dns.rate_global"),
     ("DNS_RATE_CAPTURE_ENDPOINT", "dns.rate_capture_endpoint"),
+    ("MAIL_LISTEN_ADDR", "mail.listen_addr"),
+    ("MAIL_DOMAIN", "mail.domain"),
+    ("MAIL_TRUSTED_PROXIES", "mail.trusted_proxies"),
+    ("MAIL_TLS_CERT", "mail.tls_cert"),
+    ("MAIL_TLS_KEY", "mail.tls_key"),
     ("LOG", "log"),
 ];
 
@@ -186,6 +191,8 @@ pub struct Config {
     #[serde(default)]
     pub secrets: SecretsConfig,
     pub dns: DnsConfig,
+    #[serde(default)]
+    pub mail: MailConfig,
     pub shutdown: ShutdownConfig,
 }
 
@@ -308,6 +315,33 @@ pub struct NotifyConfig {
     pub network_per_hour: u32,
     pub global_per_hour: u32,
     pub vendor_proxy: Option<ProxyUrl>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct MailConfig {
+    pub listen_addr: Option<SocketAddr>,
+    pub domain: Option<String>,
+    #[serde(default, deserialize_with = "de::list")]
+    pub trusted_proxies: Vec<IpNet>,
+    pub tls_cert: Option<PathBuf>,
+    pub tls_key: Option<PathBuf>,
+}
+
+pub const MAX_MAIL_DOMAIN_LEN: usize = 253;
+const MAX_DOMAIN_LABEL_LEN: usize = 63;
+
+pub fn is_valid_mail_domain(domain: &str) -> bool {
+    !domain.is_empty()
+        && domain.len() <= MAX_MAIL_DOMAIN_LEN
+        && domain.split('.').all(|label| {
+            !label.is_empty()
+                && label.len() <= MAX_DOMAIN_LABEL_LEN
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        })
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -456,6 +490,9 @@ pub enum Problem {
     PoolSizeTooSmall,
     ScheduleIntervalTooShort,
     ScheduleRunsPerHourZero,
+    MailNeedsDomain,
+    MailInvalidDomain,
+    MailTlsIncomplete,
 }
 
 impl fmt::Display for Problem {
@@ -486,6 +523,17 @@ impl fmt::Display for Problem {
             Self::PoolSizeTooSmall => write!(
                 f,
                 "{ENV_PREFIX}DB_POOL_SIZE must be at least {MIN_DB_POOL_SIZE}"
+            ),
+            Self::MailNeedsDomain => write!(
+                f,
+                "{ENV_PREFIX}MAIL_DOMAIN is required when {ENV_PREFIX}MAIL_LISTEN_ADDR is set"
+            ),
+            Self::MailInvalidDomain => {
+                write!(f, "{ENV_PREFIX}MAIL_DOMAIN is not a valid domain name")
+            }
+            Self::MailTlsIncomplete => write!(
+                f,
+                "{ENV_PREFIX}MAIL_TLS_CERT and {ENV_PREFIX}MAIL_TLS_KEY must be set together"
             ),
         }
     }
@@ -563,6 +611,21 @@ fn pool_size_problem(pool_size: u32) -> Option<Problem> {
     (pool_size < MIN_DB_POOL_SIZE).then_some(Problem::PoolSizeTooSmall)
 }
 
+fn mail_problems(mail: &MailConfig) -> Vec<Problem> {
+    let mut problems = Vec::new();
+    match (&mail.domain, mail.listen_addr) {
+        (None, Some(_)) => problems.push(Problem::MailNeedsDomain),
+        (Some(domain), _) if !is_valid_mail_domain(domain) => {
+            problems.push(Problem::MailInvalidDomain);
+        }
+        _ => {}
+    }
+    if mail.tls_cert.is_some() != mail.tls_key.is_some() {
+        problems.push(Problem::MailTlsIncomplete);
+    }
+    problems
+}
+
 fn join_problems(problems: &[Problem]) -> String {
     problems
         .iter()
@@ -625,6 +688,7 @@ impl Config {
         if self.schedules.runs_per_hour == 0 {
             problems.push(Problem::ScheduleRunsPerHourZero);
         }
+        problems.extend(mail_problems(&self.mail));
 
         if problems.is_empty() {
             Ok(())

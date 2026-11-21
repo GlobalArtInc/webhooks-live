@@ -638,3 +638,54 @@ fn notification_limits_have_defaults_and_read_the_environment() {
     assert_eq!(proxy.unpack().host_str(), Some("proxy.test"));
     assert_eq!(format!("{proxy:?}"), "ProxyUrl(<redacted>)");
 }
+
+#[test]
+fn mail_is_off_by_default() {
+    let config = load(&with_required(&[])).expect("defaults are valid");
+
+    assert_eq!(config.mail.listen_addr, None);
+    assert_eq!(config.mail.domain, None);
+    assert!(config.mail.trusted_proxies.is_empty());
+}
+
+#[test]
+fn the_mail_keys_are_read_from_the_environment() {
+    let config = load(&with_required(&[
+        ("WEBHOOKS_LIVE_MAIL_LISTEN_ADDR", "0.0.0.0:2525"),
+        ("WEBHOOKS_LIVE_MAIL_DOMAIN", "email.example.test"),
+        (
+            "WEBHOOKS_LIVE_MAIL_TRUSTED_PROXIES",
+            "10.0.0.0/8, 192.0.2.7/32",
+        ),
+    ]))
+    .expect("the mail keys are valid");
+
+    assert_eq!(config.mail.listen_addr, Some(socket("0.0.0.0:2525")));
+    assert_eq!(config.mail.domain.as_deref(), Some("email.example.test"));
+    assert_eq!(config.mail.trusted_proxies.len(), 2);
+}
+
+#[test]
+fn a_mail_listener_without_a_domain_is_refused() {
+    let error = load(&with_required(&[(
+        "WEBHOOKS_LIVE_MAIL_LISTEN_ADDR",
+        "0.0.0.0:2525",
+    )]))
+    .expect_err("the domain is missing");
+
+    assert_eq!(problems_of(error), [Problem::MailNeedsDomain]);
+}
+
+#[test]
+fn an_invalid_mail_domain_and_a_lone_tls_file_are_refused_together() {
+    let error = load(&with_required(&[
+        ("WEBHOOKS_LIVE_MAIL_DOMAIN", "bad..domain"),
+        ("WEBHOOKS_LIVE_MAIL_TLS_CERT", "/tls/cert.pem"),
+    ]))
+    .expect_err("both are invalid");
+
+    assert_eq!(
+        problems_of(error),
+        [Problem::MailInvalidDomain, Problem::MailTlsIncomplete]
+    );
+}
