@@ -122,13 +122,53 @@ fn env_overrides_file_which_overrides_default() {
 fn missing_required_key_is_reported() {
     let error = load(&[DATABASE_URL]).expect_err("PUBLIC_URL is required");
 
-    assert!(matches!(
-        error,
-        ConfigError::MissingRequired { key: "PUBLIC_URL" }
-    ));
+    match &error {
+        ConfigError::Invalid { problems } => {
+            assert_eq!(problems, &[Problem::MissingRequired("PUBLIC_URL")]);
+        }
+        other => panic!("expected Invalid, got {other:?}"),
+    }
     assert_eq!(
         error.to_string(),
         "invalid configuration: WEBHOOKS_LIVE_PUBLIC_URL is required"
+    );
+}
+
+#[test]
+fn every_missing_or_invalid_required_key_is_reported_at_once() {
+    let missing = load(&[]).expect_err("both required keys are missing");
+    let invalid = load(&[
+        ("WEBHOOKS_LIVE_PUBLIC_URL", "not a url"),
+        ("WEBHOOKS_LIVE_DATABASE_URL", "also not a url"),
+    ])
+    .expect_err("both required keys are invalid");
+    let mixed = load(&[("WEBHOOKS_LIVE_PUBLIC_URL", "not a url")])
+        .expect_err("one invalid and one missing");
+
+    let problems = |error: ConfigError| match error {
+        ConfigError::Invalid { problems } => problems,
+        other => panic!("expected Invalid, got {other:?}"),
+    };
+    assert_eq!(
+        problems(missing),
+        [
+            Problem::MissingRequired("PUBLIC_URL"),
+            Problem::MissingRequired("DATABASE_URL"),
+        ]
+    );
+    assert_eq!(
+        problems(invalid),
+        [
+            Problem::InvalidRequired("PUBLIC_URL"),
+            Problem::InvalidRequired("DATABASE_URL"),
+        ]
+    );
+    assert_eq!(
+        problems(mixed),
+        [
+            Problem::InvalidRequired("PUBLIC_URL"),
+            Problem::MissingRequired("DATABASE_URL"),
+        ]
     );
 }
 

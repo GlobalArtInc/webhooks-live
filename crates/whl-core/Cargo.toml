@@ -10,9 +10,12 @@ bytesize.workspace = true
 figment.workspace = true
 humantime.workspace = true
 ipnet.workspace = true
+rand.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 url.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
 figment = { workspace = true, features = ["test"] }
+serde_json.workspace = true

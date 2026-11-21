@@ -7,10 +7,10 @@ use std::time::Duration;
 
 use bytesize::ByteSize;
 use figment::Figment;
-use figment::error::Kind;
 use figment::providers::{Env, Format, Toml};
 use ipnet::IpNet;
 use serde::Deserialize;
+use serde::de::DeserializeOwned;
 use url::Url;
 
 use crate::rate::RateSpec;
@@ -214,12 +214,16 @@ impl fmt::Debug for ClientSecret {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Problem {
+    MissingRequired(&'static str),
+    InvalidRequired(&'static str),
     MissingForSso(&'static str),
 }
 
 impl fmt::Display for Problem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::MissingRequired(key) => write!(f, "{ENV_PREFIX}{key} is required"),
+            Self::InvalidRequired(key) => write!(f, "{ENV_PREFIX}{key} is not a valid URL"),
             Self::MissingForSso(key) => write!(
                 f,
                 "{ENV_PREFIX}{key} is required when {ENV_PREFIX}AUTH_MODE is sso"
@@ -235,24 +239,30 @@ pub enum ConfigError {
         path: PathBuf,
         source: std::io::Error,
     },
-    #[error("invalid configuration: WEBHOOKS_LIVE_{key} is required")]
-    MissingRequired { key: &'static str },
     #[error("invalid configuration: {0}")]
     Load(Box<figment::Error>),
     #[error("invalid configuration: {}", join_problems(.problems))]
     Invalid { problems: Vec<Problem> },
 }
 
-fn load_error(error: figment::Error) -> ConfigError {
-    if let Kind::MissingField(field) = &error.kind {
-        let required = ENV_KEYS
-            .iter()
-            .find(|(_, path)| path.rsplit('.').next() == Some(field.as_ref()));
-        if let Some(&(key, _)) = required {
-            return ConfigError::MissingRequired { key };
-        }
+fn check_required<T: DeserializeOwned>(
+    figment: &Figment,
+    key: &'static str,
+    path: &str,
+    problems: &mut Vec<Problem>,
+) {
+    if !figment.contains(path) {
+        problems.push(Problem::MissingRequired(key));
+    } else if figment.extract_inner::<T>(path).is_err() {
+        problems.push(Problem::InvalidRequired(key));
     }
-    ConfigError::Load(Box::new(error))
+}
+
+fn required_problems(figment: &Figment) -> Vec<Problem> {
+    let mut problems = Vec::new();
+    check_required::<Url>(figment, "PUBLIC_URL", "public_url", &mut problems);
+    check_required::<DatabaseUrl>(figment, "DATABASE_URL", "database.url", &mut problems);
+    problems
 }
 
 fn join_problems(problems: &[Problem]) -> String {
@@ -287,7 +297,14 @@ impl Config {
         });
         figment = figment.merge(env);
 
-        let config: Self = figment.extract().map_err(load_error)?;
+        let problems = required_problems(&figment);
+        if !problems.is_empty() {
+            return Err(ConfigError::Invalid { problems });
+        }
+
+        let config: Self = figment
+            .extract()
+            .map_err(|error| ConfigError::Load(Box::new(error)))?;
         config.validate()?;
         Ok(config)
     }
