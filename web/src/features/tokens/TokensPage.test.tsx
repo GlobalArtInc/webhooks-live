@@ -105,7 +105,11 @@ describe('tokens page', () => {
   });
 
   it('asks an anonymous visitor on a mixed instance to sign in', async () => {
-    mockStore.instance = { ...SIGNED_IN_INSTANCE, user: null, auth: { provider_name: 'Example ID', sign_in_available: true } };
+    mockStore.instance = {
+      ...SIGNED_IN_INSTANCE,
+      user: null,
+      auth: { provider_name: 'Example ID', sign_in_available: true },
+    };
     renderAppAt('/settings/tokens');
 
     const link = await screen.findByRole('link', { name: 'Sign in with Example ID' });
