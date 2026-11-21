@@ -1,0 +1,29 @@
+.button {
+  min-height: 24px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: var(--text-meta);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color var(--duration-fast) linear;
+}
+
+.button:hover {
+  background: var(--color-surface-sunken);
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.button[data-state='copied'] {
+  color: var(--color-success);
+}
+
+.button[data-state='failed'] {
+  color: var(--color-danger);
+}

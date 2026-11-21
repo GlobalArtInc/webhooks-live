@@ -1,0 +1,82 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.resend {
+  min-height: 24px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: var(--text-data);
+  cursor: pointer;
+}
+
+.resend:hover {
+  background: var(--color-surface-sunken);
+}
+
+.resend:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.scroller {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  color: var(--color-text);
+  font: var(--text-data);
+}
+
+.table th,
+.table td {
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.table thead th {
+  font: var(--text-meta);
+  color: var(--color-text-muted);
+}
+
+.target {
+  font: var(--mono-data);
+}
+
+.meta {
+  font: var(--text-meta);
+  color: var(--color-text-muted);
+}
+
+.error {
+  font: var(--mono-data);
+  color: var(--color-danger);
+}
+
+.failed {
+  color: var(--color-danger);
+  font: var(--text-data);
+}
+
+.pending {
+  color: var(--color-text-muted);
+  font: var(--text-data);
+}

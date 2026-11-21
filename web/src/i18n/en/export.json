@@ -1,0 +1,14 @@
+{
+  "wl.export.menu.trigger": "Copy",
+  "wl.export.copyAs.curl": "Copy as curl",
+  "wl.export.copyAs.har": "Copy as HAR",
+  "wl.export.copyAs.json": "Copy as JSON",
+  "wl.export.copyAs.url": "Copy URL",
+  "wl.export.download.json": "Download JSON",
+  "wl.export.download.raw": "Download raw body",
+  "wl.export.download.har": "Download HAR",
+  "wl.export.unavailable": "Unavailable: {{reason}}",
+  "wl.export.copyFailed": "Copy failed",
+  "wl.export.skippedHeaders_one": "{{count}} header is not sent by curl: {{names}}",
+  "wl.export.skippedHeaders_other": "{{count}} headers are not sent by curl: {{names}}"
+}

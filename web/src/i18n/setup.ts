@@ -1,6 +1,8 @@
 import { createInstance, type i18n as I18nInstance } from 'i18next';
 import type { BundleLoader, BundleLoaders, Dictionary } from './bundles';
 import common from './en/common.json';
+import detail from './en/detail.json';
+import exportMessages from './en/export.json';
 import sample from './en/sample.json';
 import state from './en/state.json';
 
@@ -13,7 +15,9 @@ export function createI18nInstance(): I18nInstance {
     fallbackLng: SOURCE_LANGUAGE,
     initAsync: false,
     keySeparator: false,
-    resources: { [SOURCE_LANGUAGE]: { translation: { ...common, ...sample, ...state } } },
+    resources: {
+      [SOURCE_LANGUAGE]: { translation: { ...common, ...detail, ...exportMessages, ...sample, ...state } },
+    },
     interpolation: { escapeValue: false },
   });
   return instance;
