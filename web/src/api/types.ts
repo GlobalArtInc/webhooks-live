@@ -69,10 +69,18 @@ export interface FieldError {
   message: string;
 }
 
+export interface ApiLimit {
+  name: string;
+  max: number;
+  window: string | null;
+  resets_at: Timestamp | null;
+}
+
 export interface ErrorDetail {
   code: string;
   message: string;
   fields?: FieldError[];
+  limit?: ApiLimit;
 }
 
 export interface ErrorBody {
@@ -354,11 +362,6 @@ export interface LiveEventPayloads {
 }
 
 export type LiveEventName = keyof LiveEventPayloads;
-
-export interface ErrorLimit {
-  name: string;
-  max: number;
-}
 
 export interface SendRequest {
   method: string;

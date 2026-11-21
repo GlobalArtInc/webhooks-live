@@ -123,6 +123,12 @@ const composeRoute = createRoute({
   component: lazyRouteComponent(() => import('../routes/compose/ComposeScreen'), 'ComposeScreen'),
 });
 
+const tokensRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/settings/tokens',
+  component: lazyRouteComponent(() => import('../routes/tokens/TokensScreen'), 'TokensScreen'),
+});
+
 const endpointRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/e/$id',
@@ -227,6 +233,7 @@ const routeTree = rootRoute.addChildren([
     signInRoute,
     settingsRoute,
     composeRoute,
+    tokensRoute,
     endpointRoute.addChildren([
       captureRoute,
       endpointSettingsRoute.addChildren([settingsIndexRoute, settingsSectionRoute, ruleEditorRoute]),

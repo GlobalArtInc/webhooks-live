@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import type { ErrorLimit } from '../../api/types';
+import type { ApiLimit } from '../../api/types';
 import { TARGET_MAX_CHARS } from '../forwarding/ruleDraft';
 import { BODY_MAX_BYTES } from './draft';
 import type { HistoryFailure, SendFailure, UrlIssue } from './sendErrors';
@@ -9,7 +9,7 @@ const BODY_LIMIT_LABEL = `${BODY_MAX_BYTES / (1024 * 1024)} MiB`;
 export function useComposerMessages() {
   const { t } = useTranslation();
 
-  function quotaSentence(limit: ErrorLimit | null): string {
+  function quotaSentence(limit: ApiLimit | null): string {
     switch (limit?.name) {
       case 'composer_user_hour':
         return t('wl.composer.error.quota.userHour', { max: limit.max });
