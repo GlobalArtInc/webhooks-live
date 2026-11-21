@@ -128,3 +128,46 @@ async fn secure(mut response: Response) -> Response {
     );
     response
 }
+
+#[cfg(test)]
+mod tests {
+    use axum::body::Body;
+    use axum::http::Request;
+    use axum::routing::get;
+    use tower::ServiceExt;
+
+    use super::*;
+
+    async fn cache_control(path: &str) -> (HeaderValue, HeaderValue) {
+        let router = Router::new()
+            .route("/plain", get(|| async { "ok" }))
+            .route(
+                "/own",
+                get(|| async { ([(header::CACHE_CONTROL, "no-cache")], "ok") }),
+            )
+            .layer(map_response(secure));
+        let request = Request::builder()
+            .uri(path)
+            .body(Body::empty())
+            .expect("a valid request");
+        let reply = router.oneshot(request).await.expect("a reply");
+        (
+            reply.headers()[header::CACHE_CONTROL].clone(),
+            reply.headers()[header::X_CONTENT_TYPE_OPTIONS].clone(),
+        )
+    }
+
+    #[tokio::test]
+    async fn a_response_without_cache_control_is_stored_nowhere() {
+        let (cache, sniff) = cache_control("/plain").await;
+        assert_eq!(cache, "no-store");
+        assert_eq!(sniff, "nosniff");
+    }
+
+    #[tokio::test]
+    async fn a_response_that_sets_its_own_cache_control_keeps_it() {
+        let (cache, sniff) = cache_control("/own").await;
+        assert_eq!(cache, "no-cache");
+        assert_eq!(sniff, "nosniff");
+    }
+}

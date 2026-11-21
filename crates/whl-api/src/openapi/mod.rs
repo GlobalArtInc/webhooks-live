@@ -4,6 +4,7 @@ mod registry;
 pub(crate) mod responses;
 mod root;
 mod serve;
+mod streams;
 
 #[cfg(test)]
 mod coverage;

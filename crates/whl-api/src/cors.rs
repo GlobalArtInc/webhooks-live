@@ -6,11 +6,12 @@ use axum::response::Response;
 const API_PREFIX: &str = "/api/v1";
 const ALLOW_ORIGIN: HeaderValue = HeaderValue::from_static("*");
 const ALLOW_METHODS: HeaderValue = HeaderValue::from_static("GET, POST, PUT, PATCH, DELETE");
-const ALLOW_HEADERS: HeaderValue =
-    HeaderValue::from_static("Authorization, Content-Type, Last-Event-ID, X-Webhooks-Live-Grant");
+const ALLOW_HEADERS: HeaderValue = HeaderValue::from_static(
+    "Authorization, Content-Type, If-None-Match, Last-Event-ID, X-Webhooks-Live-Grant",
+);
 const MAX_AGE: HeaderValue = HeaderValue::from_static("600");
 const EXPOSE_HEADERS: HeaderValue =
-    HeaderValue::from_static("Location, RateLimit-Limit, RateLimit-Remaining, Retry-After");
+    HeaderValue::from_static("ETag, Location, RateLimit-Limit, RateLimit-Remaining, Retry-After");
 const REQUEST_METHOD: HeaderName = HeaderName::from_static("access-control-request-method");
 
 fn is_api(path: &str) -> bool {

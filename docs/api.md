@@ -486,7 +486,7 @@ a row below extends them.
 | Mode `mixed` | Anonymous callers work as in `open` on anonymous endpoints; owned endpoints follow `sso` rules. Person-only routes answer 403 `sign_in_required` to anonymous callers. |
 | Tokens | `Authorization: Bearer whl_...` on every `/api/v1` route, streams included. With a Bearer header the cookie is ignored and the origin check is skipped. Token, member and ownership routes refuse tokens with 403 `session_required`. |
 | Grants | Anonymous endpoints with a view password need `X-Webhooks-Live-Grant: <grant>` on every read; stream routes also accept `?grant=`. Missing or expired: 401 `grant_required`. |
-| CORS | `/api/v1/*` answers preflights 204 and every response with `Access-Control-Allow-Origin: *`, never with credentials (architecture §19). |
+| CORS | `/api/v1/*` answers preflights 204 and every response with `Access-Control-Allow-Origin: *`, never with credentials (architecture §19). Allowed request headers: `Authorization`, `Content-Type`, `If-None-Match`, `Last-Event-ID`, `X-Webhooks-Live-Grant`; exposed: `ETag`, `Location`, `RateLimit-Limit`, `RateLimit-Remaining`, `Retry-After`. |
 | Body limits | `POST /api/v1/send`: 1.5 MiB. `POST .../import`: the tier's import size, `application/json` or `application/x-ndjson`. Others: §1. |
 | Templates in JSON | Template fields are plain strings in the §21 syntax of architecture; field errors carry `line` and `column`. |
 
@@ -895,8 +895,8 @@ When a templated response drops a header or falls back, the capture `meta.templa
 
 ## 23. OpenAPI
 
-`GET /api/v1/openapi.json`: OpenAPI 3.1 document of every `/api/v1` route, `ETag` = build version, public in all
-modes. `If-None-Match` with the tag answers 304. `Cache-Control: no-cache` (the one `/api` response that may be
+`GET /api/v1/openapi.json`: OpenAPI 3.1 document of every `/api/v1` route, `ETag` = `"<build version>-<8 hex of a SHA-256 of the document>"`, so it changes whenever the document does; public in all
+modes. `If-None-Match` with the tag answers 304 (CORS allows the request header and exposes `ETag`). `Cache-Control: no-cache` (the one `/api` response that may be
 stored, always revalidated). A Bearer token needs the `read` scope, as for `/instance`. Paths are relative to the
 server `/api/v1`. The reference page is a UI route (ui-design.md).
 
@@ -951,3 +951,4 @@ The first three steps run before the response; `http` and `notify` run after it 
 - Errors: one `responses` entry per status. Reuse `crate::openapi::responses` (`Unauthenticated`, `StoreUnavailable`, `ValidationFailed`, `BadRequest`, `PayloadTooLarge`, `UnsupportedMediaType`); when a status carries several codes, use `body = ErrorBody` and name each code in `description` as in the tables of §1 and §9. 429 and 500 are added to every operation automatically.
 - Allowlist: `crates/whl-api/src/openapi/undocumented.rs` lists every route still undocumented, one constant per area. When an area is documented, delete its lines from its constant and leave the constant in place. The coverage test fails for a routed route that is neither documented nor listed, for a listed route that is documented, and for a documented operation without a route.
 - Routes are registered through `crate::routing` (`Routes`, `get`, `post`, ...), which records each method and path for the coverage test; do not use `axum::routing` in an area.
+- The two stream routes are served by whl-live and are not recorded by `Routes`; they are documented in `openapi/streams.rs` (`StreamsDoc`) and added to the coverage test by `streams::routes()`, built from `whl_live::STREAM_PATH` and `whl_live::INBOX_STREAM_PATH`.

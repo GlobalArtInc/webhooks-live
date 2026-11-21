@@ -622,13 +622,13 @@ operator may not have).
 
 **API CORS.** `/api/v1/*` answers preflights with `204`, `Access-Control-Allow-Origin: *`,
 `Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE`, `Access-Control-Allow-Headers: Authorization,
-Content-Type, Last-Event-ID`, `Access-Control-Max-Age: 600`; responses carry `Access-Control-Allow-Origin: *` and
-expose `Location, RateLimit-Limit, RateLimit-Remaining, Retry-After`. `Access-Control-Allow-Credentials` is never
+Content-Type, Last-Event-ID, If-None-Match`, `Access-Control-Max-Age: 600`; responses carry `Access-Control-Allow-Origin: *` and
+expose `Location, RateLimit-Limit, RateLimit-Remaining, Retry-After, ETag`. `Access-Control-Allow-Credentials` is never
 sent, so browsers never attach the session cookie cross-origin; the §9 origin check still guards cookie requests.
 `/auth/*` has no CORS. Switch: `WEBHOOKS_LIVE_API_CORS`. This replaces "No CORS on `/api`" in §9.
 
 **OpenAPI.** `utoipa` derives schemas from the DTOs and paths from annotated handlers; `whl-api` assembles the
-document and serves `GET /api/v1/openapi.json` (OpenAPI 3.1, `ETag` = build version). A test compares the router's
+document and serves `GET /api/v1/openapi.json` (OpenAPI 3.1, `ETag` = build version and a hash of the document). A test compares the router's
 route table with the document's paths, so an undocumented route fails CI. The reference page is a UI route
 rendered by the app's own components (ui-design.md), with no third-party bundle. Rejected: a hand-written file
 (drifts); a bundled third-party viewer (inline scripts against the §9 CSP).

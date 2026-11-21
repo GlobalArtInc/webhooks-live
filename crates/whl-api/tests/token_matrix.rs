@@ -249,7 +249,7 @@ async fn a_preflight_is_answered_with_the_documented_headers_and_never_allows_cr
     );
     assert_eq!(
         header_of("access-control-allow-headers").as_deref(),
-        Some("Authorization, Content-Type, Last-Event-ID, X-Webhooks-Live-Grant")
+        Some("Authorization, Content-Type, If-None-Match, Last-Event-ID, X-Webhooks-Live-Grant")
     );
     assert_eq!(header_of("access-control-max-age").as_deref(), Some("600"));
     assert!(
@@ -276,7 +276,7 @@ async fn api_responses_carry_the_allow_origin_and_expose_headers_but_other_paths
         assert_eq!(reply.headers["access-control-allow-origin"], "*");
         assert_eq!(
             reply.headers["access-control-expose-headers"],
-            "Location, RateLimit-Limit, RateLimit-Remaining, Retry-After"
+            "ETag, Location, RateLimit-Limit, RateLimit-Remaining, Retry-After"
         );
         assert!(
             !reply

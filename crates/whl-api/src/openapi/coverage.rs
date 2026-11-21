@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use serde_json::Value;
 
-use super::undocumented;
+use super::{streams, undocumented};
 use crate::api_routes;
 
 const OPERATIONS: [&str; 8] = [
@@ -48,6 +48,8 @@ fn routed() -> BTreeSet<RouteKey> {
     api_routes()
         .entries()
         .iter()
+        .cloned()
+        .chain(streams::routes())
         .map(|entry| RouteKey::new(entry.method.as_str(), entry.path))
         .collect()
 }

@@ -8,7 +8,7 @@ use common::{bodiless, harness, send, sso_harness};
 const URI: &str = "/api/v1/openapi.json";
 
 #[tokio::test]
-async fn an_anonymous_caller_gets_the_document_with_the_version_as_etag() {
+async fn an_anonymous_caller_gets_the_document_with_a_versioned_digest_as_etag() {
     let harness = sso_harness().await;
     let reply = harness.send_as(None, Method::GET, URI, "").await;
     assert_eq!(reply.status, StatusCode::OK);
@@ -21,8 +21,16 @@ async fn an_anonymous_caller_gets_the_document_with_the_version_as_etag() {
             .is_some_and(|version| version.starts_with("3.1"))
     );
     let version = document["info"]["version"].as_str().expect("a version");
-    assert_eq!(reply.headers[header::ETAG], format!("\"{version}\""));
+    let etag = reply.headers[header::ETAG].to_str().expect("text");
+    let digest = etag
+        .strip_prefix(&format!("\"{version}-"))
+        .and_then(|rest| rest.strip_suffix('"'))
+        .expect("the version, a dash and a digest");
+    assert_eq!(digest.len(), 8);
+    assert!(digest.chars().all(|c| c.is_ascii_hexdigit()));
     assert!(document["paths"]["/usage"]["get"].is_object());
+    assert!(document["paths"]["/endpoints/{id}/stream"]["get"].is_object());
+    assert!(document["paths"]["/inbox/stream"]["get"].is_object());
 }
 
 #[tokio::test]
@@ -57,11 +65,12 @@ async fn a_matching_if_none_match_answers_304_without_a_body_and_another_tag_get
         )
         .await;
     assert_eq!(weak.status, StatusCode::NOT_MODIFIED);
+    let stale_tag = format!("{}00000000\"", &etag[..etag.len() - 9]);
     let stale = harness
         .send_with(
             None,
             None,
-            &[("if-none-match", "\"other\"")],
+            &[("if-none-match", &stale_tag)],
             Method::GET,
             URI,
             "",
