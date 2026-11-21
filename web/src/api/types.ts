@@ -333,3 +333,43 @@ export interface LiveEventPayloads {
 }
 
 export type LiveEventName = keyof LiveEventPayloads;
+
+export interface ErrorLimit {
+  name: string;
+  max: number;
+}
+
+export interface SendRequest {
+  method: string;
+  url: string;
+  headers: NameValue[];
+  body: BodyInput | null;
+  timeout_ms?: number;
+  follow_redirects?: boolean;
+  endpoint_id?: EndpointId;
+  source_capture_id?: Uuid;
+}
+
+export interface SendResult {
+  id: Uuid;
+  status: number | null;
+  headers: NameValue[];
+  body: Body | null;
+  duration_ms: number;
+  final_url: string | null;
+  error: string | null;
+  capture_id: Uuid | null;
+}
+
+export interface SentRequest extends SendResult {
+  request: Omit<SendRequest, 'body'> & { body: Body | null };
+  created_at: Timestamp;
+}
+
+export type SentRequestPage = Page<SentRequest>;
+
+export interface SentRequestQuery {
+  endpoint_id?: EndpointId;
+  cursor?: string | null;
+  limit?: number;
+}

@@ -1,4 +1,5 @@
 import common from './en/common.json';
+import composer from './en/composer.json';
 import detail from './en/detail.json';
 import diff from './en/diff.json';
 import editor from './en/editor.json';
@@ -18,6 +19,7 @@ import steps from './en/steps.json';
 import workspace from './en/workspace.json';
 
 export type SourceMessages = typeof common &
+  typeof composer &
   typeof detail &
   typeof diff &
   typeof editor &

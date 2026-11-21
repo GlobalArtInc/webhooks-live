@@ -1,0 +1,25 @@
+.page {
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-4) var(--space-3);
+}
+
+.title {
+  margin: 0;
+  font: var(--text-title);
+  color: var(--color-text);
+}
+
+.note {
+  margin: 0;
+  font: var(--text-data);
+  color: var(--color-text-muted);
+}
+
+.error {
+  margin: 0;
+  font: var(--text-data);
+  color: var(--color-danger);
+}
