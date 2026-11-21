@@ -6,7 +6,7 @@ compare two of them, copy any of them as `curl`.
 
 Backend in Rust, interface in React. One binary, one container image.
 
-Status: design phase. Nothing is implemented yet.
+Status: under development.
 
 ## Documents
 
