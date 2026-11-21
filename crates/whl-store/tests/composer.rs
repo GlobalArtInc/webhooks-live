@@ -54,6 +54,7 @@ async fn endpoint(store: &Store) -> EndpointId {
                 overflow: Overflow::Refuse,
                 tags: Vec::new(),
                 verifier: None,
+                templating: Default::default(),
             },
             RETENTION,
         )
