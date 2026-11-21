@@ -14,6 +14,7 @@ use crate::pattern::Pattern;
 pub(crate) struct Text {
     pub output: String,
     pub missing: bool,
+    pub first_missing: Option<String>,
 }
 
 pub(crate) struct RenderIssue {
@@ -100,6 +101,10 @@ pub(crate) fn render(
     match template.render_within(context, &limits, &mut env, budget) {
         RenderOutcome::Clean(rendered) => Ok(Text {
             missing: !rendered.missing.is_empty(),
+            first_missing: rendered
+                .missing
+                .first()
+                .map(|variable| variable.reference.clone()),
             output: rendered.output,
         }),
         RenderOutcome::Partial(partial) => {

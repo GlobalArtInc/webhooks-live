@@ -9,6 +9,7 @@ use whl_dns::DnsError;
 use whl_forward::{ForwardError, WorkerError};
 use whl_mail::MailSetupError;
 use whl_notify::{SendError, SettingsError};
+use whl_rules_worker::WorkerError as RulesWorkerError;
 use whl_schedule::RunnerError;
 use whl_script::PoolError;
 use whl_store::StoreError;
@@ -29,6 +30,8 @@ pub enum ServerError {
     Forward(#[from] ForwardError),
     #[error("the forward worker settings are invalid: {0}")]
     Worker(#[from] WorkerError),
+    #[error("the rules worker settings are invalid: {0}")]
+    RulesWorker(#[from] RulesWorkerError),
     #[error("cannot set up DNS capture: {0}")]
     Dns(#[from] DnsError),
     #[error("the schedule runner settings are invalid: {0}")]

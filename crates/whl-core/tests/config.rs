@@ -645,17 +645,20 @@ fn the_rules_and_script_keys_have_defaults_and_read_the_environment() {
     assert!(defaults.rules.enabled);
     assert_eq!(defaults.rules.sync_budget, Duration::from_secs(3));
     assert_eq!(defaults.rules.sync_concurrency, 256);
+    assert_eq!(defaults.rules.workers, 16);
     assert_eq!(defaults.script.threads, 2);
     assert_eq!(defaults.script.memory, ByteSize::mib(32));
 
     let set = load(&with_required(&[
         ("WEBHOOKS_LIVE_RULES_SYNC_BUDGET", "500ms"),
         ("WEBHOOKS_LIVE_RULES_SYNC_CONCURRENCY", "8"),
+        ("WEBHOOKS_LIVE_RULES_WORKERS", "4"),
         ("WEBHOOKS_LIVE_SCRIPT_THREADS", "4"),
     ]))
     .expect("the keys load");
     assert_eq!(set.rules.sync_budget, Duration::from_millis(500));
     assert_eq!(set.rules.sync_concurrency, 8);
+    assert_eq!(set.rules.workers, 4);
     assert_eq!(set.script.threads, 4);
 }
 
@@ -672,6 +675,19 @@ fn a_rules_budget_above_ten_seconds_fails_validation() {
             assert!(problems.contains(&Problem::RulesSyncBudgetOutOfRange));
         }
         other => panic!("unexpected error {other:?}"),
+    }
+}
+
+#[test]
+fn zero_or_too_many_rule_workers_fail_validation() {
+    for value in ["0", "257"] {
+        let error = load(&with_required(&[("WEBHOOKS_LIVE_RULES_WORKERS", value)]))
+            .expect_err("the worker count is out of range");
+        assert_eq!(
+            problems_of(error),
+            [Problem::RulesWorkersOutOfRange],
+            "{value}"
+        );
     }
 }
 

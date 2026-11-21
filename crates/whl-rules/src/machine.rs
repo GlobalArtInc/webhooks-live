@@ -1,13 +1,16 @@
+use std::collections::BTreeMap;
+use std::fmt;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
+use uuid::Uuid;
 use whl_core::content_type::ContentType;
 use whl_core::header::HeaderValue;
 use whl_core::status::HttpStatus;
-use whl_script::{CompiledScript, ScriptError, ScriptOutput, ScriptResponse};
+use whl_script::{CompiledScript, ScriptError, ScriptOutput, ScriptPhase, ScriptResponse};
 use whl_telemetry::series::RULE_STEPS_TOTAL;
 use whl_template::{
     BodyData, ChaChaRandom, Context, NameValue, RandomSeed, ResponseBudget, StepData, SystemClock,
@@ -16,19 +19,25 @@ use whl_template::{
 
 use crate::after::{AfterPart, DeferredStep, Resume, Snapshot};
 use crate::compiled::{
-    CompiledAction, CompiledRule, CompiledRules, CompiledStep, ExtractAction, RespondAction,
-    Selector, TransformTarget,
+    CompiledAction, CompiledRule, CompiledRules, CompiledStep, ExtractAction, HttpAction,
+    RespondAction, Selector, TransformTarget,
 };
+use crate::deferred::side_effect_call;
 use crate::draft::{HeaderOp, ResponseDraft};
 use crate::eval::{Evaluator, RenderIssue, Text, charge_pattern, render};
 use crate::failure::{Failure, FailureCode};
+use crate::kind::StepKind;
 use crate::log::{
     Entry, MAX_DETAIL_BYTES, Outcome, RuleEntry, StepEntry, bound_output, bound_text,
 };
+use crate::model::{BodySource, S3Content};
 
 pub const RESPOND_BUDGET: Duration = Duration::from_millis(100);
+pub const STEP_BUDGET: Duration = Duration::from_secs(2);
 pub const MAX_VARS_BYTES: usize = 16 * 1024;
 pub const MAX_PAYLOAD_BYTES: usize = 16 * 1024;
+pub const MAX_HTTP_URL_BYTES: usize = 2048;
+pub const MAX_HTTP_BODY_BYTES: usize = 1024 * 1024;
 const MAX_LOGGED_VALUE_BYTES: usize = 512;
 const MAX_LOGGED_SCRIPT_BYTES: usize = 1024;
 const DEFAULT_SCRIPT_STATUS: u16 = 200;
@@ -38,6 +47,7 @@ const MAX_INTEGER_DIGITS: usize = 18;
 pub enum Mode {
     Live,
     DryRun,
+    After,
 }
 
 pub struct MachineInput {
@@ -72,6 +82,7 @@ pub enum StateError {
 }
 
 pub struct ScriptCall {
+    pub phase: ScriptPhase,
     pub script: CompiledScript,
     pub request: Value,
     pub vars: Map<String, Value>,
@@ -81,14 +92,109 @@ pub struct ScriptCall {
     pub tenant: String,
 }
 
+#[derive(Clone, PartialEq)]
+pub struct HttpCall {
+    pub method: String,
+    pub url: String,
+    pub headers: Vec<(String, String)>,
+    pub body: Option<String>,
+    pub timeout_ms: u32,
+}
+
+impl fmt::Debug for HttpCall {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("HttpCall")
+            .field("method", &self.method)
+            .field("url_bytes", &self.url.len())
+            .field("headers", &self.headers.len())
+            .field("body_bytes", &self.body.as_ref().map(String::len))
+            .field("timeout_ms", &self.timeout_ms)
+            .finish()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForwardCall {
+    pub forward_rule_id: Option<Uuid>,
+    pub target_url: Option<String>,
+    pub method: Option<String>,
+    pub content_type: Option<String>,
+    pub header_allowlist: Vec<String>,
+    pub body_from: BodySource,
+    pub payload: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotifyCall {
+    pub channel_id: Uuid,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoreS3Call {
+    pub bucket_url: String,
+    pub prefix: String,
+    pub region: String,
+    pub access_key_secret: String,
+    pub secret_key_secret: String,
+    pub content: S3Content,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum OutboundCall {
+    Http(HttpCall),
+    Forward(ForwardCall),
+    Notify(NotifyCall),
+    StoreS3(StoreS3Call),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct OutboundStep {
+    pub rule_id: Uuid,
+    pub rule_name: String,
+    pub step: usize,
+    pub position: usize,
+    pub name: Option<String>,
+    pub kind: StepKind,
+    pub continue_on_error: bool,
+    pub call: OutboundCall,
+}
+
+#[derive(Debug, Clone)]
+pub struct OutboundDone {
+    pub detail: Option<String>,
+    pub output: Value,
+    pub data: Option<StepData>,
+}
+
 pub enum Effect {
     Script(Box<ScriptCall>),
     Store(StoreCall),
+    Outbound(Box<OutboundStep>),
 }
 
 pub enum Answer {
     Script(Box<Result<ScriptOutput, ScriptError>>),
     Store(Result<StoreValue, StateError>),
+    Outbound(Box<Result<OutboundDone, Failure>>),
+}
+
+#[derive(Debug, Clone)]
+pub struct Progress {
+    pub position: usize,
+    pub vars: Map<String, Value>,
+    pub steps: BTreeMap<String, StepData>,
+    pub payload: Option<String>,
+    pub log: Vec<Entry>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Resumption {
+    pub position: usize,
+    pub payload: Option<String>,
+    pub steps: BTreeMap<String, StepData>,
+    pub log: Vec<Entry>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -129,6 +235,7 @@ impl Finished {
 
 pub enum Advance {
     Effect(Effect),
+    Checkpoint,
     Finished(Box<Finished>),
 }
 
@@ -186,6 +293,20 @@ pub struct Machine {
     stopped: bool,
     failure: Option<Failure>,
     pending: Option<Pending>,
+    checkpoint_due: bool,
+    step_data: Option<StepData>,
+}
+
+fn locate(rules: &CompiledRules, position: usize) -> (usize, usize) {
+    let mut remaining = position;
+    for (index, rule) in rules.rules().iter().enumerate() {
+        let length = rule.steps.len();
+        if remaining < length {
+            return (index, remaining);
+        }
+        remaining -= length;
+    }
+    (rules.rules().len(), 0)
 }
 
 impl Machine {
@@ -212,6 +333,52 @@ impl Machine {
             stopped: false,
             failure: None,
             pending: None,
+            checkpoint_due: false,
+            step_data: None,
+        }
+    }
+
+    pub fn resumed(input: MachineInput, resumption: Resumption) -> Self {
+        let mut machine = Self::new(input);
+        machine.mode = Mode::After;
+        let (rule, step) = locate(&machine.rules, resumption.position);
+        machine.rule = rule;
+        machine.step = step;
+        machine.payload = resumption.payload;
+        machine.log = resumption.log;
+        machine.context.steps = resumption.steps;
+        machine.entered = step > 0 || machine.was_entered(rule);
+        machine
+    }
+
+    fn was_entered(&self, rule: usize) -> bool {
+        let Some(candidate) = self.rules.rules().get(rule) else {
+            return false;
+        };
+        matches!(
+            self.log.last(),
+            Some(Entry::Rule(entry)) if entry.matched && entry.rule_id == candidate.id
+        )
+    }
+
+    pub fn position(&self) -> usize {
+        let before: usize = self
+            .rules
+            .rules()
+            .iter()
+            .take(self.rule)
+            .map(|rule| rule.steps.len())
+            .sum();
+        before + self.step
+    }
+
+    pub fn progress(&self) -> Progress {
+        Progress {
+            position: self.position(),
+            vars: self.vars_map(),
+            steps: self.context.steps.clone(),
+            payload: self.payload.clone(),
+            log: self.log.clone(),
         }
     }
 
@@ -224,6 +391,7 @@ impl Machine {
         }
         let rules = Arc::clone(&self.rules);
         let plan = rules.plan();
+        let after = self.mode == Mode::After;
         loop {
             if self.failure.is_some() || self.stopped {
                 return self.finish(&rules);
@@ -231,11 +399,18 @@ impl Machine {
             let Some(rule) = rules.rules().get(self.rule) else {
                 return self.finish(&rules);
             };
-            if plan.cut().is_none_or(|cut| self.rule > cut.rule) {
+            if !after && plan.cut().is_none_or(|cut| self.rule > cut.rule) {
                 return self.finish(&rules);
             }
+            if self.checkpoint_due {
+                self.checkpoint_due = false;
+                return Advance::Checkpoint;
+            }
+            if after {
+                self.budget = ResponseBudget::start(&self.clock, STEP_BUDGET);
+            }
             if !self.entered {
-                if self.budget_spent() {
+                if !after && self.budget_spent() {
                     self.fail_budget();
                     continue;
                 }
@@ -247,6 +422,7 @@ impl Machine {
                     Ok(false) => {
                         self.rule += 1;
                         self.step = 0;
+                        self.checkpoint_due = after;
                         continue;
                     }
                     Err(failure) => {
@@ -261,10 +437,10 @@ impl Machine {
                 self.entered = false;
                 continue;
             };
-            if plan.is_after(self.rule, self.step) {
+            if !after && plan.is_after(self.rule, self.step) {
                 return self.finish(&rules);
             }
-            if self.budget_spent() {
+            if !after && self.budget_spent() {
                 self.fail_budget();
                 continue;
             }
@@ -293,6 +469,7 @@ impl Machine {
         let result = match answer {
             Answer::Script(result) => self.absorb_script(*result),
             Answer::Store(result) => self.absorb_store(result, pending.written),
+            Answer::Outbound(result) => self.absorb_outbound(*result),
         };
         let index = self.step;
         self.conclude(rule, index, step, pending.started.elapsed(), result);
@@ -329,6 +506,7 @@ impl Machine {
         };
         let after = match outcome {
             RunOutcome::Failed(_) => AfterPart::default(),
+            RunOutcome::Succeeded if self.mode == Mode::After => AfterPart::default(),
             RunOutcome::Succeeded => {
                 let resume = (!self.stopped && self.rule < rules.rules().len()).then_some(Resume {
                     rule: self.rule,
@@ -387,7 +565,19 @@ impl Machine {
     }
 
     fn produce(&mut self, rule: &CompiledRule, index: usize, step: &CompiledStep) -> Produced {
+        let after = self.mode == Mode::After;
         match &step.action {
+            CompiledAction::Respond(_)
+            | CompiledAction::SetHeader { .. }
+            | CompiledAction::RemoveHeader { .. }
+            | CompiledAction::Delay { .. }
+                if after =>
+            {
+                Produced::Done(Ok(Done::plain(
+                    Outcome::NoOp,
+                    "the response was already sent",
+                )))
+            }
             CompiledAction::Respond(action) => Produced::Done(self.respond(action)),
             CompiledAction::SetHeader { name, value } => {
                 Produced::Done(self.set_header(name, value))
@@ -428,11 +618,118 @@ impl Machine {
                 Ok(call) => Produced::Effect(Effect::Script(Box::new(call)), None),
                 Err(failure) => Produced::Done(Err(failure)),
             },
-            CompiledAction::Fetch => Produced::Done(Err(Failure::new(
+            CompiledAction::Fetch(action) if after => self.http_effect(rule, index, step, action),
+            CompiledAction::Fetch(_) => Produced::Done(Err(Failure::new(
                 FailureCode::Http,
                 "HTTP steps are not available before the response",
             ))),
-            CompiledAction::SideEffect => Produced::Done(self.defer(rule, index, step)),
+            CompiledAction::SideEffect { message } if after => {
+                self.side_effect(rule, index, step, message.as_ref())
+            }
+            CompiledAction::SideEffect { .. } => Produced::Done(self.defer(rule, index, step)),
+        }
+    }
+
+    fn outbound(
+        &self,
+        rule: &CompiledRule,
+        index: usize,
+        step: &CompiledStep,
+        call: OutboundCall,
+    ) -> Produced {
+        Produced::Effect(
+            Effect::Outbound(Box::new(OutboundStep {
+                rule_id: rule.id,
+                rule_name: rule.name.clone(),
+                step: index,
+                position: self.position(),
+                name: step.name.clone(),
+                kind: step.kind,
+                continue_on_error: step.continue_on_error,
+                call,
+            })),
+            None,
+        )
+    }
+
+    fn render_strict(&mut self, template: &Template) -> Result<String, Failure> {
+        let text = self.render_value(template).map_err(|issue| issue.failure)?;
+        if text.missing {
+            return Err(Failure::new(
+                FailureCode::Template,
+                format!(
+                    "{} is not defined",
+                    text.first_missing.as_deref().unwrap_or("a variable")
+                ),
+            ));
+        }
+        Ok(text.output)
+    }
+
+    fn render_http(&mut self, action: &HttpAction) -> Result<HttpCall, Failure> {
+        let url = self.render_strict(&action.url)?;
+        if url.len() > MAX_HTTP_URL_BYTES {
+            return Err(Failure::new(
+                FailureCode::Template,
+                format!("the URL is longer than {MAX_HTTP_URL_BYTES} bytes"),
+            ));
+        }
+        let mut headers = Vec::with_capacity(action.headers.len());
+        for (name, template) in &action.headers {
+            headers.push((name.clone(), self.render_strict(template)?));
+        }
+        let body = match &action.body {
+            Some(template) => Some(self.render_strict(template)?),
+            None => None,
+        };
+        if body
+            .as_ref()
+            .is_some_and(|text| text.len() > MAX_HTTP_BODY_BYTES)
+        {
+            return Err(Failure::new(
+                FailureCode::Template,
+                format!("the body is longer than {MAX_HTTP_BODY_BYTES} bytes"),
+            ));
+        }
+        Ok(HttpCall {
+            method: action.method.clone(),
+            url,
+            headers,
+            body,
+            timeout_ms: action.timeout_ms,
+        })
+    }
+
+    fn http_effect(
+        &mut self,
+        rule: &CompiledRule,
+        index: usize,
+        step: &CompiledStep,
+        action: &HttpAction,
+    ) -> Produced {
+        match self.render_http(action) {
+            Ok(call) => self.outbound(rule, index, step, OutboundCall::Http(call)),
+            Err(failure) => Produced::Done(Err(failure)),
+        }
+    }
+
+    fn side_effect(
+        &mut self,
+        rule: &CompiledRule,
+        index: usize,
+        step: &CompiledStep,
+        message: Option<&Template>,
+    ) -> Produced {
+        let text = match message {
+            Some(template) => match self.render_value(template) {
+                Ok(text) => Some(text.output),
+                Err(issue) => return Produced::Done(Err(issue.failure)),
+            },
+            None => None,
+        };
+        match side_effect_call(&step.source.action, text, self.payload.as_deref()) {
+            Ok(call) => self.outbound(rule, index, step, call),
+            Err(failure) => Produced::Done(Err(failure)),
         }
     }
 
@@ -626,7 +923,7 @@ impl Machine {
         };
         let value = store_value(&text.output);
         match self.mode {
-            Mode::Live => Produced::Effect(
+            Mode::Live | Mode::After => Produced::Effect(
                 Effect::Store(StoreCall::Set {
                     name: name.to_owned(),
                     value: value.clone(),
@@ -647,7 +944,7 @@ impl Machine {
 
     fn increment(&mut self, counter: &str, by: i64) -> Produced {
         match self.mode {
-            Mode::Live => Produced::Effect(
+            Mode::Live | Mode::After => Produced::Effect(
                 Effect::Store(StoreCall::Add {
                     name: counter.to_owned(),
                     by,
@@ -693,6 +990,11 @@ impl Machine {
         material.extend_from_slice(&u64::try_from(self.rule).unwrap_or(u64::MAX).to_le_bytes());
         material.extend_from_slice(&u64::try_from(index).unwrap_or(u64::MAX).to_le_bytes());
         Ok(ScriptCall {
+            phase: if self.mode == Mode::After {
+                ScriptPhase::AfterResponse
+            } else {
+                ScriptPhase::BeforeResponse
+            },
             script: script.clone(),
             request: request_json(&self.context),
             vars: self.vars_map(),
@@ -737,6 +1039,16 @@ impl Machine {
             headers,
             response.body.unwrap_or_default().into_bytes(),
         );
+    }
+
+    fn absorb_outbound(&mut self, result: Result<OutboundDone, Failure>) -> Result<Done, Failure> {
+        let done = result?;
+        self.step_data = done.data;
+        Ok(Done {
+            outcome: Outcome::Ok,
+            detail: done.detail,
+            output: Some(done.output),
+        })
     }
 
     fn absorb_store(
@@ -836,19 +1148,17 @@ impl Machine {
                 entry
             }
         };
+        let data = self.step_data.take();
         if let Some(name) = &step.name {
-            self.context.steps.insert(
-                name.clone(),
-                StepData {
-                    status: None,
-                    headers: Vec::new(),
-                    body: String::new(),
-                    duration_ms,
-                    error,
-                },
-            );
+            let mut data = data.unwrap_or_default();
+            data.duration_ms = duration_ms;
+            data.error = error;
+            self.context.steps.insert(name.clone(), data);
         }
-        if self.mode == Mode::Live {
+        if self.mode == Mode::After {
+            self.checkpoint_due = true;
+        }
+        if self.mode != Mode::DryRun {
             metrics::counter!(
                 RULE_STEPS_TOTAL,
                 "kind" => step.kind.as_str(),

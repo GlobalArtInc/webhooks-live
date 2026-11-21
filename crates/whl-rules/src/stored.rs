@@ -1,8 +1,9 @@
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use thiserror::Error;
 use uuid::Uuid;
 use whl_script::ScriptCompiler;
 
+use crate::after::{DeferredStep, Snapshot};
 use crate::compiled::RuleSource;
 use crate::error::RuleError;
 use crate::set::load_set;
@@ -77,4 +78,86 @@ pub fn rules_from_plan(plan: &Value) -> Result<Vec<StoredRule>, PlanReadError> {
             })
         })
         .collect()
+}
+
+pub fn snapshots_from_plan(plan: &Value) -> Result<Vec<Snapshot>, PlanReadError> {
+    let Some(items) = plan.get("snapshots") else {
+        return Ok(Vec::new());
+    };
+    items
+        .as_array()
+        .ok_or(PlanReadError::Malformed)?
+        .iter()
+        .map(|item| -> Result<Snapshot, PlanReadError> {
+            let vars: Map<String, Value> = match item.get("vars") {
+                Some(Value::Object(vars)) => vars.clone(),
+                None | Some(Value::Null) => Map::new(),
+                Some(_) => return Err(PlanReadError::Malformed),
+            };
+            let payload = match item.get("payload") {
+                Some(Value::String(text)) => Some(text.clone()),
+                None | Some(Value::Null) => None,
+                Some(_) => return Err(PlanReadError::Malformed),
+            };
+            Ok(Snapshot { vars, payload })
+        })
+        .collect()
+}
+
+pub fn deferred_from_plan(plan: &Value) -> Result<Vec<DeferredStep>, PlanReadError> {
+    let Some(items) = plan.get("deferred") else {
+        return Ok(Vec::new());
+    };
+    let items = items.as_array().ok_or(PlanReadError::Malformed)?;
+    items
+        .iter()
+        .map(|item| -> Result<DeferredStep, PlanReadError> {
+            let rule_id = item
+                .get("rule_id")
+                .and_then(Value::as_str)
+                .and_then(|text| Uuid::try_parse(text).ok())
+                .ok_or(PlanReadError::Malformed)?;
+            let rule_name = item
+                .get("rule_name")
+                .and_then(Value::as_str)
+                .ok_or(PlanReadError::Malformed)?
+                .to_owned();
+            let step = item
+                .get("step")
+                .and_then(Value::as_u64)
+                .and_then(|index| usize::try_from(index).ok())
+                .ok_or(PlanReadError::Malformed)?;
+            let action = item
+                .get("action")
+                .filter(|action| action.is_object())
+                .cloned()
+                .ok_or(PlanReadError::Malformed)?;
+            let snapshot = item
+                .get("snapshot")
+                .and_then(Value::as_u64)
+                .and_then(|index| usize::try_from(index).ok())
+                .ok_or(PlanReadError::Malformed)?;
+            Ok(DeferredStep {
+                rule_id,
+                rule_name,
+                step,
+                action,
+                snapshot,
+            })
+        })
+        .collect()
+}
+
+pub fn plan_resume_step(plan: &Value) -> usize {
+    plan.get("resume")
+        .and_then(|resume| resume.get("step"))
+        .and_then(Value::as_u64)
+        .and_then(|step| usize::try_from(step).ok())
+        .unwrap_or(0)
+}
+
+pub fn plan_payload(plan: &Value) -> Option<String> {
+    plan.get("payload")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
 }

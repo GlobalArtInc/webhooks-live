@@ -33,6 +33,7 @@ whl-schedule.workspace = true
 whl-script.workspace = true
 whl-notify.workspace = true
 whl-mail.workspace = true
+whl-rules-worker.workspace = true
 whl-secrets.workspace = true
 whl-store.workspace = true
 whl-telemetry.workspace = true

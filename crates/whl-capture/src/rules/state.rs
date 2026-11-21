@@ -5,7 +5,7 @@ use whl_rules::{StateBackend, StateError, StoreCall, StoreValue};
 use whl_store::Store;
 use whl_store::vars::{IncrementOutcome, PutVarOutcome};
 
-pub(crate) struct StoreState<'a> {
+pub struct StoreState<'a> {
     pub store: &'a Store,
     pub endpoint: &'a EndpointId,
     pub retention: Duration,

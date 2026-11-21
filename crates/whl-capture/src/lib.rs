@@ -24,7 +24,8 @@ pub use response::{ReplyRequest, build_response};
 pub use rules::{
     DEFAULT_DRY_RUN_CONCURRENCY, DEFAULT_PER_ENDPOINT, DEFAULT_SYNC_BUDGET,
     DEFAULT_SYNC_CONCURRENCY, DEFAULT_VARIABLES_DEADLINE, DryRunError, DryRunInput, DryRunRules,
-    MAX_SYNC_BUDGET, RULE_BODY_BYTES, RuleFacts, RulesError, RulesRuntime, RulesSettings,
+    FactsError, MAX_SYNC_BUDGET, RULE_BODY_BYTES, RuleFacts, RulesError, RulesRuntime,
+    RulesSettings, StoreState, load_rule_variables,
 };
 pub use seams::{Admission, StorageFull};
 pub use state::{

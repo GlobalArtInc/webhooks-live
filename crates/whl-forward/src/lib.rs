@@ -30,7 +30,7 @@ pub use ranges::{
     Embedding, GLOBAL_UNICAST_IPV6, OUTSIDE_GLOBAL_UNICAST_NAME, REFUSED_IPV4_RANGES,
     REFUSED_IPV6_RANGES, RefusedIpv4Range, RefusedIpv6Range, Treatment, is_refused, refusing_range,
 };
-pub use request::{CAPTURE_ID_HEADER, RequestError, build_request};
+pub use request::{CAPTURE_ID_HEADER, HOP_HEADER, RequestError, build_request};
 pub use resolver::MAX_VETTED_ADDRESSES;
 pub use retry::{
     DEFAULT_BACKOFF_MULTIPLIER, DEFAULT_INITIAL_BACKOFF, DEFAULT_JITTER_PERCENT,

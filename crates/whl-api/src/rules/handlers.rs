@@ -330,7 +330,7 @@ fn target_violation(field: &str, error: &TargetCheckError) -> FieldViolation {
     }
 }
 
-async fn live_endpoint(state: &ApiState, endpoint: &EndpointId) -> Result<(), ApiError> {
+pub(super) async fn live_endpoint(state: &ApiState, endpoint: &EndpointId) -> Result<(), ApiError> {
     state
         .store
         .get_endpoint(endpoint, state.settings.retention)

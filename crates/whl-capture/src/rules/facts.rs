@@ -1,5 +1,9 @@
 use bytes::Bytes;
+use serde_json::Value;
+use thiserror::Error;
 use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
+use whl_store::CaptureDetail;
 use whl_store::captures::{Endpoint, NameValue as StoredPair, NewCapture, StoredCapture};
 use whl_template::{
     BodyData, CaptureData, Context, EndpointData, JSON_BODY_DEFAULT_BYTES, NameValue,
@@ -9,6 +13,10 @@ use whl_verify::Verification;
 
 const KIND_HTTP: &str = "http";
 pub const RULE_BODY_BYTES: usize = JSON_BODY_DEFAULT_BYTES + 1;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[error("the stored capture time cannot be read")]
+pub struct FactsError;
 
 #[derive(Debug, Clone)]
 pub struct RuleFacts {
@@ -38,6 +46,13 @@ fn pairs(source: &[StoredPair]) -> Vec<NameValue> {
         .collect()
 }
 
+fn detail_pairs(source: &[whl_store::NameValue]) -> Vec<NameValue> {
+    source
+        .iter()
+        .map(|pair| NameValue::new(pair.name.as_str(), pair.value.as_str()))
+        .collect()
+}
+
 fn signature_of(verification: Option<Verification>) -> SignatureState {
     match verification {
         Some(Verification::Valid) => SignatureState::Valid,
@@ -46,7 +61,65 @@ fn signature_of(verification: Option<Verification>) -> SignatureState {
     }
 }
 
+fn meta_pairs(meta: &Value) -> Vec<NameValue> {
+    let Value::Object(map) = meta else {
+        return Vec::new();
+    };
+    map.iter()
+        .filter_map(|(name, value)| match value {
+            Value::String(text) => Some(NameValue::new(name.as_str(), text.as_str())),
+            Value::Number(number) => Some(NameValue::new(name.as_str(), number.to_string())),
+            Value::Bool(flag) => Some(NameValue::new(name.as_str(), flag.to_string())),
+            _ => None,
+        })
+        .collect()
+}
+
 impl RuleFacts {
+    pub fn from_detail(
+        detail: &CaptureDetail,
+        public_url: &str,
+        title: Option<&str>,
+    ) -> Result<Self, FactsError> {
+        let summary = &detail.summary;
+        let received_at =
+            OffsetDateTime::parse(&summary.received_at, &Rfc3339).map_err(|_| FactsError)?;
+        Ok(Self {
+            endpoint_id: summary.endpoint_id.clone(),
+            endpoint_url: format!("{public_url}/{}", summary.endpoint_id),
+            endpoint_title: title.unwrap_or_default().to_owned(),
+            capture_id: summary.id.clone(),
+            capture_seq: summary.seq,
+            received_at,
+            kind: summary.kind.as_str().to_owned(),
+            method: summary.method.clone(),
+            path: summary.path.clone(),
+            query: detail_pairs(&detail.query),
+            headers: detail_pairs(&detail.headers),
+            form: detail
+                .form
+                .as_ref()
+                .map(|form| {
+                    form.fields
+                        .iter()
+                        .map(|field| NameValue::new(field.name.as_str(), field.value.as_str()))
+                        .collect()
+                })
+                .unwrap_or_default(),
+            meta: meta_pairs(&detail.meta),
+            body: Bytes::copy_from_slice(
+                detail
+                    .body
+                    .prefix
+                    .get(..RULE_BODY_BYTES)
+                    .unwrap_or(&detail.body.prefix),
+            ),
+            ip: summary.client_ip.clone(),
+            content_type: summary.content_type.clone().unwrap_or_default(),
+            signature: signature_of(summary.verification),
+        })
+    }
+
     pub(crate) fn from_capture(
         request: &NewCapture,
         capture: &StoredCapture,

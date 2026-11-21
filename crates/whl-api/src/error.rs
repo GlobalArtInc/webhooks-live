@@ -145,6 +145,10 @@ pub enum ApiError {
     RuleNotFound,
     #[error("the endpoint already has the maximum number of rules")]
     RuleLimit,
+    #[error("a re-run of this capture is already queued or running")]
+    RerunActive,
+    #[error("this capture already has the maximum number of re-runs")]
+    RerunLimit,
     #[error("forwarding is disabled on this instance")]
     ForwardingDisabled,
     #[error("the cursor is malformed or does not match the order and filters")]
@@ -473,6 +477,10 @@ impl IntoResponse for ApiError {
                 usize::try_from(*max).unwrap_or(usize::MAX),
             )),
             Self::RuleLimit => Some(LimitDetail::count("rules", MAX_RULES_PER_ENDPOINT)),
+            Self::RerunLimit => Some(LimitDetail::count(
+                "rule_reruns",
+                usize::try_from(whl_store::rule_exec::RERUNS_PER_CAPTURE).unwrap_or(usize::MAX),
+            )),
             Self::VarLimit => Some(LimitDetail::count("vars", MAX_VARS_PER_ENDPOINT)),
             Self::ComposerQuota { name, max, .. } => Some(LimitDetail::count(name, *max)),
             Self::ScheduleLimit(max) => Some(LimitDetail::count("schedules", *max)),
@@ -564,12 +572,13 @@ impl IntoResponse for ApiError {
                 self.to_string(),
                 None,
             ),
-            Self::RuleLimit => (
+            Self::RuleLimit | Self::RerunLimit => (
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "limit_reached",
                 self.to_string(),
                 None,
             ),
+            Self::RerunActive => (StatusCode::CONFLICT, "rerun_active", self.to_string(), None),
             Self::RuleStorage(error) => {
                 tracing::error!(%error, "rule storage failed");
                 (

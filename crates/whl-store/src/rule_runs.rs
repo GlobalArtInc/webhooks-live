@@ -7,9 +7,11 @@ use whl_core::capture_id::CaptureId;
 use whl_core::endpoint_id::EndpointId;
 
 use crate::Store;
-use crate::captures::{CaptureStoreError, EVENT_CHANNEL, NOTIFY, SESSION_LIMITS};
+use crate::captures::{CaptureStoreError, EVENT_CHANNEL, NOTIFY, NameValue, SESSION_LIMITS};
 
 pub const WAKE_CHANNEL: &str = "whl_rules_wake";
+pub const HOP_HEADER: &str = "x-webhooks-live-hop";
+pub const MAX_HOPS: u32 = 3;
 pub const SYNC_LEASE_SECONDS: f64 = 30.0;
 pub const PLAN_LOAD_DEADLINE: Duration = Duration::from_millis(100);
 pub const SYNC_WRITE_DEADLINE: Duration = Duration::from_secs(1);
@@ -150,6 +152,30 @@ pub struct SyncResult {
 pub enum FinishOutcome {
     Written,
     LeaseLost,
+}
+
+fn hop_from<'a>(pairs: impl Iterator<Item = (&'a str, &'a str)>) -> u32 {
+    pairs
+        .filter(|(name, _)| name.eq_ignore_ascii_case(HOP_HEADER))
+        .map(|(_, value)| value.trim().parse::<u32>().unwrap_or(MAX_HOPS))
+        .max()
+        .unwrap_or(0)
+}
+
+pub fn incoming_hop(headers: &[NameValue]) -> u32 {
+    hop_from(
+        headers
+            .iter()
+            .map(|header| (header.name.as_str(), header.value.as_str())),
+    )
+}
+
+pub fn detail_hop(headers: &[crate::capture_queries::NameValue]) -> u32 {
+    hop_from(
+        headers
+            .iter()
+            .map(|header| (header.name.as_str(), header.value.as_str())),
+    )
 }
 
 pub(crate) async fn insert_capture_run(

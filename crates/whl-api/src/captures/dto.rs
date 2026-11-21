@@ -1,12 +1,14 @@
 use serde::Serialize;
 use whl_store::forward::ForwardJob;
 use whl_store::notify::Delivery;
+use whl_store::rule_exec::RunRecord;
 use whl_store::stream::CaptureSummary;
 use whl_store::{CaptureDetail, CaptureForm, NameValue};
 
 use crate::dto::BodyDto;
 use crate::forward::JobDto;
 use crate::notify::DeliveryDto;
+use crate::rules::RuleRunDto;
 
 #[derive(Serialize)]
 pub struct SummaryDto {
@@ -75,11 +77,17 @@ pub struct CaptureDto {
     body: BodyDto,
     forwards: Vec<JobDto>,
     notifications: Vec<DeliveryDto>,
+    rule_runs: Vec<RuleRunDto>,
     meta: serde_json::Value,
 }
 
 impl CaptureDto {
-    pub fn new(detail: CaptureDetail, forwards: &[ForwardJob], notifications: &[Delivery]) -> Self {
+    pub fn new(
+        detail: CaptureDetail,
+        forwards: &[ForwardJob],
+        notifications: &[Delivery],
+        rule_runs: &[RunRecord],
+    ) -> Self {
         Self {
             summary: SummaryDto::from(&detail.summary),
             url: detail.url,
@@ -91,6 +99,7 @@ impl CaptureDto {
             body: BodyDto::from_prefix(&detail.body.prefix, detail.body.truncated),
             forwards: forwards.iter().map(JobDto::from).collect(),
             notifications: notifications.iter().map(DeliveryDto::from).collect(),
+            rule_runs: rule_runs.iter().map(RuleRunDto::from).collect(),
             meta: detail.meta,
         }
     }

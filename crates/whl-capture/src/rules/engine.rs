@@ -672,38 +672,7 @@ impl RulesRuntime {
         acquire: Duration,
         deadline: Duration,
     ) -> Result<(), Failure> {
-        let names = compiled.variable_names();
-        if names.is_empty() {
-            return Ok(());
-        }
-        if acquire.is_zero() || deadline.is_zero() {
-            return Err(Failure::new(
-                FailureCode::Budget,
-                "no time is left to load the variables",
-            ));
-        }
-        let vars = store
-            .load_rule_vars(endpoint, &names, acquire, deadline)
-            .await
-            .map_err(|error| {
-                tracing::warn!(%error, endpoint_id = endpoint.unpack(), "the rule variables could not be loaded");
-                if matches!(error, VarStoreError::Deadline(_)) {
-                    Failure::new(FailureCode::Budget, "the variables did not load in time")
-                } else {
-                    Failure::new(FailureCode::Internal, "the variables could not be loaded")
-                }
-            })?;
-        for name in compiled.counter_names() {
-            if let Some(value) = vars.counter(name) {
-                context.counters.insert(name.clone(), value);
-            }
-        }
-        for name in compiled.store_names() {
-            if let Some(value) = vars.values().get(name) {
-                context.store.insert(name.clone(), value.clone());
-            }
-        }
-        Ok(())
+        load_rule_variables(store, endpoint, compiled, context, acquire, deadline).await
     }
 
     pub async fn dry_run(&self, store: &Store, input: DryRunInput) -> Result<RunView, DryRunError> {
@@ -778,4 +747,46 @@ impl RulesRuntime {
             finished_at: Some(timestamp(now)),
         })
     }
+}
+
+pub async fn load_rule_variables(
+    store: &Store,
+    endpoint: &EndpointId,
+    compiled: &CompiledRules,
+    context: &mut Context,
+    acquire: Duration,
+    deadline: Duration,
+) -> Result<(), Failure> {
+    let names = compiled.variable_names();
+    if names.is_empty() {
+        return Ok(());
+    }
+    if acquire.is_zero() || deadline.is_zero() {
+        return Err(Failure::new(
+            FailureCode::Budget,
+            "no time is left to load the variables",
+        ));
+    }
+    let vars = store
+        .load_rule_vars(endpoint, &names, acquire, deadline)
+        .await
+        .map_err(|error| {
+            tracing::warn!(%error, endpoint_id = endpoint.unpack(), "the rule variables could not be loaded");
+            if matches!(error, VarStoreError::Deadline(_)) {
+                Failure::new(FailureCode::Budget, "the variables did not load in time")
+            } else {
+                Failure::new(FailureCode::Internal, "the variables could not be loaded")
+            }
+        })?;
+    for name in compiled.counter_names() {
+        if let Some(value) = vars.counter(name) {
+            context.counters.insert(name.clone(), value);
+        }
+    }
+    for name in compiled.store_names() {
+        if let Some(value) = vars.values().get(name) {
+            context.store.insert(name.clone(), value.clone());
+        }
+    }
+    Ok(())
 }

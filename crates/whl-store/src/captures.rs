@@ -11,10 +11,11 @@ use whl_core::capture_id::CaptureId;
 use whl_core::endpoint_id::EndpointId;
 use whl_core::status::HttpStatus;
 use whl_secrets::{KeyId, SealedSecret};
+use whl_telemetry::series::RULE_RUNS_TOTAL;
 use whl_verify::{Verification, Verifier, VerifierDocument};
 
 use crate::kind::CaptureKind;
-use crate::rule_runs::{RuleRunSeed, RunStart, insert_capture_run};
+use crate::rule_runs::{MAX_HOPS, RuleRunSeed, RunStart, incoming_hop, insert_capture_run};
 use crate::store::Store;
 
 pub const ACQUIRE_TIMEOUT: Duration = Duration::from_secs(1);
@@ -810,8 +811,20 @@ async fn execute_capture(
             .map_err(CaptureStoreError::classify)
     );
 
+    let hop = incoming_hop(&capture.headers);
+    let hop_blocked = hop >= MAX_HOPS;
+    if hop_blocked && shape.kind == CaptureKind::Http {
+        tracing::info!(
+            capture_id = %id,
+            hop,
+            "rules and forwards are skipped because the capture arrived at the hop limit"
+        );
+        metrics::counter!(RULE_RUNS_TOTAL, "phase" => "capture", "outcome" => "hop_limit")
+            .increment(1);
+    }
     let runs_rules = rules_enabled
         && rule_count > 0
+        && !hop_blocked
         && matches!(
             shape.kind,
             CaptureKind::Http | CaptureKind::Email | CaptureKind::Dns
@@ -833,12 +846,19 @@ async fn execute_capture(
     };
 
     if shape.kind == CaptureKind::Http {
-        attempt!(
-            tx,
-            crate::forward::insert_rule_jobs(&mut tx, &capture.endpoint_id, id, &capture.method)
+        if !hop_blocked {
+            attempt!(
+                tx,
+                crate::forward::insert_rule_jobs(
+                    &mut tx,
+                    &capture.endpoint_id,
+                    id,
+                    &capture.method
+                )
                 .await
                 .map_err(CaptureStoreError::classify)
-        );
+            );
+        }
         attempt!(
             tx,
             crate::notify::insert_capture_deliveries(

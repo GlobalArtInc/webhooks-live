@@ -491,6 +491,7 @@ async fn a_slow_render_hits_the_run_budget_and_a_spent_budget_cannot_be_forgiven
     let finished = match running.advance() {
         Advance::Finished(finished) => finished,
         Advance::Effect(_) => panic!("no effect is expected"),
+        Advance::Checkpoint => panic!("no checkpoint is expected"),
     };
 
     assert_eq!(failure_of(&finished), FailureCode::Budget);

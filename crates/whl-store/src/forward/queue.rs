@@ -43,7 +43,7 @@ const CLAIM: &str = "WITH due AS ( \
        attempts = j.attempts + 1 \
      FROM due WHERE j.id = due.id \
      RETURNING j.id, j.capture_id, j.rule_id, j.kind, j.target_url, j.method, j.content_type, \
-       j.header_allowlist, j.append_path, j.attempts";
+       j.header_allowlist, j.append_path, j.attempts, j.payload";
 
 const LOAD_CAPTURE: &str = "SELECT c.endpoint_id, c.path, \
        CASE WHEN strpos(c.url, '?') > 0 THEN substr(c.url, strpos(c.url, '?') + 1) ELSE '' END \
@@ -107,6 +107,7 @@ pub struct ClaimedJob {
     pub header_allowlist: Vec<String>,
     pub append_path: bool,
     pub attempt: i16,
+    pub payload: Option<Bytes>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -319,6 +320,10 @@ fn claimed_from_row(row: &PgRow) -> Result<ClaimedJob, ForwardStoreError> {
         header_allowlist: row.try_get("header_allowlist").map_err(classify)?,
         append_path: row.try_get("append_path").map_err(classify)?,
         attempt: row.try_get("attempts").map_err(classify)?,
+        payload: row
+            .try_get::<Option<Vec<u8>>, _>("payload")
+            .map_err(classify)?
+            .map(Bytes::from),
     })
 }
 

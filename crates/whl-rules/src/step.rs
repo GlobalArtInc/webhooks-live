@@ -216,7 +216,7 @@ fn action(
                 map,
                 path,
                 "message",
-                Slot::outbound(RenderTarget::Body),
+                Slot::local(RenderTarget::Body),
                 steps,
             );
             Action::Notify {

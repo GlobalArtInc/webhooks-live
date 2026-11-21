@@ -20,6 +20,7 @@ whl-forward = { path = "crates/whl-forward" }
 whl-live = { path = "crates/whl-live" }
 whl-notify = { path = "crates/whl-notify" }
 whl-rules = { path = "crates/whl-rules" }
+whl-rules-worker = { path = "crates/whl-rules-worker" }
 whl-script = { path = "crates/whl-script" }
 whl-schedule = { path = "crates/whl-schedule" }
 whl-mail = { path = "crates/whl-mail" }

@@ -123,6 +123,7 @@ impl Bound {
         let readiness = Arc::new(Readiness::default());
         let worker = self.forward.worker(&store)?;
         let notify_worker = self.notify.worker(&store)?;
+        let rules_worker = self.rules.worker(&store, self.secrets.clone())?;
         let auth = match self.auth.clone() {
             Some(settings) => {
                 Some(AuthState::new(store.clone(), settings)?.with_proxies(self.proxies.clone()))
@@ -280,6 +281,7 @@ impl Bound {
                 dns,
                 schedules: schedule_runner,
                 notify: notify_worker,
+                rules: rules_worker,
             },
             &background_stop,
         );

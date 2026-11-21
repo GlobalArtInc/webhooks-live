@@ -3,8 +3,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use whl_script::{
-    BEFORE_RESPONSE_TIME, RunLimits, ScriptError, ScriptJob, ScriptOutput, ScriptPhase, ScriptPool,
-    SeededRandom, SystemClock, TenantKey,
+    AFTER_RESPONSE_TIME, BEFORE_RESPONSE_TIME, RunLimits, ScriptError, ScriptJob, ScriptOutput,
+    ScriptPhase, ScriptPool, SeededRandom, SystemClock, TenantKey,
 };
 use whl_telemetry::series::{SCRIPT_DURATION_SECONDS, SCRIPT_RUNS_TOTAL};
 
@@ -84,6 +84,7 @@ async fn run<S: StateBackend, G: Send + 'static>(
         guard = kept;
         match advance {
             Advance::Finished(finished) => return *finished,
+            Advance::Checkpoint => {}
             Advance::Effect(effect) => {
                 let answer = perform(effect, env).await;
                 machine.resume(answer);
@@ -92,7 +93,7 @@ async fn run<S: StateBackend, G: Send + 'static>(
     }
 }
 
-async fn perform<S: StateBackend>(effect: Effect, env: &DriveEnv<'_, S>) -> Answer {
+pub async fn perform<S: StateBackend>(effect: Effect, env: &DriveEnv<'_, S>) -> Answer {
     match effect {
         Effect::Store(call) => {
             let outcome = tokio::time::timeout(env.state_timeout, env.state.write(call)).await;
@@ -102,6 +103,10 @@ async fn perform<S: StateBackend>(effect: Effect, env: &DriveEnv<'_, S>) -> Answ
             let result = run_script(env.pool, env.script_memory_bytes, *call).await;
             Answer::Script(Box::new(result))
         }
+        Effect::Outbound(_) => Answer::Outbound(Box::new(Err(Failure::new(
+            FailureCode::Internal,
+            "an outbound step cannot run in this context",
+        )))),
     }
 }
 
@@ -113,12 +118,13 @@ async fn run_script(
     let Some(pool) = pool else {
         return Err(ScriptError::ShutDown);
     };
+    let ceiling = match call.phase {
+        ScriptPhase::BeforeResponse => BEFORE_RESPONSE_TIME,
+        ScriptPhase::AfterResponse => AFTER_RESPONSE_TIME,
+    };
     let limits = RunLimits {
         memory_bytes,
-        ..RunLimits::for_phase(
-            ScriptPhase::BeforeResponse,
-            call.remaining.min(BEFORE_RESPONSE_TIME),
-        )
+        ..RunLimits::for_phase(call.phase, call.remaining.min(ceiling))
     };
     let job = ScriptJob {
         tenant: TenantKey::new(&call.tenant),

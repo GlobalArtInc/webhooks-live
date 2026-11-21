@@ -23,6 +23,7 @@ pub const MIN_DB_POOL_SIZE: u32 = 2;
 pub const MIN_SCHEDULE_INTERVAL: Duration = Duration::from_secs(60);
 pub const MAX_RULES_SYNC_BUDGET: Duration = Duration::from_secs(10);
 pub const MAX_SCRIPT_THREADS: u32 = 64;
+pub const MAX_RULES_WORKERS: u32 = 256;
 pub const MIN_SCRIPT_MEMORY: ByteSize = ByteSize::mib(1);
 pub const MAX_SCRIPT_MEMORY: ByteSize = ByteSize::gib(1);
 
@@ -92,6 +93,7 @@ max_in_flight = 32
 enabled = true
 sync_budget = "3s"
 sync_concurrency = 256
+workers = 16
 
 [script]
 threads = 2
@@ -157,6 +159,7 @@ const ENV_KEYS: &[(&str, &str)] = &[
     ("RULES_ENABLED", "rules.enabled"),
     ("RULES_SYNC_BUDGET", "rules.sync_budget"),
     ("RULES_SYNC_CONCURRENCY", "rules.sync_concurrency"),
+    ("RULES_WORKERS", "rules.workers"),
     ("SCRIPT_THREADS", "script.threads"),
     ("SCRIPT_MEMORY", "script.memory"),
     ("SHUTDOWN_DRAIN", "shutdown.drain"),
@@ -331,6 +334,7 @@ pub struct RulesConfig {
     #[serde(deserialize_with = "de::duration")]
     pub sync_budget: Duration,
     pub sync_concurrency: u32,
+    pub workers: u32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -530,6 +534,7 @@ pub enum Problem {
     MailTlsIncomplete,
     RulesSyncBudgetOutOfRange,
     RulesSyncConcurrencyZero,
+    RulesWorkersOutOfRange,
     ScriptThreadsOutOfRange,
     ScriptMemoryOutOfRange,
 }
@@ -582,6 +587,10 @@ impl fmt::Display for Problem {
             Self::RulesSyncConcurrencyZero => {
                 write!(f, "{ENV_PREFIX}RULES_SYNC_CONCURRENCY must be at least 1")
             }
+            Self::RulesWorkersOutOfRange => write!(
+                f,
+                "{ENV_PREFIX}RULES_WORKERS must be between 1 and {MAX_RULES_WORKERS}"
+            ),
             Self::ScriptThreadsOutOfRange => write!(
                 f,
                 "{ENV_PREFIX}SCRIPT_THREADS must be between 1 and {MAX_SCRIPT_THREADS}"
@@ -688,6 +697,9 @@ fn rules_problems(rules: &RulesConfig, script: &ScriptConfig) -> Vec<Problem> {
     }
     if rules.sync_concurrency == 0 {
         problems.push(Problem::RulesSyncConcurrencyZero);
+    }
+    if rules.workers == 0 || rules.workers > MAX_RULES_WORKERS {
+        problems.push(Problem::RulesWorkersOutOfRange);
     }
     if script.threads == 0 || script.threads > MAX_SCRIPT_THREADS {
         problems.push(Problem::ScriptThreadsOutOfRange);

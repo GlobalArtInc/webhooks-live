@@ -136,6 +136,7 @@ fn assert_fails_on_budget_before_matching(rule: Value) {
     let finished = match running.advance() {
         Advance::Finished(finished) => finished,
         Advance::Effect(_) => panic!("no effect is expected"),
+        Advance::Checkpoint => panic!("no checkpoint is expected"),
     };
 
     assert!(started.elapsed() < Duration::from_millis(50));

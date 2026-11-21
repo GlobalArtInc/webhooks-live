@@ -96,6 +96,15 @@ pub(crate) enum TransformTarget {
 }
 
 #[derive(Debug)]
+pub(crate) struct HttpAction {
+    pub method: String,
+    pub url: Template,
+    pub headers: Vec<(String, Template)>,
+    pub body: Option<Template>,
+    pub timeout_ms: u32,
+}
+
+#[derive(Debug)]
 pub(crate) enum CompiledAction {
     Respond(Box<RespondAction>),
     SetHeader {
@@ -127,8 +136,10 @@ pub(crate) enum CompiledAction {
         by: i64,
     },
     Script(CompiledScript),
-    Fetch,
-    SideEffect,
+    Fetch(Box<HttpAction>),
+    SideEffect {
+        message: Option<Template>,
+    },
 }
 
 #[derive(Debug)]
@@ -188,6 +199,7 @@ pub struct CompiledRules {
     store: BTreeSet<String>,
     counters: BTreeSet<String>,
     weight: usize,
+    secrets: BTreeSet<String>,
 }
 
 const TEMPLATE_WEIGHT_PER_BYTE: usize = 16;
@@ -246,9 +258,17 @@ fn action_weight(action: &CompiledAction) -> usize {
         CompiledAction::RemoveHeader { .. }
         | CompiledAction::Delay { .. }
         | CompiledAction::Stop
-        | CompiledAction::Increment { .. }
-        | CompiledAction::Fetch
-        | CompiledAction::SideEffect => 0,
+        | CompiledAction::Increment { .. } => 0,
+        CompiledAction::Fetch(http) => {
+            template_weight(&http.url)
+                + http
+                    .headers
+                    .iter()
+                    .map(|(_, template)| template_weight(template))
+                    .sum::<usize>()
+                + http.body.as_ref().map_or(0, template_weight)
+        }
+        CompiledAction::SideEffect { message } => message.as_ref().map_or(0, template_weight),
     }
 }
 
@@ -268,19 +288,34 @@ struct Collector<'a> {
     names: &'a BTreeSet<String>,
     store: BTreeSet<String>,
     counters: BTreeSet<String>,
+    secrets: BTreeSet<String>,
 }
 
 impl Collector<'_> {
     fn parse(&mut self, source: &str, target: RenderTarget) -> Option<Template> {
+        self.parse_with(source, target, SecretPolicy::Forbidden)
+    }
+
+    fn parse_outbound(&mut self, source: &str, target: RenderTarget) -> Option<Template> {
+        self.parse_with(source, target, SecretPolicy::Allowed)
+    }
+
+    fn parse_with(
+        &mut self,
+        source: &str,
+        target: RenderTarget,
+        secrets: SecretPolicy,
+    ) -> Option<Template> {
         let policy = Policy {
             target,
-            secrets: SecretPolicy::Forbidden,
+            secrets,
             steps: StepPolicy::Only(self.names.clone()),
             limits: ParseLimits::default(),
         };
         let template = Template::parse(source, &policy).ok()?;
         self.store.extend(template.referenced_store());
         self.counters.extend(template.referenced_counters());
+        self.secrets.extend(template.referenced_secrets());
         Some(template)
     }
 }
@@ -303,6 +338,7 @@ impl CompiledRules {
             names: &names,
             store: BTreeSet::new(),
             counters: BTreeSet::new(),
+            secrets: BTreeSet::new(),
         };
         let mut rules = Vec::with_capacity(enabled.len());
         for (index, source) in enabled.into_iter().enumerate() {
@@ -321,6 +357,7 @@ impl CompiledRules {
             store: collector.store,
             counters: collector.counters,
             weight,
+            secrets: collector.secrets,
         })
     }
 
@@ -346,6 +383,10 @@ impl CompiledRules {
 
     pub fn counter_names(&self) -> &BTreeSet<String> {
         &self.counters
+    }
+
+    pub fn secret_names(&self) -> &BTreeSet<String> {
+        &self.secrets
     }
 
     pub fn variable_names(&self) -> Vec<String> {
@@ -460,6 +501,22 @@ fn template_of(
         })
 }
 
+fn outbound_template_of(
+    collector: &mut Collector<'_>,
+    rule: usize,
+    step: usize,
+    field: &'static str,
+    source: &str,
+    target: RenderTarget,
+) -> Result<Template, CompileError> {
+    collector
+        .parse_outbound(source, target)
+        .ok_or_else(|| CompileError::Template {
+            location: at(rule, Some(step)),
+            field,
+        })
+}
+
 fn compile_step(
     rule: usize,
     index: usize,
@@ -468,9 +525,6 @@ fn compile_step(
     collector: &mut Collector<'_>,
 ) -> Result<CompiledStep, CompileError> {
     let kind = StepKind::of(&step.action);
-    let mut template = |field: &'static str, source: &str, target: RenderTarget| {
-        template_of(collector, rule, index, field, source, target)
-    };
     let action = match &step.action {
         Action::Respond {
             status,
@@ -478,19 +532,42 @@ fn compile_step(
             headers,
             body,
         } => {
-            let status = template("status", status, RenderTarget::Status)?;
+            let status = template_of(
+                collector,
+                rule,
+                index,
+                "status",
+                status,
+                RenderTarget::Status,
+            )?;
             let content_type = content_type
                 .as_deref()
-                .map(|source| template("content_type", source, RenderTarget::HeaderValue))
+                .map(|source| {
+                    template_of(
+                        collector,
+                        rule,
+                        index,
+                        "content_type",
+                        source,
+                        RenderTarget::HeaderValue,
+                    )
+                })
                 .transpose()?;
             let mut compiled = Vec::with_capacity(headers.len());
             for header in headers {
                 compiled.push((
                     header.name.clone(),
-                    template("headers", &header.value, RenderTarget::HeaderValue)?,
+                    template_of(
+                        collector,
+                        rule,
+                        index,
+                        "headers",
+                        &header.value,
+                        RenderTarget::HeaderValue,
+                    )?,
                 ));
             }
-            let body = template("body", body, RenderTarget::Body)?;
+            let body = template_of(collector, rule, index, "body", body, RenderTarget::Body)?;
             CompiledAction::Respond(Box::new(RespondAction {
                 status,
                 content_type,
@@ -500,7 +577,14 @@ fn compile_step(
         }
         Action::SetHeader { name, value } => CompiledAction::SetHeader {
             name: name.clone(),
-            value: template("value", value, RenderTarget::HeaderValue)?,
+            value: template_of(
+                collector,
+                rule,
+                index,
+                "value",
+                value,
+                RenderTarget::HeaderValue,
+            )?,
         },
         Action::RemoveHeader { name } => CompiledAction::RemoveHeader { name: name.clone() },
         Action::Delay { ms } => CompiledAction::Delay { ms: *ms },
@@ -512,11 +596,21 @@ fn compile_step(
             group,
             into,
         } => {
-            let from = template("from", &format!("{{{{ {from} }}}}"), RenderTarget::Body)?;
+            let from = template_of(
+                collector,
+                rule,
+                index,
+                "from",
+                &format!("{{{{ {from} }}}}"),
+                RenderTarget::Body,
+            )?;
             let selector = match (json_path, regex) {
                 (Some(path), _) => {
                     let escaped = path.replace('\\', "\\\\").replace('"', "\\\"");
-                    Selector::JsonPath(template(
+                    Selector::JsonPath(template_of(
+                        collector,
+                        rule,
+                        index,
                         "json_path",
                         &format!("{{{{ json(\"{escaped}\") }}}}"),
                         RenderTarget::Body,
@@ -544,7 +638,7 @@ fn compile_step(
         }
         Action::SetVar { into, value } => CompiledAction::SetVariable {
             into: into.clone(),
-            value: template("value", value, RenderTarget::Body)?,
+            value: template_of(collector, rule, index, "value", value, RenderTarget::Body)?,
         },
         Action::Transform {
             into,
@@ -555,11 +649,18 @@ fn compile_step(
             } else {
                 TransformTarget::Variable(into.clone())
             },
-            template: template("template", source, RenderTarget::Body)?,
+            template: template_of(
+                collector,
+                rule,
+                index,
+                "template",
+                source,
+                RenderTarget::Body,
+            )?,
         },
         Action::SetStore { name, value } => CompiledAction::SetStore {
             name: name.clone(),
-            value: template("value", value, RenderTarget::Body)?,
+            value: template_of(collector, rule, index, "value", value, RenderTarget::Body)?,
         },
         Action::Increment { counter, by } => CompiledAction::Increment {
             counter: counter.clone(),
@@ -570,9 +671,67 @@ fn compile_step(
                 location: at(rule, Some(index)),
             })?)
         }
-        Action::Http { .. } => CompiledAction::Fetch,
-        Action::Forward { .. } | Action::Notify { .. } | Action::StoreS3 { .. } => {
-            CompiledAction::SideEffect
+        Action::Http {
+            method,
+            url,
+            headers,
+            body,
+            timeout_ms,
+            follow_redirects: _,
+        } => {
+            let url = outbound_template_of(collector, rule, index, "url", url, RenderTarget::Body)?;
+            let mut compiled = Vec::with_capacity(headers.len());
+            for header in headers {
+                compiled.push((
+                    header.name.clone(),
+                    outbound_template_of(
+                        collector,
+                        rule,
+                        index,
+                        "headers",
+                        &header.value,
+                        RenderTarget::HeaderValue,
+                    )?,
+                ));
+            }
+            let body = body
+                .as_deref()
+                .map(|source| {
+                    outbound_template_of(collector, rule, index, "body", source, RenderTarget::Body)
+                })
+                .transpose()?;
+            CompiledAction::Fetch(Box::new(HttpAction {
+                method: method.clone(),
+                url,
+                headers: compiled,
+                body,
+                timeout_ms: *timeout_ms,
+            }))
+        }
+        Action::Forward { .. } => CompiledAction::SideEffect { message: None },
+        Action::Notify { message, .. } => CompiledAction::SideEffect {
+            message: message
+                .as_deref()
+                .map(|source| {
+                    template_of(
+                        collector,
+                        rule,
+                        index,
+                        "message",
+                        source,
+                        RenderTarget::Body,
+                    )
+                })
+                .transpose()?,
+        },
+        Action::StoreS3 {
+            access_key_secret,
+            secret_key_secret,
+            ..
+        } => {
+            collector.secrets.insert(access_key_secret.clone());
+            collector.secrets.insert(secret_key_secret.clone());
+            CompiledAction::SideEffect { message: None }
         }
     };
     Ok(CompiledStep {

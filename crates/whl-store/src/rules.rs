@@ -29,7 +29,7 @@ impl RuleStoreError {
     }
 }
 
-fn classify(error: sqlx::Error) -> RuleStoreError {
+pub(crate) fn classify(error: sqlx::Error) -> RuleStoreError {
     if matches!(
         error,
         sqlx::Error::PoolTimedOut

@@ -18,6 +18,7 @@ pub mod maintenance;
 mod members;
 pub mod merge;
 pub mod notify;
+pub mod rule_exec;
 pub mod rule_runs;
 pub mod rules;
 pub mod schedules;
