@@ -35,7 +35,6 @@ async fn templated_with(harness: &Harness, body: &str) -> EndpointId {
 
 const SSL_REQUEST_CODE: u32 = 80_877_103;
 const BIND: u8 = b'B';
-const SIMPLE_QUERY: u8 = b'Q';
 
 async fn relay(
     mut client: TcpStream,
@@ -77,7 +76,7 @@ async fn relay(
             if pending.len() < total {
                 break;
             }
-            if pending[0] == BIND || pending[0] == SIMPLE_QUERY {
+            if pending[0] == BIND {
                 statements.fetch_add(1, Ordering::SeqCst);
             }
             if let Err(error) = server_write.write_all(&pending[..total]).await {
@@ -138,6 +137,11 @@ async fn statements_for(harness: &Harness, statements: &AtomicUsize, id: &Endpoi
     statements.load(Ordering::SeqCst) - before
 }
 
+async fn settled(harness: &Harness, statements: &AtomicUsize, id: &EndpointId) -> usize {
+    statements_for(harness, statements, id).await;
+    statements_for(harness, statements, id).await
+}
+
 #[tokio::test]
 async fn templates_that_reference_no_variables_cost_no_extra_queries() {
     let (harness, statements) = counted_harness().await;
@@ -156,16 +160,20 @@ async fn templates_that_reference_no_variables_cost_no_extra_queries() {
         "{{ counter.a }}{{ counter.b }}{{ store.c }}{{ store.d.e }}",
     )
     .await;
-    for id in [&plain, &no_refs, &one_counter, &several] {
-        harness.get(&format!("/{id}")).await;
+    for _ in 0..3 {
+        for id in [&plain, &no_refs, &one_counter, &several] {
+            harness.get(&format!("/{id}")).await;
+        }
     }
 
-    let baseline = statements_for(&harness, &statements, &plain).await;
-    let templated = statements_for(&harness, &statements, &no_refs).await;
-    let with_counter = statements_for(&harness, &statements, &one_counter).await;
-    let with_everything = statements_for(&harness, &statements, &several).await;
+    let baseline = settled(&harness, &statements, &plain).await;
+    let templated = settled(&harness, &statements, &no_refs).await;
+    let with_counter = settled(&harness, &statements, &one_counter).await;
+    let with_everything = settled(&harness, &statements, &several).await;
+    let baseline_again = settled(&harness, &statements, &plain).await;
 
     assert!(baseline > 0);
+    assert_eq!(baseline_again, baseline);
     assert_eq!(templated, baseline);
     assert_eq!(with_counter, baseline + 1);
     assert_eq!(with_everything, baseline + 1);
