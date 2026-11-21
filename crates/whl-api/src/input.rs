@@ -30,7 +30,16 @@ const VERIFIER_KEYS: &[&str] = &[
     "prefix",
     "timestamp_header",
 ];
-const RESPONSE_KEYS: &[&str] = &["status", "content_type", "headers", "body", "delay_ms"];
+const RESPONSE_KEYS: &[&str] = &[
+    "status",
+    "content_type",
+    "headers",
+    "body",
+    "delay_ms",
+    "templated",
+    "status_template",
+];
+const STATUS_TEMPLATE_MAX_CHARS: usize = 1024;
 const HEADER_KEYS: &[&str] = &["name", "value"];
 const BODY_KEYS: &[&str] = &["encoding", "data", "truncated"];
 
@@ -73,6 +82,8 @@ pub struct ResponsePatch {
     pub headers: Option<Vec<HeaderInput>>,
     pub body: Option<Vec<u8>>,
     pub delay_ms: Option<i64>,
+    pub templated: Option<bool>,
+    pub status_template: Option<Option<String>>,
 }
 
 #[derive(Debug, Default)]
@@ -329,7 +340,46 @@ impl Walk {
         if let Some(value) = object.get("delay_ms") {
             patch.delay_ms = self.integer(value, "response.delay_ms");
         }
+        if let Some(value) = object.get("templated") {
+            patch.templated = self.boolean(value, "response.templated");
+        }
+        if let Some(value) = object.get("status_template") {
+            patch.status_template = self.status_template(value);
+        }
         patch
+    }
+
+    fn status_template(&mut self, value: &Value) -> Option<Option<String>> {
+        match value {
+            Value::Null => Some(None),
+            Value::String(text) if text.contains('\0') => {
+                self.push(
+                    "response.status_template",
+                    FieldCode::InvalidFormat,
+                    "must not contain NUL characters",
+                );
+                None
+            }
+            Value::String(text) if text.chars().count() <= STATUS_TEMPLATE_MAX_CHARS => {
+                Some(Some(text.clone()))
+            }
+            Value::String(_) => {
+                self.push(
+                    "response.status_template",
+                    FieldCode::TooLong,
+                    format!("must be at most {STATUS_TEMPLATE_MAX_CHARS} characters"),
+                );
+                None
+            }
+            _ => {
+                self.push(
+                    "response.status_template",
+                    FieldCode::InvalidFormat,
+                    "must be a string or null",
+                );
+                None
+            }
+        }
     }
 
     fn headers(&mut self, value: &Value) -> Option<Vec<HeaderInput>> {

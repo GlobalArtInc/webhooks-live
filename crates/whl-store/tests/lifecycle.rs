@@ -22,6 +22,7 @@ fn settings(overflow: Overflow) -> EndpointSettings {
     EndpointSettings {
         title: None,
         response: ResponseConfig::default(),
+        templating: Default::default(),
         cors: false,
         overflow,
         tags: Vec::new(),

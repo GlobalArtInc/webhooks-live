@@ -12,7 +12,9 @@ use axum::http::{HeaderMap, Request};
 use sqlx::Row;
 use time::OffsetDateTime;
 use tower::ServiceExt;
-use whl_capture::{CaptureLimits, CaptureSettings, CaptureSource, CaptureState, router};
+use whl_capture::{
+    CaptureLimits, CaptureSettings, CaptureSource, CaptureState, TemplateSettings, router,
+};
 use whl_core::capture_id::CaptureId;
 use whl_core::endpoint_id::EndpointId;
 use whl_core::entropy::IdGenerationError;
@@ -77,6 +79,46 @@ impl Harness {
         self.state = self.state.with_source(source);
         self.router = router(self.state.clone());
         self
+    }
+
+    pub fn with_templates(mut self, settings: TemplateSettings) -> Self {
+        self.state = self.state.with_templates(settings);
+        self.router = router(self.state.clone());
+        self
+    }
+
+    pub async fn meta(&self, endpoint: &EndpointId, seq: i64) -> serde_json::Value {
+        let text: String = sqlx::query_scalar(
+            "SELECT meta::text FROM captures WHERE endpoint_id = $1 AND seq = $2",
+        )
+        .bind(endpoint.unpack())
+        .bind(seq)
+        .fetch_one(self.db.pool())
+        .await
+        .expect("capture meta reads");
+        serde_json::from_str(&text).expect("meta is JSON")
+    }
+
+    pub async fn wait_for_meta(&self, endpoint: &EndpointId, seq: i64) -> serde_json::Value {
+        for _ in 0..200 {
+            let meta = self.meta(endpoint, seq).await;
+            if meta != serde_json::json!({}) {
+                return meta;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        panic!("the capture meta stayed empty");
+    }
+
+    pub async fn stored_status(&self, endpoint: &EndpointId, seq: i64) -> i16 {
+        sqlx::query_scalar(
+            "SELECT response_status FROM captures WHERE endpoint_id = $1 AND seq = $2",
+        )
+        .bind(endpoint.unpack())
+        .bind(seq)
+        .fetch_one(self.db.pool())
+        .await
+        .expect("capture status reads")
     }
 
     pub fn with_limiters(mut self, limiters: Limiters) -> Self {

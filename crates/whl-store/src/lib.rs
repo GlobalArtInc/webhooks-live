@@ -20,6 +20,7 @@ pub mod secrets;
 pub mod stats;
 mod store;
 pub mod stream;
+pub mod vars;
 
 pub use api_tokens::{
     ApiTokenLookup, ApiTokenRecord, ApiTokenStoreError, CreateTokenOutcome, MAX_TOKEN_ENDPOINTS,
@@ -37,7 +38,7 @@ pub use capture_queries::{
 pub use claim::{ClaimOutcome, ClaimRefusal};
 pub use endpoints::{
     EndpointChange, EndpointError, EndpointRecord, EndpointSettings, NewEndpoint, Overflow,
-    StoredVerifier,
+    ResponseTemplating, StoredVerifier,
 };
 pub use error::StoreError;
 pub use export::{ExportSelection, ExportSnapshot};

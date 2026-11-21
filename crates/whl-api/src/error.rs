@@ -12,6 +12,7 @@ use whl_store::MAX_FOLDERS_PER_USER;
 use whl_store::forward::ForwardStoreError;
 use whl_store::rules::RuleStoreError;
 use whl_store::secrets::SecretStoreError;
+use whl_store::vars::{MAX_VARS_PER_ENDPOINT, VarStoreError};
 use whl_store::{ApiTokenStoreError, EndpointError, FolderError, LifecycleError, MembershipError};
 
 use crate::dto::timestamp;
@@ -30,6 +31,10 @@ pub enum FieldCode {
     TargetRefused,
     TargetUnresolvable,
     SecretUnknown,
+    TemplateInvalid,
+    JsonPathInvalid,
+    SecretNotAllowed,
+    StepUnknown,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -37,6 +42,10 @@ pub struct FieldViolation {
     field: String,
     code: FieldCode,
     message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    line: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    column: Option<u32>,
 }
 
 impl FieldViolation {
@@ -45,7 +54,15 @@ impl FieldViolation {
             field: field.into(),
             code,
             message: message.into(),
+            line: None,
+            column: None,
         }
+    }
+
+    pub fn at(mut self, line: u32, column: u32) -> Self {
+        self.line = Some(line);
+        self.column = Some(column);
+        self
     }
 
     #[cfg(test)]
@@ -172,6 +189,12 @@ pub enum ApiError {
     ExportTooLarge,
     #[error("secrets are not configured on this instance")]
     SecretsDisabled,
+    #[error("the variable is not found in this endpoint")]
+    VarNotFound,
+    #[error("the endpoint already has the maximum number of variables")]
+    VarLimit,
+    #[error("variable storage failed: {0}")]
+    VarStorage(VarStoreError),
     #[error("secret storage failed: {0}")]
     SecretStorage(SecretStoreError),
     #[error("a secret could not be sealed: {0}")]
@@ -217,6 +240,16 @@ impl From<FolderError> for ApiError {
         match error {
             FolderError::Unavailable(_) => Self::StoreUnavailable,
             other => Self::FolderStorage(other),
+        }
+    }
+}
+
+impl From<VarStoreError> for ApiError {
+    fn from(error: VarStoreError) -> Self {
+        if error.is_unavailable() {
+            Self::StoreUnavailable
+        } else {
+            Self::VarStorage(error)
         }
     }
 }
@@ -354,6 +387,7 @@ impl IntoResponse for ApiError {
                 usize::try_from(*max).unwrap_or(usize::MAX),
             )),
             Self::RuleLimit => Some(LimitDetail::count("rules", MAX_RULES_PER_ENDPOINT)),
+            Self::VarLimit => Some(LimitDetail::count("vars", MAX_VARS_PER_ENDPOINT)),
             _ => None,
         };
         let references = match &self {
@@ -622,7 +656,7 @@ impl IntoResponse for ApiError {
                 self.to_string(),
                 None,
             ),
-            Self::SecretLimit => (
+            Self::SecretLimit | Self::VarLimit => (
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "limit_reached",
                 self.to_string(),
@@ -641,6 +675,21 @@ impl IntoResponse for ApiError {
                 self.to_string(),
                 None,
             ),
+            Self::VarNotFound => (
+                StatusCode::NOT_FOUND,
+                "var_not_found",
+                self.to_string(),
+                None,
+            ),
+            Self::VarStorage(error) => {
+                tracing::error!(%error, "variable storage failed");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal_error",
+                    "the request could not be completed".to_owned(),
+                    None,
+                )
+            }
             Self::SecretsDisabled => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "feature_disabled",

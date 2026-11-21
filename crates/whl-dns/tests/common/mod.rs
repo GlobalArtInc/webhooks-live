@@ -62,6 +62,7 @@ pub async fn endpoint_in(store: &Store) -> EndpointId {
             &EndpointSettings {
                 title: None,
                 response: ResponseConfig::default(),
+                templating: Default::default(),
                 cors: false,
                 overflow: Overflow::Refuse,
                 tags: Vec::new(),

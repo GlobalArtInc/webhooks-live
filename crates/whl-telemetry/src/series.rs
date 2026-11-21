@@ -24,3 +24,6 @@ pub const TOKEN_AUTH_TOTAL: &str = "webhooks_live_token_auth_total";
 pub const AUTH_AVAILABLE: &str = "webhooks_live_auth_available";
 pub const MAINTENANCE_LEADER: &str = "webhooks_live_maintenance_leader";
 pub const VERIFICATIONS_TOTAL: &str = "webhooks_live_verifications_total";
+pub const TEMPLATE_RENDERS_TOTAL: &str = "webhooks_live_template_renders_total";
+pub const TEMPLATE_RENDER_DURATION_SECONDS: &str = "webhooks_live_template_render_duration_seconds";
+pub const TEMPLATE_FALLBACKS_TOTAL: &str = "webhooks_live_template_fallbacks_total";

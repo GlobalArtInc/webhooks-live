@@ -17,6 +17,7 @@ time = { workspace = true, features = ["formatting", "macros", "parsing"] }
 tokio.workspace = true
 tracing.workspace = true
 whl-auth.workspace = true
+whl-capture.workspace = true
 whl-core.workspace = true
 whl-export.workspace = true
 whl-forward.workspace = true

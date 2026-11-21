@@ -121,6 +121,8 @@ fn endpoint_role(method: &Method, tail: &str) -> EndpointRole {
         "/secrets/{name}" if matches!(*method, Method::PUT | Method::DELETE) => {
             EndpointRole::Editor
         }
+        "/vars" if read => EndpointRole::Viewer,
+        "/vars/{name}" if matches!(*method, Method::PUT | Method::DELETE) => EndpointRole::Editor,
         "/captures/{capture_id}/forward" | "/captures/{capture_id}/resend"
             if *method == Method::POST =>
         {
@@ -175,7 +177,12 @@ mod tests {
     #[test]
     fn every_documented_route_needs_the_role_of_the_api_table() {
         use EndpointRole::{Editor, Owner, Viewer};
-        let table: [(&Method, &str, Requirement); 38] = [
+        let table: [(&Method, &str, Requirement); 43] = [
+            (&GET, "/vars", Requirement::Role(Viewer)),
+            (&Method::HEAD, "/vars", Requirement::Role(Viewer)),
+            (&PUT, "/vars/{name}", Requirement::Role(Editor)),
+            (&DELETE, "/vars/{name}", Requirement::Role(Editor)),
+            (&GET, "/vars/{name}", Requirement::Role(Owner)),
             (&GET, "/secrets", Requirement::Role(Editor)),
             (&Method::HEAD, "/secrets", Requirement::Role(Editor)),
             (&PUT, "/secrets/{name}", Requirement::Role(Editor)),

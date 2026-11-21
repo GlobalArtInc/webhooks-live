@@ -13,6 +13,7 @@ http-body-util.workspace = true
 ipnet.workspace = true
 metrics.workspace = true
 multer.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 time.workspace = true
 tokio.workspace = true
@@ -23,6 +24,7 @@ whl-core.workspace = true
 whl-secrets.workspace = true
 whl-store.workspace = true
 whl-telemetry.workspace = true
+whl-template.workspace = true
 whl-verify.workspace = true
 
 [dev-dependencies]

@@ -1,7 +1,8 @@
+use whl_capture::{ResponseSources, TemplateViolation, ViolationKind, validate_response_templates};
 use whl_core::header::HeaderInput;
 use whl_core::response::{ResponseConfig, ResponseConfigInput};
 use whl_core::validation::ValidationError;
-use whl_store::{EndpointSettings, Overflow, StoredVerifier};
+use whl_store::{EndpointSettings, Overflow, ResponseTemplating, StoredVerifier};
 use whl_verify::{ConfigIssue, ConfigProblem, Verifier};
 
 use crate::error::{FieldCode, FieldViolation};
@@ -12,6 +13,7 @@ pub fn defaults() -> EndpointSettings {
     EndpointSettings {
         title: None,
         response: ResponseConfig::default(),
+        templating: ResponseTemplating::default(),
         cors: false,
         overflow: Overflow::Refuse,
         tags: Vec::new(),
@@ -47,16 +49,33 @@ pub fn resolve(
             }
         },
     };
+    let templating = ResponseTemplating {
+        enabled: patch.response.templated.unwrap_or(base.templating.enabled),
+        status: patch
+            .response
+            .status_template
+            .clone()
+            .unwrap_or_else(|| base.templating.status.clone()),
+    };
     match validate_response(&base.response, &patch.response) {
-        Ok(response) if violations.is_empty() => Ok(EndpointSettings {
-            title,
-            response,
-            cors,
-            overflow,
-            tags,
-            verifier,
-        }),
-        Ok(_) => Err(violations),
+        Ok(response) => {
+            if templating.enabled {
+                violations.extend(template_violations(&response, &templating));
+            }
+            if violations.is_empty() {
+                Ok(EndpointSettings {
+                    title,
+                    response,
+                    templating,
+                    cors,
+                    overflow,
+                    tags,
+                    verifier,
+                })
+            } else {
+                Err(violations)
+            }
+        }
         Err(error) => {
             violations.extend(error.violations().iter().map(FieldViolation::from_core));
             Err(violations)
@@ -104,4 +123,38 @@ fn validate_response(
             .delay_ms
             .unwrap_or_else(|| i64::try_from(base.delay().as_millis()).unwrap_or(i64::MAX)),
     })
+}
+
+fn template_violations(
+    response: &ResponseConfig,
+    templating: &ResponseTemplating,
+) -> Vec<FieldViolation> {
+    let sources = ResponseSources {
+        status: templating.status.as_deref(),
+        headers: response
+            .headers()
+            .iter()
+            .map(|header| (header.name.unpack(), header.value.unpack()))
+            .collect(),
+        body: response.body(),
+    };
+    match validate_response_templates(&sources) {
+        Ok(()) => Vec::new(),
+        Err(violations) => violations.iter().map(field_violation).collect(),
+    }
+}
+
+fn field_violation(violation: &TemplateViolation) -> FieldViolation {
+    let code = match violation.kind {
+        ViolationKind::TemplateInvalid => FieldCode::TemplateInvalid,
+        ViolationKind::JsonPathInvalid => FieldCode::JsonPathInvalid,
+        ViolationKind::SecretNotAllowed => FieldCode::SecretNotAllowed,
+        ViolationKind::StepUnknown => FieldCode::StepUnknown,
+        ViolationKind::NotUtf8 => FieldCode::InvalidFormat,
+    };
+    let built = FieldViolation::new(violation.field.as_str(), code, violation.message.as_str());
+    match violation.position {
+        Some(position) => built.at(position.line, position.column),
+        None => built,
+    }
 }

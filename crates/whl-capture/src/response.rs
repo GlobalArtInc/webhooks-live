@@ -10,15 +10,21 @@ use axum::http::header::{
 use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode};
 use axum::response::Response;
 use bytes::Bytes;
+use whl_core::content_type::ContentType;
 use whl_core::header::{HeaderInput, MAX_HEADER_NAME_BYTES, MAX_HEADERS, is_token};
 use whl_core::response::{ResponseConfig, ResponseConfigInput, compose_response};
 use whl_core::validation::ValidationError;
 use whl_store::captures::{Endpoint, StoredCapture};
 
+use crate::template::{FallbackCode, RenderedParts};
+
 const REQUEST_ID: HeaderName = HeaderName::from_static("x-request-id");
 const ENDPOINT_ID: HeaderName = HeaderName::from_static("x-endpoint-id");
 const SUBSTITUTED_STATUS: HeaderName =
     HeaderName::from_static("x-webhooks-live-substituted-status");
+const TEMPLATE_STATE: HeaderName = HeaderName::from_static("x-webhooks-live-template");
+const TEMPLATE_ERROR: HeaderName = HeaderName::from_static("x-webhooks-live-template-error");
+const TEMPLATE_STATE_ERROR: &str = "error";
 
 const RESERVED_PREFIX: &str = "x-webhooks-live-";
 const SANDBOX: &str = "sandbox";
@@ -49,6 +55,15 @@ enum ResponseError {
     HeaderName { name: String },
     #[error("the status {0} cannot be sent")]
     Status(u16),
+    #[error("the stored content type of endpoint {endpoint} is invalid")]
+    ContentType { endpoint: String },
+}
+
+#[derive(Debug)]
+pub(crate) enum Content {
+    Configured,
+    Rendered(RenderedParts),
+    Fallback(FallbackCode),
 }
 
 struct Preflight {
@@ -62,7 +77,27 @@ pub fn build_response(
     status_override: Option<whl_core::status::HttpStatus>,
     request: &ReplyRequest<'_>,
 ) -> Response {
-    match compose(endpoint, capture, status_override, request) {
+    build_content(
+        endpoint,
+        capture,
+        status_override,
+        request,
+        Content::Configured,
+    )
+}
+
+pub(crate) fn is_preflight(endpoint: &Endpoint, request: &ReplyRequest<'_>) -> bool {
+    endpoint.cors && preflight_of(request).is_some()
+}
+
+pub(crate) fn build_content(
+    endpoint: &Endpoint,
+    capture: &StoredCapture,
+    status_override: Option<whl_core::status::HttpStatus>,
+    request: &ReplyRequest<'_>,
+    content: Content,
+) -> Response {
+    match compose(endpoint, capture, status_override, request, content) {
         Ok(response) => response,
         Err(error) => {
             tracing::error!(%error, endpoint_id = endpoint.id.unpack(), "the configured response cannot be served");
@@ -76,7 +111,12 @@ fn compose(
     capture: &StoredCapture,
     status_override: Option<whl_core::status::HttpStatus>,
     request: &ReplyRequest<'_>,
+    content: Content,
 ) -> Result<Response, ResponseError> {
+    let fallback = match &content {
+        Content::Fallback(code) => Some(*code),
+        Content::Configured | Content::Rendered(_) => None,
+    };
     let preflight = if endpoint.cors {
         preflight_of(request)
     } else {
@@ -85,9 +125,12 @@ fn compose(
     let mut headers = HeaderMap::new();
     let (status, body) = match &preflight {
         Some(_) => (StatusCode::NO_CONTENT, Bytes::new()),
-        None => configured(endpoint, status_override, request, &mut headers)?,
+        None => configured(endpoint, status_override, request, &mut headers, content)?,
     };
     insert_mandatory(&mut headers, endpoint, capture)?;
+    if let Some(code) = fallback {
+        insert_fallback(&mut headers, code)?;
+    }
     if endpoint.cors {
         insert_cors(&mut headers);
     }
@@ -113,15 +156,79 @@ fn configured(
     status_override: Option<whl_core::status::HttpStatus>,
     request: &ReplyRequest<'_>,
     headers: &mut HeaderMap,
+    content: Content,
 ) -> Result<(StatusCode, Bytes), ResponseError> {
-    let config = rebuild_config(endpoint)?;
-    let composed = compose_response(&config, status_override);
-    let requested = composed.status.unpack();
+    match content {
+        Content::Configured => {
+            let config = rebuild_config(endpoint)?;
+            let composed = compose_response(&config, status_override);
+            finish(
+                headers,
+                composed.status.unpack(),
+                composed
+                    .headers
+                    .iter()
+                    .map(|header| (header.name.unpack(), header.value.unpack())),
+                composed.content_type.unpack(),
+                || Bytes::copy_from_slice(config.body()),
+                request.method,
+            )
+        }
+        Content::Rendered(parts) => {
+            let content_type = stored_content_type(endpoint)?;
+            let requested = status_override
+                .or(parts.status)
+                .unwrap_or(endpoint.status)
+                .unpack();
+            let RenderedParts {
+                headers: rendered,
+                body,
+                ..
+            } = parts;
+            finish(
+                headers,
+                requested,
+                rendered
+                    .iter()
+                    .map(|header| (header.name.as_str(), header.value.as_str())),
+                content_type.unpack(),
+                || Bytes::from(body),
+                request.method,
+            )
+        }
+        Content::Fallback(_) => {
+            let content_type = stored_content_type(endpoint)?;
+            let requested = status_override.unwrap_or(endpoint.status).unpack();
+            finish(
+                headers,
+                requested,
+                std::iter::empty(),
+                content_type.unpack(),
+                Bytes::new,
+                request.method,
+            )
+        }
+    }
+}
+
+fn stored_content_type(endpoint: &Endpoint) -> Result<ContentType, ResponseError> {
+    ContentType::parse(&endpoint.content_type).map_err(|_| ResponseError::ContentType {
+        endpoint: endpoint.id.unpack().to_owned(),
+    })
+}
+
+fn finish<'a>(
+    headers: &mut HeaderMap,
+    requested: u16,
+    configured: impl Iterator<Item = (&'a str, &'a str)>,
+    content_type: &str,
+    body: impl FnOnce() -> Bytes,
+    method: &Method,
+) -> Result<(StatusCode, Bytes), ResponseError> {
     let requested_code =
         StatusCode::from_u16(requested).map_err(|_| ResponseError::Status(requested))?;
 
-    for header in composed.headers {
-        let name = header.name.unpack();
+    for (name, value) in configured {
         if name.to_ascii_lowercase().starts_with(RESERVED_PREFIX) {
             continue;
         }
@@ -129,10 +236,8 @@ fn configured(
             HeaderName::from_bytes(name.as_bytes()).map_err(|_| ResponseError::HeaderName {
                 name: name.to_owned(),
             })?;
-        let value = HeaderValue::from_str(header.value.unpack()).map_err(|_| {
-            ResponseError::HeaderValue {
-                name: name.to_owned(),
-            }
+        let value = HeaderValue::from_str(value).map_err(|_| ResponseError::HeaderValue {
+            name: name.to_owned(),
         })?;
         headers.append(parsed_name, value);
     }
@@ -155,20 +260,32 @@ fn configured(
         return Ok((status, Bytes::new()));
     }
 
-    let payload = Bytes::copy_from_slice(config.body());
+    let payload = body();
     headers.insert(
         CONTENT_TYPE,
-        HeaderValue::from_str(composed.content_type.unpack()).map_err(|_| {
-            ResponseError::HeaderValue {
-                name: CONTENT_TYPE.as_str().to_owned(),
-            }
+        HeaderValue::from_str(content_type).map_err(|_| ResponseError::HeaderValue {
+            name: CONTENT_TYPE.as_str().to_owned(),
         })?,
     );
     headers.insert(CONTENT_LENGTH, HeaderValue::from(payload.len()));
-    if request.method == Method::HEAD {
+    if method == Method::HEAD {
         return Ok((status, Bytes::new()));
     }
     Ok((status, payload))
+}
+
+fn insert_fallback(headers: &mut HeaderMap, code: FallbackCode) -> Result<(), ResponseError> {
+    headers.insert(
+        TEMPLATE_STATE,
+        HeaderValue::from_static(TEMPLATE_STATE_ERROR),
+    );
+    headers.insert(
+        TEMPLATE_ERROR,
+        HeaderValue::from_str(code.as_str()).map_err(|_| ResponseError::HeaderValue {
+            name: TEMPLATE_ERROR.as_str().to_owned(),
+        })?,
+    );
+    Ok(())
 }
 
 fn unsized_empty_body() -> Body {

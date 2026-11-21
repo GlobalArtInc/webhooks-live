@@ -52,7 +52,8 @@ const CLAIM_SLOT: &str = "UPDATE endpoints SET \
        AND (capture_count < COALESCE(max_captures::bigint, $4) OR (overflow = 'ring' AND EXISTS ( \
          SELECT 1 FROM captures WHERE endpoint_id = $1 AND NOT starred))) \
      RETURNING last_seq, capture_count, COALESCE(max_captures::bigint, $4) AS effective_max, response_status, response_content_type, \
-       response_headers::text AS response_headers, response_body, response_delay_ms, cors";
+       response_headers::text AS response_headers, response_body, response_delay_ms, cors, \
+       title, response_templated, response_status_template";
 
 pub(crate) const EVICT_OLDEST: &str = "WITH evicted AS ( \
        DELETE FROM captures WHERE endpoint_id = $1 AND seq IN ( \
@@ -74,6 +75,13 @@ pub(crate) const INSERT_BODY: &str =
     "INSERT INTO capture_bodies (capture_id, data, search_text) VALUES ($1, $2, $3)";
 
 pub(crate) const NOTIFY: &str = "SELECT pg_notify($1, $2)";
+
+const RECORD_RENDER: &str = "UPDATE captures SET \
+       meta = COALESCE(meta, '{}'::jsonb) || $2::text::jsonb, \
+       response_status = COALESCE($3, response_status) \
+     WHERE id = $1";
+
+const RENDER_RECORD_DEADLINE: Duration = Duration::from_millis(500);
 
 #[derive(Debug, thiserror::Error)]
 pub enum CaptureStoreError {
@@ -210,6 +218,15 @@ pub struct Endpoint {
     pub body: Vec<u8>,
     pub delay_ms: u32,
     pub cors: bool,
+    pub title: Option<String>,
+    pub templated: bool,
+    pub status_template: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RenderRecord {
+    pub meta: serde_json::Value,
+    pub response_status: Option<HttpStatus>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -224,7 +241,7 @@ pub struct StoredCapture {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CaptureOutcome {
     Stored {
-        endpoint: Endpoint,
+        endpoint: Box<Endpoint>,
         capture: StoredCapture,
     },
     Gone,
@@ -461,13 +478,47 @@ impl Store {
         verification: Option<Verification>,
         policy: CapturePolicy,
     ) -> Result<CaptureOutcome, CaptureStoreError> {
+        self.store_capture_retained(&mut capture, verification, policy)
+            .await
+    }
+
+    pub async fn store_capture_retained(
+        &self,
+        capture: &mut NewCapture,
+        verification: Option<Verification>,
+        policy: CapturePolicy,
+    ) -> Result<CaptureOutcome, CaptureStoreError> {
         capture.scrub();
-        let prepared = Prepared::new(&capture)?;
+        let prepared = Prepared::new(capture)?;
         let tx = self.begin_capture_transaction().await?;
         let work = execute_capture(tx, capture, prepared, verification, policy);
         tokio::time::timeout(TRANSACTION_DEADLINE, work)
             .await
             .map_err(|_| CaptureStoreError::DeadlineExceeded)?
+    }
+
+    pub async fn record_render(
+        &self,
+        capture: &CaptureId,
+        update: &RenderRecord,
+    ) -> Result<(), CaptureStoreError> {
+        let meta = serde_json::to_string(&update.meta)?;
+        let status = update
+            .response_status
+            .map(|status| i16::try_from(status.unpack()))
+            .transpose()
+            .map_err(|_| CaptureStoreError::OutOfRange("response status"))?;
+        let mut connection = self.acquire_capture_connection().await?;
+        let query = sqlx::query(RECORD_RENDER)
+            .bind(capture.unpack())
+            .bind(meta)
+            .bind(status)
+            .execute(&mut *connection);
+        tokio::time::timeout(RENDER_RECORD_DEADLINE, query)
+            .await
+            .map_err(|_| CaptureStoreError::DeadlineExceeded)?
+            .map_err(CaptureStoreError::classify)?;
+        Ok(())
     }
 
     pub(crate) async fn acquire_capture_connection(
@@ -545,7 +596,7 @@ async fn abort(
 
 async fn execute_capture(
     mut tx: Transaction<'static, Postgres>,
-    capture: NewCapture,
+    capture: &NewCapture,
     prepared: Prepared,
     verification: Option<Verification>,
     policy: CapturePolicy,
@@ -678,7 +729,7 @@ async fn execute_capture(
             .map_err(CaptureStoreError::classify)
     );
 
-    let payload = attempt!(tx, capture_event_payload(&capture, seq, response_status));
+    let payload = attempt!(tx, capture_event_payload(capture, seq, response_status));
     attempt!(
         tx,
         sqlx::query(NOTIFY)
@@ -691,7 +742,7 @@ async fn execute_capture(
 
     tx.commit().await.map_err(CaptureStoreError::classify)?;
     Ok(CaptureOutcome::Stored {
-        endpoint,
+        endpoint: Box::new(endpoint),
         capture: StoredCapture {
             id: capture.id,
             seq,
@@ -768,6 +819,13 @@ fn endpoint_from_row(
             .map_err(CaptureStoreError::classify)?,
         delay_ms,
         cors: row.try_get("cors").map_err(CaptureStoreError::classify)?,
+        title: row.try_get("title").map_err(CaptureStoreError::classify)?,
+        templated: row
+            .try_get("response_templated")
+            .map_err(CaptureStoreError::classify)?,
+        status_template: row
+            .try_get("response_status_template")
+            .map_err(CaptureStoreError::classify)?,
     })
 }
 
