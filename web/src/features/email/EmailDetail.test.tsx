@@ -173,8 +173,8 @@ describe('email detail', () => {
     fireEvent.click(within(attachments).getByRole('button', { name: 'Preview logo.png' }));
     await waitFor(() => {
       expect(within(attachments).getByRole('img', { name: /PNG/u })).toBeTruthy();
+      expect(blobs.map((blob) => blob.type)).toEqual(['image/png']);
     });
-    expect(blobs.map((blob) => blob.type)).toEqual(['image/png']);
 
     fireEvent.click(within(attachments).getByRole('button', { name: 'Preview photo.png' }));
     await waitFor(() => {
