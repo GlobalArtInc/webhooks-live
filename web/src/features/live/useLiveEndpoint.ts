@@ -1,5 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useSyncExternalStore } from 'react';
+import { activeFiltersKey, NO_FILTERS, type ActiveFilters } from '../list/listFilters';
 import { highestHeldSeq } from './catchUp';
 import { LiveSource } from './LiveSource';
 import { LiveSession } from './session';
@@ -9,6 +10,7 @@ export interface LiveEndpointOptions {
   following: boolean;
   selectedId: string | null;
   onFollowNewest: (captureId: string) => void;
+  filters?: ActiveFilters;
 }
 
 export function useLiveEndpoint(endpointId: string, options: LiveEndpointOptions): LiveSnapshot {
@@ -17,10 +19,15 @@ export function useLiveEndpoint(endpointId: string, options: LiveEndpointOptions
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const optionsRef = useRef(options);
   const { selectedId } = options;
+  const filterKey = activeFiltersKey(options.filters ?? NO_FILTERS);
 
   useEffect(() => {
     optionsRef.current = options;
   });
+
+  useEffect(() => {
+    store.clearHidden();
+  }, [store, filterKey]);
 
   useEffect(() => {
     const source = new LiveSource({
@@ -33,6 +40,7 @@ export function useLiveEndpoint(endpointId: string, options: LiveEndpointOptions
       source,
       store,
       getContext: () => ({ hidden: document.hidden, following: optionsRef.current.following }),
+      getFilters: () => optionsRef.current.filters ?? NO_FILTERS,
       onFollow: (captureId) => {
         optionsRef.current.onFollowNewest(captureId);
       },

@@ -19,6 +19,7 @@ import { EndpointSettingsScreen } from '../routes/settings/EndpointSettingsScree
 import { SettingsIndexScreen } from '../routes/settings/SettingsIndexScreen';
 import { SettingsSectionScreen } from '../routes/settings/SettingsSectionScreen';
 import { SignInScreen } from '../routes/signin/SignInScreen';
+import { validateCaptureSearch } from '../features/filters/captureSearch';
 import { isCaptureId, isEndpointId } from './ids';
 import { ensureEndpoint } from './endpointQuery';
 import { isWorkspaceSectionId } from '../features/workspace/sections';
@@ -104,7 +105,7 @@ const settingsRoute = createRoute({
 const endpointRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/e/$id',
-  validateSearch: validateEndpointSearch,
+  validateSearch: validateCaptureSearch,
   beforeLoad: ({ params }) => assertEndpointId(params.id),
   loader: ({ context, params }) => ensureEndpoint(context.queryClient, params.id),
   errorComponent: RouteError,

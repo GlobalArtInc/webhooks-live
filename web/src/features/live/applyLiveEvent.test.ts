@@ -260,8 +260,61 @@ describe('applyLiveEvent', () => {
     expect(stale.effects).toEqual([]);
   });
 
-  it('keeps the active filter hook open for every capture for now', () => {
-    expect(matchesActiveFilter(summaryFor(1))).toBe(true);
+  it('matches the method list and the status override class on the client', () => {
+    const capture = summaryFor(1, { method: 'post', status_override: 404 });
+
+    expect(matchesActiveFilter({}, capture)).toBe(true);
+    expect(matchesActiveFilter({ method: 'GET,POST' }, capture)).toBe(true);
+    expect(matchesActiveFilter({ method: 'PUT' }, capture)).toBe(false);
+    expect(matchesActiveFilter({ status: '4xx' }, capture)).toBe(true);
+    expect(matchesActiveFilter({ status: 'none' }, capture)).toBe(false);
+  });
+
+  it('matches the received time against the inclusive start and the exclusive end', () => {
+    const capture = summaryFor(2);
+    const receivedAt = Date.parse(capture.received_at);
+    const at = (offsetMs: number) => new Date(receivedAt + offsetMs).toISOString();
+
+    expect(matchesActiveFilter({ since: at(0) }, capture)).toBe(true);
+    expect(matchesActiveFilter({ since: at(1) }, capture)).toBe(false);
+    expect(matchesActiveFilter({ until: at(0) }, capture)).toBe(false);
+    expect(matchesActiveFilter({ until: at(1) }, capture)).toBe(true);
+  });
+
+  it('counts a non-matching arrival as hidden and leaves the shown pages unchanged', () => {
+    const outcome = applyLiveEvent(stateWith([2, 1], { filters: { method: 'GET' } }), captureEvent(3));
+
+    expect(seqsOf(outcome.pages)).toEqual([2, 1]);
+    expect(outcome.endpoint?.capture_count).toBe(3);
+    expect(outcome.effects).toEqual([{ kind: 'hidden', capture: summaryFor(3) }]);
+  });
+
+  it('asks for a server check instead of inserting an arrival while a text query is active', () => {
+    const outcome = applyLiveEvent(stateWith([2, 1], { filters: { q: 'hook' } }), captureEvent(3));
+
+    expect(seqsOf(outcome.pages)).toEqual([2, 1]);
+    expect(outcome.effects).toEqual([{ kind: 'verify', capture: summaryFor(3) }]);
+  });
+});
+
+describe('applyLiveEventToCache with filtered lists', () => {
+  it('filters each list by its own key and reports the effects of the list on screen', () => {
+    const queryClient = createSeededClient([2, 1]);
+    queryClient.setQueryData(
+      queryKeys.captureList(ENDPOINT_ID, { order: 'desc', limit: 100, method: 'GET' }),
+      listOf([1]),
+    );
+
+    const effects = applyLiveEventToCache(queryClient, ENDPOINT_ID, captureEvent(3), { method: 'GET' });
+
+    expect(effects).toEqual([{ kind: 'hidden', capture: summaryFor(3) }]);
+    expect(seqsOf(cachedList(queryClient))).toEqual([3, 2, 1]);
+    expect(
+      seqsOf(
+        queryClient.getQueryData(queryKeys.captureList(ENDPOINT_ID, { order: 'desc', limit: 100, method: 'GET' })),
+      ),
+    ).toEqual([1]);
+    expect(cachedEndpoint(queryClient)?.capture_count).toBe(3);
   });
 });
 

@@ -64,7 +64,11 @@ export function useEndpointSelection(
       return;
     }
     if (outcome.captureId !== null && activeSeek.kind !== 'load') {
-      void navigate({ to: '/e/$id/c/$captureId', params: { id: endpointId, captureId: outcome.captureId } });
+      void navigate({
+        to: '/e/$id/c/$captureId',
+        params: { id: endpointId, captureId: outcome.captureId },
+        search: true,
+      });
     }
   }, [activeSeek, items, hasNextPage, isFetchingNextPage, error, fetchNextPage, endpointId, navigate]);
 
@@ -77,15 +81,20 @@ export function useEndpointSelection(
 
   function open(id: string): void {
     onOpen(id);
-    void navigate({ to: '/e/$id/c/$captureId', params: { id: endpointId, captureId: id } });
+    void navigate({ to: '/e/$id/c/$captureId', params: { id: endpointId, captureId: id }, search: true });
   }
 
   function replace(id: string | null): void {
     if (id === null) {
-      void navigate({ to: '/e/$id', params: { id: endpointId }, replace: true });
+      void navigate({ to: '/e/$id', params: { id: endpointId }, search: true, replace: true });
       return;
     }
-    void navigate({ to: '/e/$id/c/$captureId', params: { id: endpointId, captureId: id }, replace: true });
+    void navigate({
+      to: '/e/$id/c/$captureId',
+      params: { id: endpointId, captureId: id },
+      search: true,
+      replace: true,
+    });
   }
 
   function requestSeek(target: SeekTarget): void {

@@ -148,3 +148,16 @@ describe('LiveStore', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 });
+
+describe('hidden-by-filter count', () => {
+  it('adds up the non-matching arrivals until they are cleared', () => {
+    const store = new LiveStore();
+
+    store.recordHidden(2);
+    store.recordHidden(1);
+    expect(store.getSnapshot().hiddenCount).toBe(3);
+
+    store.clearHidden();
+    expect(store.getSnapshot().hiddenCount).toBe(0);
+  });
+});

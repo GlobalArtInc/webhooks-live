@@ -2,12 +2,13 @@ import type { QueryClient } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { queryKeys } from '../../api/queries';
 import type { CapturePage } from '../../api/types';
+import type { ActiveFilters } from '../list/listFilters';
 import type { PageLoader } from './catchUp';
 import { suggestsMissedDeletes } from './catchUp';
 import { createFakeEventSources, type FakeEventSources } from './fakeEventSource';
 import { LiveSource } from './LiveSource';
 import { cachedEndpoint, cachedList, createSeededClient, ENDPOINT_ID, seqsOf, summaryFor } from './liveFixtures';
-import { LiveSession, type SessionContext } from './session';
+import { LiveSession, VERIFY_DELAY_MS, type SessionContext } from './session';
 import { LiveStore } from './store';
 
 interface Rig {
@@ -18,6 +19,7 @@ interface Rig {
   loadPage: ReturnType<typeof vi.fn<PageLoader>>;
   followed: string[];
   context: SessionContext;
+  filters: ActiveFilters;
 }
 
 function pageOf(seqs: readonly number[], nextCursor: string | null = null): CapturePage {
@@ -40,6 +42,7 @@ function rig(
   const store = new LiveStore();
   const followed: string[] = [];
   const context: SessionContext = { hidden: false, following: false };
+  const filters: ActiveFilters = {};
   const session = new LiveSession({
     queryClient,
     endpointId: ENDPOINT_ID,
@@ -47,11 +50,12 @@ function rig(
     store,
     loadPage,
     getContext: () => context,
+    getFilters: () => filters,
     onFollow: (captureId) => followed.push(captureId),
   });
   session.start();
   fakes.latest().open();
-  return { queryClient, fakes, store, session, loadPage, followed, context };
+  return { queryClient, fakes, store, session, loadPage, followed, context, filters };
 }
 
 const EVENTUALLY_TIMEOUT_MS = 5000;
@@ -256,5 +260,42 @@ describe('LiveSession arrivals', () => {
     expect(r.store.getSnapshot().connection).toBe('ended');
     expect(r.store.getSnapshot().endReason).toBe('deleted');
     expect(r.store.getSnapshot().lastEventAt).not.toBeNull();
+  });
+});
+
+describe('LiveSession with filters', () => {
+  let current: Rig | null = null;
+
+  afterEach(() => {
+    current?.session.dispose();
+    current = null;
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('counts a non-matching arrival as hidden and keeps it out of the arrivals', () => {
+    const r = rig([2, 1]);
+    current = r;
+    r.filters.method = 'GET';
+    r.fakes.latest().send('capture', summaryFor(3), '3');
+
+    expect(r.store.getSnapshot().hiddenCount).toBe(1);
+    expect(r.store.getSnapshot().arrivingIds.size).toBe(0);
+  });
+
+  it('asks for a fresh text-query list once per second of arrivals and never inserts them itself', () => {
+    vi.useFakeTimers();
+    const r = rig([2, 1]);
+    current = r;
+    r.filters.q = 'hook';
+    const invalidate = vi.spyOn(r.queryClient, 'invalidateQueries');
+    r.fakes.latest().send('capture', summaryFor(3), '3');
+    r.fakes.latest().send('capture', summaryFor(4), '4');
+
+    expect(invalidate).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(VERIFY_DELAY_MS);
+    expect(invalidate).toHaveBeenCalledTimes(1);
+    expect(r.store.getSnapshot().arrivingIds.size).toBe(0);
+    expect(r.store.getSnapshot().hiddenCount).toBe(0);
   });
 });

@@ -1,6 +1,7 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../../api/queries';
 import type { CaptureSummary } from '../../api/types';
+import { filtersOfKey, hasActiveFilters, NO_FILTERS, type ActiveFilters } from '../list/listFilters';
 import { applyLiveEventToCache, type CatchUpReason, type LiveEffect } from './applyLiveEvent';
 import {
   endpointCapacity,
@@ -25,12 +26,17 @@ export interface SessionContext {
   following: boolean;
 }
 
+type Timer = ReturnType<typeof setTimeout>;
+
+export const VERIFY_DELAY_MS = 1000;
+
 export interface LiveSessionOptions {
   queryClient: QueryClient;
   endpointId: string;
   source: LiveSourceLike;
   store: LiveStore;
   getContext: () => SessionContext;
+  getFilters?: () => ActiveFilters;
   onFollow: (captureId: string) => void;
   loadPage?: PageLoader;
   now?: () => number;
@@ -47,6 +53,7 @@ export class LiveSession {
   private awaitingBaseline = false;
   private seenSeq = 0;
   private syncedSeq: number | null = null;
+  private verifyTimer: Timer | null = null;
   private disposed = false;
 
   constructor(options: LiveSessionOptions) {
@@ -97,10 +104,18 @@ export class LiveSession {
       return;
     }
     this.disposed = true;
+    if (this.verifyTimer !== null) {
+      clearTimeout(this.verifyTimer);
+      this.verifyTimer = null;
+    }
     for (const unsubscribe of this.unsubscribers.splice(0)) {
       unsubscribe();
     }
     this.options.source.close();
+  }
+
+  private filters(): ActiveFilters {
+    return this.options.getFilters?.() ?? NO_FILTERS;
   }
 
   private watchLists(): () => void {
@@ -115,7 +130,8 @@ export class LiveSession {
         return;
       }
       const behind = this.seenSeq > highestHeldSeq(queryClient, endpointId);
-      if (this.awaitingBaseline || behind) {
+      const unfiltered = !hasActiveFilters(filtersOfKey(event.query.queryKey));
+      if (this.awaitingBaseline || (behind && unfiltered)) {
         this.awaitingBaseline = false;
         this.requestCatchUp('resync');
       }
@@ -127,12 +143,14 @@ export class LiveSession {
       return;
     }
     this.options.store.touch(this.now());
-    const effects = applyLiveEventToCache(this.options.queryClient, this.options.endpointId, event);
+    const effects = applyLiveEventToCache(this.options.queryClient, this.options.endpointId, event, this.filters());
     this.process(effects);
   }
 
   private process(effects: readonly LiveEffect[]): void {
     const inserted: CaptureSummary[] = [];
+    let hidden = 0;
+    let verify = false;
     for (const effect of effects) {
       switch (effect.kind) {
         case 'inserted':
@@ -153,23 +171,58 @@ export class LiveSession {
           this.requestCatchUp(effect.reason);
           break;
         case 'hidden':
+          this.countSeen(effect.capture);
+          hidden += 1;
+          break;
+        case 'verify':
+          this.countSeen(effect.capture);
+          verify = true;
           break;
       }
     }
+    this.options.store.recordHidden(hidden);
+    if (verify) {
+      this.scheduleVerify();
+    }
     this.arrived(inserted);
+  }
+
+  private countSeen(capture: CaptureSummary): void {
+    const readySeq = this.ready?.last_seq ?? 0;
+    this.seenSeq = Math.max(this.seenSeq, capture.seq);
+    if (capture.seq > readySeq) {
+      this.deltaSinceReady += 1;
+    }
+  }
+
+  private scheduleVerify(): void {
+    if (this.verifyTimer !== null) {
+      return;
+    }
+    this.verifyTimer = setTimeout(() => {
+      this.verifyTimer = null;
+      if (!this.disposed) {
+        this.refetchTextLists();
+      }
+    }, VERIFY_DELAY_MS);
+  }
+
+  private refetchTextLists(): void {
+    const { queryClient, endpointId } = this.options;
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.captureLists(endpointId),
+      predicate: (query) => filtersOfKey(query.queryKey).q !== undefined,
+      refetchType: 'active',
+    });
   }
 
   private arrived(captures: readonly CaptureSummary[]): void {
     if (captures.length === 0) {
       return;
     }
-    const readySeq = this.ready?.last_seq ?? 0;
     let newest = captures[0];
     for (const capture of captures) {
-      this.seenSeq = Math.max(this.seenSeq, capture.seq);
-      if (capture.seq > readySeq) {
-        this.deltaSinceReady += 1;
-      }
+      this.countSeen(capture);
       if (newest === undefined || capture.seq > newest.seq) {
         newest = capture;
       }
@@ -217,6 +270,7 @@ export class LiveSession {
         afterSeq,
         loadPage: this.options.loadPage,
         isCancelled: () => this.disposed,
+        filters: this.filters(),
       });
       if (this.disposed) {
         return;

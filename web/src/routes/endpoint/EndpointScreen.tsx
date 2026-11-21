@@ -1,5 +1,5 @@
 import { Outlet, useMatchRoute, useNavigate, useParams } from '@tanstack/react-router';
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useClearCaptures, useEndpoint } from '../../api/queries';
 import { CaptureList, type ListNavigation } from '../../components/CaptureList/CaptureList';
@@ -9,6 +9,7 @@ import { copyText } from '../../components/CopyButton/clipboard';
 import { ConnectionIndicator } from '../../components/ConnectionIndicator/ConnectionIndicator';
 import { EmptyState } from '../../components/EmptyState/EmptyState';
 import { EndpointHeader } from '../../components/EndpointHeader/EndpointHeader';
+import { FilterBar } from '../../components/FilterBar/FilterBar';
 import { ListPager, type ListPagerProps } from '../../components/ListPager/ListPager';
 import { SplitHandle } from '../../components/SplitHandle/SplitHandle';
 import { StatePage } from '../../components/StatePage/StatePage';
@@ -17,6 +18,8 @@ import { useMarkedCapture } from '../../features/diff';
 import { RESIZE_STEP_PX } from '../../features/endpoint/constants';
 import { sampleCurl } from '../../features/endpoint/sampleCurl';
 import { useEndpointSelection } from '../../features/endpoint/useSelection';
+import { listFiltersOf } from '../../features/filters/captureSearch';
+import { useCaptureSearch } from '../../features/filters/useCaptureSearch';
 import { useViewportLayout } from '../../features/endpoint/useViewport';
 import { markEndpointOpened } from '../../features/endpoints';
 import {
@@ -33,6 +36,7 @@ import {
 } from '../../features/live';
 import {
   activateCompare,
+  hasActiveFilters,
   LIST_WIDTH_MAX,
   LIST_WIDTH_MIN,
   loadListWidth,
@@ -67,7 +71,10 @@ export function EndpointScreen() {
   const endpointQuery = useEndpoint(endpointId);
   const endpoint = endpointQuery.data;
   const loaded = endpoint !== undefined;
-  const list = useCaptureList(endpointId);
+  const urlSearch = useCaptureSearch();
+  const filters = useMemo(() => listFiltersOf(urlSearch.search), [urlSearch.search]);
+  const filtered = hasActiveFilters(filters);
+  const list = useCaptureList(endpointId, filters);
   const layout = useViewportLayout();
   const narrow = layout === 'narrow';
   const wide = layout === 'wide';
@@ -86,6 +93,7 @@ export function EndpointScreen() {
         selection.replace(captureId);
       }
     },
+    filters,
   });
   const matchRoute = useMatchRoute();
   const workspaceOpen = matchRoute({ to: '/e/$id/settings', params: { id: endpointId }, fuzzy: true }) !== false;
@@ -98,6 +106,7 @@ export function EndpointScreen() {
   const [clearOpen, setClearOpen] = useState(false);
   const [clearFailed, setClearFailed] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
   const backRequested = useRef(false);
 
   useTabBadge(live.awayCount);
@@ -131,6 +140,9 @@ export function EndpointScreen() {
     toggleFollow: () => {
       applyFollow({ kind: 'toggle' });
     },
+    search: () => {
+      searchRef.current?.focus();
+    },
     copyUrl: copyCaptureUrl,
     settings: () => {
       void navigate({ to: '/e/$id/settings', params: { id: endpointId } });
@@ -159,7 +171,8 @@ export function EndpointScreen() {
     return <StatePage kind={live.endReason === 'missing' ? 'not-found' : 'gone'} />;
   }
 
-  const showEmpty = list.hasData && list.total === 0 && list.items.length === 0;
+  const showEmpty = !filtered && list.hasData && list.total === 0 && list.items.length === 0;
+  const noMatch = filtered && list.hasData && list.total === 0 && list.items.length === 0;
   const curl = sampleCurl(endpoint.url);
 
   const pagerProps: ListPagerProps = {
@@ -294,6 +307,15 @@ export function EndpointScreen() {
       ) : (
         <div className={styles.body} data-pane={paneHidden ? 'hidden' : 'shown'}>
           <div ref={listRef} className={styles.list} style={wide ? { width: listWidth } : undefined}>
+            <FilterBar
+              searchRef={searchRef}
+              search={urlSearch.search}
+              layout={layout}
+              hiddenCount={live.hiddenCount}
+              onChange={urlSearch.update}
+              onClear={urlSearch.clear}
+            />
+            {noMatch ? <p className={styles.noMatch}>{t('wl.endpoint.filter.empty')}</p> : null}
             <LiveToolbar
               follow={follow.state}
               announce={livePrefs.announce}

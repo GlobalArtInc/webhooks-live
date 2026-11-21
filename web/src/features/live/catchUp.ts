@@ -2,6 +2,7 @@ import type { QueryClient } from '@tanstack/react-query';
 import { queryKeys, type CaptureListData } from '../../api/queries';
 import { listCaptures } from '../../api/client';
 import type { CaptureListQuery, CapturePage, Endpoint } from '../../api/types';
+import { filtersOfKey, hasActiveFilters, type ActiveFilters, NO_FILTERS } from '../list/listFilters';
 import { flattenCaptures, totalOf } from '../list/listModel';
 import { applyLiveEventToCache, type LiveEffect } from './applyLiveEvent';
 
@@ -18,6 +19,7 @@ export interface CatchUpOptions {
   afterSeq: number;
   loadPage?: PageLoader;
   isCancelled: () => boolean;
+  filters?: ActiveFilters;
 }
 
 export interface CatchUpResult {
@@ -57,8 +59,12 @@ export function highestHeldSeq(queryClient: QueryClient, endpointId: string): nu
 }
 
 export function primaryListTotal(queryClient: QueryClient, endpointId: string): number | null {
-  const first = listQueries(queryClient, endpointId).find((data) => data !== undefined);
-  return totalOf(first);
+  const unfiltered = queryClient
+    .getQueryCache()
+    .findAll({ queryKey: queryKeys.captureLists(endpointId) })
+    .filter((query) => !hasActiveFilters(filtersOfKey(query.queryKey)))
+    .map((query) => queryClient.getQueryData<CaptureListData>(query.queryKey));
+  return totalOf(unfiltered.find((data) => data !== undefined));
 }
 
 export function suggestsMissedDeletes(baseline: ReadyBaseline): boolean {
@@ -95,7 +101,14 @@ export async function runCatchUp(
     }
     for (const capture of page.items) {
       highest = Math.max(highest, capture.seq);
-      effects.push(...applyLiveEventToCache(queryClient, endpointId, { name: 'capture', data: capture }));
+      effects.push(
+        ...applyLiveEventToCache(
+          queryClient,
+          endpointId,
+          { name: 'capture', data: capture },
+          options.filters ?? NO_FILTERS,
+        ),
+      );
     }
     if (page.next_cursor === null) {
       return { effects, complete: true, highest };

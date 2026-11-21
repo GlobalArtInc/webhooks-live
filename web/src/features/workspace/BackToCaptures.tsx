@@ -12,13 +12,13 @@ export function BackToCaptures({ endpointId, className }: BackToCapturesProps) {
   const captureId = rememberedSelection(endpointId);
   if (captureId === null) {
     return (
-      <Link to="/e/$id" params={{ id: endpointId }} className={className}>
+      <Link to="/e/$id" params={{ id: endpointId }} search className={className}>
         {t('wl.workspace.back')}
       </Link>
     );
   }
   return (
-    <Link to="/e/$id/c/$captureId" params={{ id: endpointId, captureId }} className={className}>
+    <Link to="/e/$id/c/$captureId" params={{ id: endpointId, captureId }} search className={className}>
       {t('wl.workspace.back')}
     </Link>
   );

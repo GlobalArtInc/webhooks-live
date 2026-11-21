@@ -260,4 +260,23 @@ describe('endpoint view', () => {
       expect(router.state.location.pathname).toBe(`${ENDPOINT_PATH}/diff/${captureIdFor(1)}/${captureIdFor(3)}`),
     );
   });
+
+  it('applies the filters named in the link and says so when nothing matches', async () => {
+    seed(3);
+    const { router } = await openEndpoint(`${ENDPOINT_PATH}?method=GET`);
+
+    expect(await screen.findByText('No captures match these filters.')).not.toBeNull();
+    expect(router.state.location.href).toContain('method=GET');
+  });
+
+  it('keeps the filters in the URL when a filtered capture is chosen', async () => {
+    seed(3);
+    const { router } = await openEndpoint(`${ENDPOINT_PATH}?method=POST`);
+
+    await waitFor(() => expect(optionAt(1).getAttribute('aria-selected')).toBe('true'));
+    fireEvent.click(optionAt(2));
+
+    await waitFor(() => expect(router.state.location.pathname).toBe(`${ENDPOINT_PATH}/c/${captureIdFor(2)}`));
+    expect(router.state.location.href).toContain('method=POST');
+  });
 });

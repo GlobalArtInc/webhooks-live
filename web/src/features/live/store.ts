@@ -15,6 +15,7 @@ export interface LiveSnapshot {
   lastEventAt: number | null;
   unreadIds: ReadonlySet<string>;
   awayCount: number;
+  hiddenCount: number;
   arrivingIds: ReadonlySet<string>;
   announcement: Announcement | null;
 }
@@ -37,6 +38,7 @@ function initialSnapshot(): LiveSnapshot {
     lastEventAt: null,
     unreadIds: NO_IDS,
     awayCount: 0,
+    hiddenCount: 0,
     arrivingIds: NO_IDS,
     announcement: null,
   };
@@ -141,6 +143,18 @@ export class LiveStore {
   clearAway(): void {
     if (this.snapshot.awayCount !== 0) {
       this.update({ awayCount: 0 });
+    }
+  }
+
+  recordHidden(count: number): void {
+    if (count > 0) {
+      this.update({ hiddenCount: this.snapshot.hiddenCount + count });
+    }
+  }
+
+  clearHidden(): void {
+    if (this.snapshot.hiddenCount !== 0) {
+      this.update({ hiddenCount: 0 });
     }
   }
 
