@@ -1,0 +1,15 @@
+.viewer {
+  position: relative;
+  min-width: 0;
+}
+
+.host {
+  min-width: 0;
+}
+
+.notice {
+  margin: 0;
+  padding: var(--space-3);
+  font: var(--text-meta);
+  color: var(--color-text-muted);
+}

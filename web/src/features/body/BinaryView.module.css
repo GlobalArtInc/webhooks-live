@@ -1,0 +1,29 @@
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-1) var(--space-4);
+  margin: 0;
+  font: var(--text-data);
+  color: var(--color-text);
+}
+
+.facts dt {
+  font: var(--text-meta);
+  color: var(--color-text-muted);
+}
+
+.facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.digest {
+  font: var(--mono-data);
+}
