@@ -1,3 +1,5 @@
+import type { TimeDisplay } from '../../prefs/display';
+
 const MILLISECONDS_PER_SECOND = 1000;
 const SECONDS_PER_MINUTE = 60;
 const SECONDS_PER_HOUR = 3600;
@@ -29,12 +31,23 @@ const BYTE_SCALES: readonly ByteScale[] = [
 
 const PLAIN_BYTE_SCALE: ByteScale = { unit: 'byte', size: 1 };
 
-export function formatAbsoluteTime(iso: string, locale: string): string {
+export function formatAbsoluteTime(iso: string, locale: string, utc = false): string {
   const time = Date.parse(iso);
   if (Number.isNaN(time)) {
     return iso;
   }
-  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'medium' }).format(time);
+  const text = new Intl.DateTimeFormat(locale, {
+    dateStyle: 'medium',
+    timeStyle: 'medium',
+    timeZone: utc ? 'UTC' : undefined,
+  }).format(time);
+  return utc ? `${text} UTC` : text;
+}
+
+export function formatTimestamp(iso: string, now: number, locale: string, display: TimeDisplay): string {
+  return display === 'relative'
+    ? formatRelativeTime(iso, now, locale)
+    : formatAbsoluteTime(iso, locale, display === 'utc');
 }
 
 export function formatRelativeTime(iso: string, now: number, locale: string): string {

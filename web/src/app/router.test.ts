@@ -1,6 +1,7 @@
 import { QueryClient } from '@tanstack/react-query';
 import { createMemoryHistory } from '@tanstack/react-router';
 import { describe, expect, it } from 'vitest';
+import { AccountScreen } from '../routes/account/AccountScreen';
 import { CaptureScreen } from '../routes/capture/CaptureScreen';
 import { DevEditorsScreen } from '../routes/dev/DevEditorsScreen';
 import { DevStepsScreen } from '../routes/dev/DevStepsScreen';
@@ -30,6 +31,7 @@ const ROUTE_CASES: RouteCase[] = [
   { path: '/endpoints', screen: EndpointsRouteScreen, params: {} },
   { path: '/signin', screen: SignInScreen, params: {} },
   { path: '/settings', screen: SettingsScreen, params: {} },
+  { path: '/account', screen: AccountScreen, params: {} },
   { path: `/e/${ENDPOINT_ID}`, screen: EndpointScreen, params: { id: ENDPOINT_ID } },
   {
     path: `/e/${ENDPOINT_ID}/c/${CAPTURE_ID}`,

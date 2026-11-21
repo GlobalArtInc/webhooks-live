@@ -1,3 +1,5 @@
+import { useSyncExternalStore } from 'react';
+
 export const PREFS_STORAGE_KEY = 'webhooks-live:prefs:v1';
 
 export const THEME_PREFERENCES = ['system', 'light', 'dark'] as const;
@@ -14,7 +16,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function parsePrefsFields(raw: string | null): Record<string, unknown> {
+export function parsePrefsFields(raw: string | null): Record<string, unknown> {
   if (raw === null) {
     return {};
   }
@@ -61,16 +63,34 @@ export function applyThemeAttribute(attribute: ThemeAttribute | null): void {
   document.documentElement.setAttribute('data-theme', attribute);
 }
 
-function saveThemePreference(preference: ThemePreference): void {
+export function updatePrefsFields(change: Readonly<Record<string, unknown>>): void {
   try {
     const fields = parsePrefsFields(readStoredPrefs());
-    window.localStorage.setItem(PREFS_STORAGE_KEY, JSON.stringify({ ...fields, theme: preference }));
+    window.localStorage.setItem(PREFS_STORAGE_KEY, JSON.stringify({ ...fields, ...change }));
   } catch {
     return;
   }
 }
 
+type ThemeListener = () => void;
+
+const themeListeners = new Set<ThemeListener>();
+
+function subscribeThemePreference(listener: ThemeListener): () => void {
+  themeListeners.add(listener);
+  return () => {
+    themeListeners.delete(listener);
+  };
+}
+
 export function applyThemePreference(preference: ThemePreference): void {
-  saveThemePreference(preference);
+  updatePrefsFields({ theme: preference });
   applyThemeAttribute(toThemeAttribute(preference));
+  for (const listener of [...themeListeners]) {
+    listener();
+  }
+}
+
+export function useThemePreference(): ThemePreference {
+  return useSyncExternalStore(subscribeThemePreference, loadThemePreference, () => 'system');
 }

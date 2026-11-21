@@ -77,6 +77,14 @@
   --ease-arrival: linear;
 }
 
+:root.density-compact {
+  --space-2: 6px;
+  --space-3: 8px;
+  --space-4: 12px;
+  --space-5: 16px;
+  --space-6: 24px;
+}
+
 :root[data-theme='dark'] {
   color-scheme: dark;
 

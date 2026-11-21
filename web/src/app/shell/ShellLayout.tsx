@@ -1,6 +1,7 @@
 import { Outlet, useLocation, useNavigate } from '@tanstack/react-router';
 import type { ReactNode } from 'react';
 import { useInstance } from '../../api/queries';
+import { AccountControls } from '../../features/account';
 import { EndpointRail } from '../../features/endpoints';
 import { useShortcutHandlers } from '../../features/shortcuts';
 import { TokensLink } from '../../features/tokens/TokensLink';
@@ -36,7 +37,12 @@ export function ShellLayout() {
     );
   } else {
     content = <Outlet />;
-    header = <TokensLink instance={instance.data} />;
+    header = (
+      <>
+        <TokensLink instance={instance.data} />
+        <AccountControls instance={instance.data} />
+      </>
+    );
     rail = showsEndpointRail(location.pathname) ? <EndpointRail /> : undefined;
   }
 

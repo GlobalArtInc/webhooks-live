@@ -1,4 +1,5 @@
 import access from './en/access.json';
+import account from './en/account.json';
 import common from './en/common.json';
 import composer from './en/composer.json';
 import conditions from './en/conditions.json';
@@ -27,6 +28,7 @@ import templating from './en/templating.json';
 import workspace from './en/workspace.json';
 
 export type SourceMessages = typeof access &
+  typeof account &
   typeof common &
   typeof composer &
   typeof conditions &

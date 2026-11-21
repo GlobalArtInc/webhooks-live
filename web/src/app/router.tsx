@@ -24,6 +24,7 @@ import { SettingsScreen } from '../routes/settings/SettingsScreen';
 import { EndpointSettingsScreen } from '../routes/settings/EndpointSettingsScreen';
 import { SettingsIndexScreen } from '../routes/settings/SettingsIndexScreen';
 import { SettingsSectionScreen } from '../routes/settings/SettingsSectionScreen';
+import { AccountScreen } from '../routes/account/AccountScreen';
 import { SignInScreen } from '../routes/signin/SignInScreen';
 import { ensureUnlocked } from '../features/access/ensureUnlocked';
 import { installGrantGuard } from '../features/access/grantGuard';
@@ -129,6 +130,12 @@ const settingsRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/settings',
   component: SettingsScreen,
+});
+
+const accountRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/account',
+  component: AccountScreen,
 });
 
 const composeRoute = createRoute({
@@ -281,6 +288,7 @@ const routeTree = rootRoute.addChildren([
     endpointsRoute,
     signInRoute,
     settingsRoute,
+    accountRoute,
     composeRoute,
     tokensRoute,
     endpointRoute.addChildren([

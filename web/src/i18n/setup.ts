@@ -1,6 +1,7 @@
 import { createInstance, type i18n as I18nInstance } from 'i18next';
 import type { BundleLoader, BundleLoaders, Dictionary } from './bundles';
 import access from './en/access.json';
+import account from './en/account.json';
 import common from './en/common.json';
 import composer from './en/composer.json';
 import conditions from './en/conditions.json';
@@ -41,6 +42,7 @@ export function createI18nInstance(): I18nInstance {
       [SOURCE_LANGUAGE]: {
         translation: {
           ...access,
+          ...account,
           ...common,
           ...composer,
           ...conditions,

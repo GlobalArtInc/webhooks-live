@@ -1,7 +1,5 @@
-import { useTranslation } from 'react-i18next';
-import { ScreenPlaceholder } from '../../components/ScreenPlaceholder/ScreenPlaceholder';
+import { PreferencesPage } from '../../features/account';
 
 export function SettingsScreen() {
-  const { t } = useTranslation();
-  return <ScreenPlaceholder title={t('wl.screen.settings')} />;
+  return <PreferencesPage />;
 }
