@@ -14,6 +14,7 @@ use whl_core::response::{ResponseConfig, ResponseConfigInput};
 use whl_core::tag::Tag;
 use whl_verify::{Verifier, VerifierDocument};
 
+use crate::access::{AccessDataError, AccessSettings, access_from_columns, ranges_to_column};
 use crate::captures::EVENT_CHANNEL;
 use crate::lifecycle::{Lifecycle, LifecycleError, LifecycleLimits, admit_never_expires};
 use crate::store::Store;
@@ -23,7 +24,8 @@ pub(crate) const COLUMNS: &str = "id, title, response_status, response_content_t
     response_templated, response_status_template, \
     capture_count, bytes_used, last_seq, created_at, last_active_at, tags, retention_seconds, \
     never_expires, max_captures, capture_ttl_seconds, \
-    verifier::text AS verifier";
+    verifier::text AS verifier, sender_allow_cidrs::text[] AS sender_allow_cidrs, \
+    capture_auth::text AS capture_auth";
 
 const GET_SQL: &str = "WITH live AS ( \
         SELECT id FROM endpoints \
@@ -40,7 +42,8 @@ const GET_SQL: &str = "WITH live AS ( \
         e.bytes_used, e.last_seq, e.created_at, e.tags, \
         COALESCE(b.last_active_at, e.last_active_at) AS last_active_at, \
         e.retention_seconds, e.never_expires, e.max_captures, e.capture_ttl_seconds, \
-        e.verifier::text AS verifier \
+        e.verifier::text AS verifier, \
+        e.sender_allow_cidrs::text[] AS sender_allow_cidrs, e.capture_auth::text AS capture_auth \
     FROM endpoints e LEFT JOIN bumped b ON b.id = e.id \
     WHERE e.id IN (SELECT id FROM live)";
 
@@ -105,14 +108,17 @@ pub struct EndpointRecord {
     pub last_active_at: OffsetDateTime,
     pub expires_at: Option<OffsetDateTime>,
     pub lifecycle: Lifecycle,
+    pub access: AccessSettings,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct NewEndpoint<'a> {
+    pub id: &'a EndpointId,
     pub owner: Option<Uuid>,
     pub creator_net: Option<&'a CreatorNet>,
     pub settings: &'a EndpointSettings,
     pub lifecycle: Lifecycle,
+    pub access: &'a AccessSettings,
     pub limits: LifecycleLimits,
 }
 
@@ -120,6 +126,7 @@ pub struct NewEndpoint<'a> {
 pub struct EndpointChange {
     pub settings: EndpointSettings,
     pub lifecycle: Lifecycle,
+    pub access: AccessSettings,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -140,6 +147,8 @@ pub enum EndpointError {
     VerifierSecretUnknown,
     #[error("cannot encode the verifier: {0}")]
     EncodeVerifier(#[source] serde_json::Error),
+    #[error("cannot encode the capture access settings: {0}")]
+    Access(#[from] AccessDataError),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -192,11 +201,15 @@ impl Store {
         settings: &EndpointSettings,
         retention: Duration,
     ) -> Result<EndpointRecord, EndpointError> {
+        let id = EndpointId::generate()?;
+        let access = AccessSettings::default();
         let new = NewEndpoint {
+            id: &id,
             owner,
             creator_net,
             settings,
             lifecycle: Lifecycle::default(),
+            access: &access,
             limits: LifecycleLimits::NONE,
         };
         self.insert_endpoint(&new, retention)
@@ -218,14 +231,16 @@ impl Store {
         if new.settings.verifier.is_some() {
             return Err(EndpointError::VerifierSecretUnknown.into());
         }
-        let id = EndpointId::generate().map_err(EndpointError::from)?;
+        let id = new.id;
+        let access = AccessColumns::encode(new.access)?;
         let sql = format!(
             "INSERT INTO endpoints (id, title, response_status, response_content_type, \
              response_headers, response_body, response_delay_ms, cors, overflow, tags, \
              response_templated, response_status_template, owner_id, \
-             creator_net, retention_seconds, never_expires, max_captures, capture_ttl_seconds) \
+             creator_net, retention_seconds, never_expires, max_captures, capture_ttl_seconds, \
+             sender_allow_cidrs, capture_auth) \
              VALUES ($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9, $10, $11, $12, $13, \
-             $14::text::cidr, $15, $16, $17, $18) \
+             $14::text::cidr, $15, $16, $17, $18, $19::text[]::cidr[], $20::text::jsonb) \
              RETURNING {COLUMNS}"
         );
         let mut transaction = self.pool().begin().await.map_err(classify)?;
@@ -239,6 +254,8 @@ impl Store {
             .bind(new.lifecycle.never_expires)
             .bind(new.lifecycle.max_captures)
             .bind(new.lifecycle.capture_ttl_seconds)
+            .bind(access.ranges)
+            .bind(access.document)
             .fetch_one(&mut *transaction)
             .await
             .map_err(classify)?;
@@ -320,12 +337,14 @@ impl Store {
             }
         }
         let verifier = encode_verifier(&change.settings).map_err(E::from)?;
+        let access = AccessColumns::encode(&change.access).map_err(E::from)?;
         let update_sql = format!(
             "UPDATE endpoints SET title = $2, response_status = $3, response_content_type = $4, \
              response_headers = $5::text::jsonb, response_body = $6, response_delay_ms = $7, \
              cors = $8, overflow = $9, tags = $10, response_templated = $11, \
              response_status_template = $12, retention_seconds = $13, never_expires = $14, \
              max_captures = $15, capture_ttl_seconds = $16, verifier = $17::text::jsonb, \
+             sender_allow_cidrs = $18::text[]::cidr[], capture_auth = $19::text::jsonb, \
              last_active_at = now() \
              WHERE id = $1 RETURNING {COLUMNS}"
         );
@@ -336,6 +355,8 @@ impl Store {
             .bind(change.lifecycle.max_captures)
             .bind(change.lifecycle.capture_ttl_seconds)
             .bind(verifier)
+            .bind(access.ranges)
+            .bind(access.document)
             .fetch_one(&mut *transaction)
             .await
             .map_err(|error| E::from(classify(error)))?;
@@ -376,6 +397,24 @@ fn encode_verifier(settings: &EndpointSettings) -> Result<Option<String>, Endpoi
         Some(StoredVerifier::Configured(verifier)) => serde_json::to_string(&verifier.document())
             .map(Some)
             .map_err(EndpointError::EncodeVerifier),
+    }
+}
+
+struct AccessColumns {
+    ranges: Vec<String>,
+    document: Option<String>,
+}
+
+impl AccessColumns {
+    fn encode(access: &AccessSettings) -> Result<Self, EndpointError> {
+        Ok(Self {
+            ranges: ranges_to_column(&access.sender_allow),
+            document: access
+                .capture_auth
+                .as_ref()
+                .map(|record| record.to_document())
+                .transpose()?,
+        })
     }
 }
 
@@ -488,6 +527,12 @@ pub(crate) fn record_from_row(
             .try_get("capture_ttl_seconds")
             .map_err(EndpointError::Query)?,
     };
+    let ranges: Vec<String> = row
+        .try_get("sender_allow_cidrs")
+        .map_err(EndpointError::Query)?;
+    let document: Option<String> = row.try_get("capture_auth").map_err(EndpointError::Query)?;
+    let access = access_from_columns(&ranges, document.as_deref())
+        .map_err(|error| invalid(error.to_string()))?;
     let expires_at = lifecycle
         .effective_retention(retention)
         .map(|window| expiry(last_active_at, window))
@@ -524,6 +569,7 @@ pub(crate) fn record_from_row(
         last_active_at,
         expires_at,
         lifecycle,
+        access,
     })
 }
 

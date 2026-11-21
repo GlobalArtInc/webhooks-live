@@ -1,5 +1,6 @@
 mod background;
 mod composer;
+mod credentials;
 mod error;
 mod forward;
 mod notify;
@@ -35,6 +36,7 @@ use whl_store::Store;
 use whl_telemetry::series;
 
 pub use background::{BackgroundSettings, LIMITER_CLEANUP_INTERVAL, STORAGE_REFRESH_INTERVAL};
+pub use credentials::{StaleCredentials, stale_capture_credentials};
 pub use error::ServerError;
 pub use public::{
     HEADER_READ_TIMEOUT, HttpLimits, MAX_HEADER_COUNT, MAX_HEADER_LIST_BYTES, WRITE_TIMEOUT,
@@ -117,6 +119,7 @@ impl Bound {
         store: Store,
         shutdown: impl Future<Output = ()> + Send + 'static,
     ) -> Result<(), ServerError> {
+        credentials::warn_unusable_capture_credentials(&store, self.secrets.as_deref()).await;
         let readiness = Arc::new(Readiness::default());
         let worker = self.forward.worker(&store)?;
         let notify_worker = self.notify.worker(&store)?;

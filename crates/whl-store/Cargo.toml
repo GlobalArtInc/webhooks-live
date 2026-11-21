@@ -6,6 +6,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+base64.workspace = true
 bytes.workspace = true
 ipnet.workspace = true
 metrics.workspace = true

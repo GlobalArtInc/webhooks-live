@@ -1,3 +1,4 @@
+pub mod access;
 pub mod aliases;
 pub mod api_tokens;
 pub mod auth;
@@ -28,6 +29,9 @@ mod store;
 pub mod stream;
 pub mod vars;
 
+pub use access::{
+    AccessDataError, AccessSettings, CaptureAuthKeyUse, CaptureAuthRecord, StoredMac,
+};
 pub use aliases::{
     AliasAvailability, AliasClaim, AliasRecord, AliasStoreError, PutAliasOutcome,
     ReleaseAliasOutcome,

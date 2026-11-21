@@ -4,6 +4,7 @@ use axum::body::Body;
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::Response;
 use whl_core::endpoint_id::EndpointId;
+use whl_telemetry::series;
 
 use crate::state::CaptureState;
 
@@ -16,6 +17,8 @@ pub enum Refusal {
     Malformed,
     Gone(Option<EndpointId>),
     Full(Option<EndpointId>),
+    SenderRefused,
+    Unauthorized,
     TooLarge,
     RateLimited { retry_after: Duration },
     StoreUnavailable,
@@ -51,6 +54,9 @@ struct Parts {
 
 impl Failure {
     pub fn into_response(self, state: &CaptureState) -> Response {
+        if matches!(self.refusal, Refusal::Gone(_)) {
+            metrics::counter!(series::CAPTURES_TOTAL, "result" => "gone").increment(1);
+        }
         let parts = describe(self.refusal, state);
         let mut response = Response::new(Body::from(parts.text));
         *response.status_mut() = parts.status;
@@ -117,6 +123,14 @@ fn describe(refusal: Refusal, state: &CaptureState) -> Parts {
                 StatusCode::GONE,
                 "This endpoint holds the maximum number of captures. Delete captures to receive more.",
             )
+        },
+        Refusal::SenderRefused => Parts {
+            error: Some("sender_refused"),
+            ..plain(StatusCode::FORBIDDEN, "Forbidden.")
+        },
+        Refusal::Unauthorized => Parts {
+            error: Some("unauthorized"),
+            ..plain(StatusCode::UNAUTHORIZED, "Unauthorized.")
         },
         Refusal::TooLarge => Parts {
             error: Some("too_large"),

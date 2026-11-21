@@ -16,7 +16,8 @@ const QUALIFIED_COLUMNS: &str = "e.id, e.title, e.response_status, e.response_co
     e.overflow, e.response_templated, e.response_status_template, \
     e.capture_count, e.bytes_used, e.last_seq, e.created_at, e.last_active_at, e.tags, \
     e.retention_seconds, e.never_expires, e.max_captures, e.capture_ttl_seconds, \
-    e.verifier::text AS verifier";
+    e.verifier::text AS verifier, e.sender_allow_cidrs::text[] AS sender_allow_cidrs, \
+    e.capture_auth::text AS capture_auth";
 
 const LIVE_ENDPOINT_SQL: &str = "SELECT owner_id FROM endpoints \
     WHERE id = $1 AND deleted_at IS NULL \

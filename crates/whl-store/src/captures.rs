@@ -13,6 +13,7 @@ use whl_core::status::HttpStatus;
 use whl_secrets::{KeyId, SealedSecret};
 use whl_verify::{Verification, Verifier, VerifierDocument};
 
+use crate::access::{AccessSettings, access_from_columns};
 use crate::kind::CaptureKind;
 use crate::store::Store;
 
@@ -35,6 +36,7 @@ const ENDPOINT_LIVE: &str = "SELECT 1 FROM endpoints \
      AND (never_expires OR last_active_at > now() - make_interval(secs => COALESCE(retention_seconds::float8, $2)))";
 
 const ENDPOINT_ADMISSION: &str = "SELECT (e.capture_count >= COALESCE(e.max_captures::bigint, $3) AND e.overflow <> 'ring') AS full, \
+       e.cors, e.sender_allow_cidrs::text[] AS sender_allow_cidrs, e.capture_auth::text AS capture_auth, \
        e.verifier::text AS verifier, s.key_id, s.nonce, s.ciphertext \
      FROM endpoints e \
      LEFT JOIN endpoint_secrets s ON e.verifier IS NOT NULL \
@@ -229,6 +231,8 @@ pub enum VerifierSource {
 pub struct EndpointAdmission {
     pub state: EndpointState,
     pub verifier: Option<VerifierSource>,
+    pub access: AccessSettings,
+    pub cors: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -482,9 +486,20 @@ impl Store {
             return Ok(EndpointAdmission {
                 state: EndpointState::Gone,
                 verifier: None,
+                access: AccessSettings::default(),
+                cors: false,
             });
         };
         let full: bool = row.try_get("full").map_err(CaptureStoreError::classify)?;
+        let cors: bool = row.try_get("cors").map_err(CaptureStoreError::classify)?;
+        let ranges: Vec<String> = row
+            .try_get("sender_allow_cidrs")
+            .map_err(CaptureStoreError::classify)?;
+        let document: Option<String> = row
+            .try_get("capture_auth")
+            .map_err(CaptureStoreError::classify)?;
+        let access = access_from_columns(&ranges, document.as_deref())
+            .map_err(|error| CaptureStoreError::Corrupt(error.to_string()))?;
         Ok(EndpointAdmission {
             state: if full {
                 EndpointState::Full
@@ -492,6 +507,8 @@ impl Store {
                 EndpointState::Live
             },
             verifier: verifier_from_row(&row)?,
+            access,
+            cors,
         })
     }
 

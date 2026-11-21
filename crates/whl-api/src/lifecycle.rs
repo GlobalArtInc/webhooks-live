@@ -1,6 +1,6 @@
 use whl_auth::AuthRejection;
 use whl_store::lifecycle::{MIN_CAPTURE_TTL_SECONDS, MIN_RETENTION_SECONDS};
-use whl_store::{EndpointChange, EndpointRole, EndpointSettings, Lifecycle};
+use whl_store::{AccessSettings, EndpointChange, EndpointRole, EndpointSettings, Lifecycle};
 
 use crate::error::{ApiError, FieldCode, FieldViolation};
 use crate::input::{LifecyclePatch, RetentionPatch};
@@ -15,7 +15,7 @@ pub struct Standing {
 }
 
 impl Standing {
-    fn may_change(self) -> bool {
+    pub(crate) fn may_change(self) -> bool {
         matches!(self.role, None | Some(EndpointRole::Owner))
     }
 }
@@ -99,20 +99,41 @@ pub fn resolve(
 pub fn combine(
     settings: Result<EndpointSettings, Vec<FieldViolation>>,
     lifecycle: Result<Lifecycle, ApiError>,
+    access: Result<AccessSettings, ApiError>,
 ) -> Result<EndpointChange, ApiError> {
-    match (settings, lifecycle) {
-        (_, Err(error @ (ApiError::Auth(_) | ApiError::OwnerRequired))) => Err(error),
-        (Ok(settings), Ok(lifecycle)) => Ok(EndpointChange {
+    let lifecycle = match lifecycle {
+        Err(error) if is_decisive(&error) => return Err(error),
+        other => other,
+    };
+    let access = match access {
+        Err(error) if is_decisive(&error) => return Err(error),
+        other => other,
+    };
+    match (settings, lifecycle, access) {
+        (Ok(settings), Ok(lifecycle), Ok(access)) => Ok(EndpointChange {
             settings,
             lifecycle,
+            access,
         }),
-        (Err(mut violations), Err(ApiError::Validation(more))) => {
-            violations.extend(more);
-            Err(ApiError::Validation(violations))
+        (settings, lifecycle, access) => {
+            let mut violations = settings.err().unwrap_or_default();
+            let mut other = None;
+            for error in [lifecycle.err(), access.err()].into_iter().flatten() {
+                match error {
+                    ApiError::Validation(more) => violations.extend(more),
+                    error => other = other.or(Some(error)),
+                }
+            }
+            match other {
+                Some(error) if violations.is_empty() => Err(error),
+                _ => Err(ApiError::Validation(violations)),
+            }
         }
-        (Err(violations), _) => Err(ApiError::Validation(violations)),
-        (Ok(_), Err(error)) => Err(error),
     }
+}
+
+fn is_decisive(error: &ApiError) -> bool {
+    matches!(error, ApiError::Auth(_) | ApiError::OwnerRequired)
 }
 
 fn bounded(

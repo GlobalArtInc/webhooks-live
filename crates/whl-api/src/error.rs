@@ -7,7 +7,7 @@ use whl_auth::{AccessDenied, AuthRejection};
 use whl_core::validation::{FieldPath, Violation, ViolationCode};
 use whl_rules::MAX_RULES_PER_ENDPOINT;
 use whl_script::LimitsError;
-use whl_secrets::{MAX_SECRETS_PER_ENDPOINT, SealError};
+use whl_secrets::{MAX_SECRETS_PER_ENDPOINT, MacError, SealError};
 use whl_store::MAX_FOLDERS_PER_USER;
 use whl_store::composer::ComposerStoreError;
 use whl_store::captures::CaptureStoreError;
@@ -246,6 +246,8 @@ pub enum ApiError {
     Access(AccessDenied),
     #[error("a secret could not be sealed: {0}")]
     SecretSeal(SealError),
+    #[error("the capture authentication code could not be computed: {0}")]
+    CaptureAuthMac(MacError),
     #[error("the API token is not found")]
     TokenNotFound,
     #[error("the maximum number of active API tokens is reached")]
@@ -964,6 +966,15 @@ impl IntoResponse for ApiError {
             ),
             Self::ScheduleStorage(error) => {
                 tracing::error!(%error, "schedule storage failed");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal_error",
+                    "the request could not be completed".to_owned(),
+                    None,
+                )
+            }
+            Self::CaptureAuthMac(error) => {
+                tracing::error!(%error, "the capture authentication code could not be computed");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "internal_error",

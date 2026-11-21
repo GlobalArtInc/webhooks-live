@@ -1,4 +1,5 @@
 pub mod alias;
+pub mod capture_auth;
 pub mod capture_id;
 pub mod client_ip;
 pub mod config;
@@ -13,6 +14,7 @@ pub mod limiter;
 pub mod proxy_protocol;
 pub mod rate;
 pub mod response;
+pub mod sender_allow;
 pub mod status;
 pub mod tag;
 pub mod validation;

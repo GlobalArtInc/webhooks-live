@@ -5,9 +5,11 @@ use axum::response::{IntoResponse, Response};
 use whl_auth::{Access, AuthRejection, Caller, Creation};
 use whl_core::endpoint_id::EndpointId;
 use whl_store::{
-    EndpointRecord, EndpointRole, Lifecycle, LifecycleLimits, NewEndpoint, UserRecord,
+    AccessSettings, EndpointRecord, EndpointRole, Lifecycle, LifecycleLimits, NewEndpoint,
+    UserRecord,
 };
 
+use crate::access;
 use crate::body::RawBody;
 use crate::dto::{EndpointDto, InstanceDto};
 use crate::error::ApiError;
@@ -68,6 +70,7 @@ pub(crate) async fn store_new_endpoint(
         sign_in_possible: state.access.has_users(),
         role: None,
     };
+    let id = EndpointId::generate().map_err(|_| ApiError::EntropyUnavailable)?;
     let change = combine(
         resolve(
             &state.settings,
@@ -81,6 +84,13 @@ pub(crate) async fn store_new_endpoint(
             &Lifecycle::default(),
             &parsed.patch.lifecycle,
         ),
+        access::resolve(
+            state.secrets.as_deref(),
+            standing,
+            &id,
+            &AccessSettings::default(),
+            &parsed.patch.access,
+        ),
     )?;
     let (owner_id, creator_net) = match creation {
         Creation::Owned(user) => (Some(*user), None),
@@ -90,10 +100,12 @@ pub(crate) async fn store_new_endpoint(
         .store
         .create_endpoint_with_lifecycle(
             NewEndpoint {
+                id: &id,
                 owner: owner_id,
                 creator_net,
                 settings: &change.settings,
                 lifecycle: change.lifecycle,
+                access: &change.access,
                 limits: never_expire_limits(&state.settings),
             },
             state.settings.retention,
@@ -157,6 +169,13 @@ pub async fn update(
                         standing,
                         &current.lifecycle,
                         &parsed.patch.lifecycle,
+                    ),
+                    access::resolve(
+                        state.secrets.as_deref(),
+                        standing,
+                        &id,
+                        &current.access,
+                        &parsed.patch.access,
                     ),
                 )
             },
