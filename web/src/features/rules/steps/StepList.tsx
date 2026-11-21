@@ -30,6 +30,20 @@ const NO_ERRORS: readonly StepError[] = [];
 const FOCUS_ATTEMPTS = 40;
 const FOCUSABLE = 'input:not(:disabled), select:not(:disabled), textarea:not(:disabled), .cm-content';
 
+function findFocusTarget(root: HTMLElement): HTMLElement | null {
+  const direct = root.querySelector<HTMLElement>(FOCUSABLE);
+  if (direct !== null) {
+    return direct;
+  }
+  for (const element of root.querySelectorAll('*')) {
+    const inner = element.shadowRoot?.querySelector<HTMLElement>(FOCUSABLE) ?? null;
+    if (inner !== null) {
+      return inner;
+    }
+  }
+  return null;
+}
+
 function tryFocus(list: HTMLElement | null, cards: Map<string, HTMLElement>, pending: PendingFocus): boolean {
   if (pending.kind === 'add') {
     const button = list?.querySelector<HTMLElement>('[data-add-step]:not(:disabled)') ?? null;
@@ -55,7 +69,7 @@ function tryFocus(list: HTMLElement | null, cards: Map<string, HTMLElement>, pen
     }
     return false;
   }
-  const target = root.querySelector<HTMLElement>(FOCUSABLE);
+  const target = findFocusTarget(root);
   target?.focus();
   return target !== null && document.activeElement === target;
 }

@@ -165,7 +165,7 @@ test('moving a browser endpoint to the account keeps its label and leaves the br
   await page.goto('/endpoints');
 
   const main = page.getByRole('main');
-  await main.getByRole('button', { name: 'Move github-app to account' }).click();
+  await main.getByRole('button', { name: 'Move to account: github-app' }).click();
 
   await expect(main.getByText('Moved to your account.')).toBeVisible();
   await expect(main.getByRole('link', { name: 'github-app' })).toHaveCount(0);

@@ -44,7 +44,7 @@ async function openEmail(page: Page, width = 1440): Promise<OpenedEmail> {
       },
     },
   });
-  await mockCaptureApi(page, ENDPOINT_ID, [hostileEmailCapture]);
+  await mockCaptureApi(page, ENDPOINT_ID, [{ ...hostileEmailCapture, endpoint_id: ENDPOINT_ID }]);
   await page.route(PARTS_GLOB, async (route) => {
     const url = new URL(route.request().url());
     const index = Number(url.pathname.split('/').at(-1));

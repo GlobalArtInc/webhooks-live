@@ -29,6 +29,7 @@ import styles from './CreateTokenDialog.module.css';
 
 export interface CreateTokenDialogProps {
   onClose: () => void;
+  onCloseAutoFocus?: (event: Event) => void;
 }
 
 interface RevealedToken {
@@ -36,7 +37,7 @@ interface RevealedToken {
   name: string;
 }
 
-export function CreateTokenDialog({ onClose }: CreateTokenDialogProps) {
+export function CreateTokenDialog({ onClose, onCloseAutoFocus }: CreateTokenDialogProps) {
   const { t } = useTranslation();
   const { language } = useLanguage();
   const now = useNow();
@@ -153,7 +154,7 @@ export function CreateTokenDialog({ onClose }: CreateTokenDialogProps) {
     >
       <Dialog.Portal>
         <Dialog.Overlay className={styles.overlay} />
-        <Dialog.Content className={styles.content}>
+        <Dialog.Content className={styles.content} onCloseAutoFocus={onCloseAutoFocus}>
           <Dialog.Title className={styles.title}>{title}</Dialog.Title>
           <Dialog.Description className={styles.description}>{description}</Dialog.Description>
           {revealed === null ? (

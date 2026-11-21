@@ -138,10 +138,10 @@ test('a keyboard move is announced and the saved order survives a reload', async
   await page.setViewportSize({ width: 1440, height: 900 });
   await openRules(page);
 
-  await page.getByRole('link', { name: 'Reject bad signature' }).press('Alt+Shift+ArrowUp');
+  await page.getByRole('link', { name: 'Reject bad signature', exact: true }).press('Alt+Shift+ArrowUp');
 
   await expect(page.getByText('Reject bad signature moved to position 1 of 3.')).toBeAttached();
-  await expect(page.getByRole('link', { name: 'Reject bad signature' })).toBeFocused();
+  await expect(page.getByRole('link', { name: 'Reject bad signature', exact: true })).toBeFocused();
   await page.reload();
   await expect(cardList(page).getByRole('region').first()).toHaveAccessibleName('Rule 1 of 3: Reject bad signature');
 });
@@ -150,7 +150,7 @@ test('a failed order save puts the order back and shows an alert', async ({ page
   await page.setViewportSize({ width: 1440, height: 900 });
   await openRules(page, rulesFixture(), { failOrder: true });
 
-  await page.getByRole('link', { name: 'Reject bad signature' }).press('Alt+Shift+ArrowUp');
+  await page.getByRole('link', { name: 'Reject bad signature', exact: true }).press('Alt+Shift+ArrowUp');
 
   await expect(page.getByRole('alert')).toContainText('The order could not be saved. The previous order is back.');
   await expect(cardList(page).getByRole('region').first()).toHaveAccessibleName('Rule 1 of 3: Mark paid orders');

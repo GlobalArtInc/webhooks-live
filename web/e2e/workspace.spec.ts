@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { endpointFixture } from '../src/test/fixtures/endpoint';
-import { PUBLIC_URL } from '../src/test/fixtures/instance';
+import { instanceFixture, PUBLIC_URL } from '../src/test/fixtures/instance';
 import { mockCaptureApi } from './support/captureApi';
 import { installFakeStream } from './support/fakeStream';
 import { apiError, ENDPOINT_ID, instanceWith, mockApi, type ReplyMap } from './support/mockApi';
@@ -26,10 +26,12 @@ const TARGET_REFUSED = 'target_url resolves only to refused addresses';
 
 function endpointReplies(extra: ReplyMap = {}): ReplyMap {
   return {
-    'GET /instance': instanceWith(),
+    'GET /instance': instanceWith({ features: { ...instanceFixture.features, schedules: true } }),
     [`GET /endpoints/${ENDPOINT_ID}`]: {
       body: { ...endpointFixture, id: ENDPOINT_ID, url: `${PUBLIC_URL}/${ENDPOINT_ID}` },
     },
+    [`GET /endpoints/${ENDPOINT_ID}/rules`]: { body: { items: [], version: 1 } },
+    [`GET /endpoints/${ENDPOINT_ID}/schedules`]: { body: { items: [] } },
     ...extra,
   };
 }

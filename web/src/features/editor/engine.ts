@@ -239,12 +239,12 @@ export function createEngine(parent: HTMLElement, initial: EngineConfig): Engine
     const attributes: Record<string, string> = {
       'aria-label': config.label,
       'aria-invalid': config.invalid ? 'true' : 'false',
+      tabindex: '0',
       spellcheck: 'false',
       autocapitalize: 'off',
       autocorrect: 'off',
     };
     if (config.readOnly) {
-      attributes.tabindex = '0';
       attributes['aria-readonly'] = 'true';
     }
     if (config.singleLine) {

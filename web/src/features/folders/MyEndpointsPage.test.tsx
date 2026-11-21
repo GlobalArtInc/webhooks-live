@@ -93,7 +93,7 @@ describe('MyEndpointsPage', () => {
     renderAppAt('/endpoints');
     const main = await screen.findByRole('main');
 
-    fireEvent.click(await within(main).findByRole('button', { name: 'Move github-app to account' }));
+    fireEvent.click(await within(main).findByRole('button', { name: 'Move to account: github-app' }));
 
     await within(main).findByText('Moved to your account.');
     await waitFor(() => {

@@ -26,6 +26,7 @@ export function TokensPage({ returnTo, providerName }: TokensPageProps) {
   const tokens = useApiTokens();
   const revoke = useRevokeApiToken();
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const createRef = useRef<HTMLButtonElement>(null);
   const focusHeadingOnClose = useRef(false);
   const [creating, setCreating] = useState(false);
   const [target, setTarget] = useState<ApiToken | null>(null);
@@ -77,7 +78,7 @@ export function TokensPage({ returnTo, providerName }: TokensPageProps) {
           </h1>
           <p className={styles.description}>{t('wl.tokens.description')}</p>
         </div>
-        <button type="button" className={styles.create} onClick={() => setCreating(true)}>
+        <button ref={createRef} type="button" className={styles.create} onClick={() => setCreating(true)}>
           {t('wl.tokens.create')}
         </button>
       </header>
@@ -104,7 +105,15 @@ export function TokensPage({ returnTo, providerName }: TokensPageProps) {
       )}
       {items !== undefined && items.length > 0 && <TokenTable tokens={items} onRevoke={setTarget} />}
 
-      {creating && <CreateTokenDialog onClose={() => setCreating(false)} />}
+      {creating && (
+        <CreateTokenDialog
+          onClose={() => setCreating(false)}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            createRef.current?.focus();
+          }}
+        />
+      )}
 
       <ConfirmDialog
         open={target !== null}

@@ -201,6 +201,8 @@ for (const theme of ['Light', 'Dark'] as const) {
     await page.keyboard.press('ControlOrMeta+End');
     await page.keyboard.type(' +');
     await expect(page.getByText('Errors 1', { exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('listbox', { name: 'Completions' })).toHaveCount(0);
 
     const results = await new AxeBuilder({ page }).analyze();
     expect(results.violations).toEqual([]);

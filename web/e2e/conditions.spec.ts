@@ -33,7 +33,7 @@ test.describe('condition rows', () => {
     await expect(row(page, 1).getByLabel('Subject')).toHaveValue('method');
     await expect(row(page, 2).getByLabel('Header name')).toHaveValue('x-event-type');
     await expect(page.getByRole('button', { name: 'Remove condition 4' })).toBeVisible();
-    await expect(row(page, 3).getByLabel('Value')).toBeVisible();
+    await expect(row(page, 3).getByRole('textbox', { name: 'Value' })).toBeVisible();
 
     await row(page, 2).getByLabel('Operator').selectOption('exists');
     await expect(row(page, 2).getByLabel('Value')).toHaveCount(0);

@@ -185,8 +185,6 @@ test.describe('export dialog', () => {
   test('exporting all captures without a selection streams a GET with the chosen format', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await openEndpoint(page, 3);
-    const requests: string[] = [];
-    await mockExport(page, null, requests);
 
     await page.getByRole('button', { name: 'Export', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Export captures' });
@@ -195,8 +193,9 @@ test.describe('export dialog', () => {
     const download = page.waitForEvent('download');
     await dialog.getByRole('button', { name: 'Export', exact: true }).click();
 
-    expect((await download).suggestedFilename()).toBe('webhooks-live-export.json');
-    await expect.poll(() => requests).toEqual(['GET ?format=csv']);
+    const target = new URL((await download).url());
+    expect(target.pathname).toBe(EXPORT_URL_PATH);
+    expect(target.search).toBe('?format=csv');
   });
 
   test('a busy endpoint shows the retry time inside the dialog', async ({ page }) => {
