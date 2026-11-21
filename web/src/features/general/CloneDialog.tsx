@@ -27,10 +27,11 @@ export interface CloneDialogProps {
   endpointId: string;
   title: string | null;
   onClose: () => void;
+  onCloseAutoFocus: (event: Event) => void;
   onCloned: (clone: CloneResult) => void;
 }
 
-export function CloneDialog({ endpointId, title, onClose, onCloned }: CloneDialogProps) {
+export function CloneDialog({ endpointId, title, onClose, onCloseAutoFocus, onCloned }: CloneDialogProps) {
   const { t } = useTranslation();
   const baseId = useId();
   const clone = useCloneEndpoint(endpointId);
@@ -78,7 +79,7 @@ export function CloneDialog({ endpointId, title, onClose, onCloned }: CloneDialo
     >
       <Dialog.Portal>
         <Dialog.Overlay className={styles.overlay} />
-        <Dialog.Content className={styles.content}>
+        <Dialog.Content className={styles.content} onCloseAutoFocus={onCloseAutoFocus}>
           <Dialog.Title className={styles.title}>{t('wl.general.clone.title')}</Dialog.Title>
           <Dialog.Description className={styles.body}>{t('wl.general.clone.body')}</Dialog.Description>
           {created === null ? (

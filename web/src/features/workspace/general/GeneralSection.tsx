@@ -1,5 +1,5 @@
 import { useNavigate } from '@tanstack/react-router';
-import { useId, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useEndpoint, useInstance, useUpdateEndpoint } from '../../../api/queries';
 import type { Endpoint } from '../../../api/types';
@@ -59,6 +59,7 @@ export function GeneralSection({ endpointId }: SectionProps) {
   const moveEndpoint = useMoveAccountEndpoint();
   const update = useUpdateEndpoint(endpointId);
   const [cloneOpen, setCloneOpen] = useState(false);
+  const cloneButtonRef = useRef<HTMLButtonElement>(null);
   const [folderFailed, setFolderFailed] = useState(false);
   const readOnly = endpoint?.my_role === 'viewer';
   const isOwner = endpoint?.my_role === 'owner';
@@ -168,6 +169,7 @@ export function GeneralSection({ endpointId }: SectionProps) {
       />
       <div className={styles.actions}>
         <button
+          ref={cloneButtonRef}
           type="button"
           className={styles.secondary}
           onClick={() => {
@@ -183,6 +185,10 @@ export function GeneralSection({ endpointId }: SectionProps) {
           title={endpoint.title}
           onClose={() => {
             setCloneOpen(false);
+          }}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            cloneButtonRef.current?.focus();
           }}
           onCloned={(clone) => {
             setCloneOpen(false);
