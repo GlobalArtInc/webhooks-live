@@ -32,6 +32,7 @@ import { validateComposeSearch } from '../features/composer/search';
 import { validateEndpointsSearch } from '../features/folders/search';
 import { isCaptureId, isEndpointId } from './ids';
 import { ensureEndpoint } from './endpointQuery';
+import { validatePreviewSearch } from '../features/templating/previewSearch';
 import { isWorkspaceSectionId } from '../features/workspace/sections';
 import { RuleEditorPlaceholder } from '../features/rules/RuleEditorPlaceholder';
 import { validateRuleEditorSearch } from '../features/rules/ruleEditorSearch';
@@ -166,6 +167,7 @@ const settingsIndexRoute = createRoute({
 const settingsSectionRoute = createRoute({
   getParentRoute: () => endpointSettingsRoute,
   path: '$section',
+  validateSearch: validatePreviewSearch,
   beforeLoad: ({ params }) => assertWorkspaceSection(params.section),
   component: SettingsSectionScreen,
 });

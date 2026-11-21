@@ -4,6 +4,7 @@ import { createHeaderRow, type ResponseDraft } from '../../endpoints/responseDra
 export interface ResponseSettingsDraft extends ResponseDraft {
   bodyEncoding: BodyEncoding;
   overflow: Overflow;
+  templated: boolean;
 }
 
 export function responseSettingsDraftOf(endpoint: Endpoint): ResponseSettingsDraft {
@@ -15,6 +16,7 @@ export function responseSettingsDraftOf(endpoint: Endpoint): ResponseSettingsDra
     delay: String(endpoint.response.delay_ms),
     cors: endpoint.cors,
     overflow: endpoint.overflow,
+    templated: endpoint.response.templated === true,
     headers: endpoint.response.headers.map((header) => ({
       ...createHeaderRow(),
       name: header.name,
@@ -36,6 +38,7 @@ export function responseSettingsInput(draft: ResponseSettingsDraft): EndpointInp
       content_type: draft.contentType.trim(),
       body: { encoding: draft.bodyEncoding, data: draft.body },
       delay_ms: Number(draft.delay.trim()),
+      templated: draft.templated,
       headers: draft.headers.map((row) => ({ name: row.name.trim(), value: row.value.trim() })),
     },
   };

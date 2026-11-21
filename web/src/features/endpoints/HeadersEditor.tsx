@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from 'react';
+import { useId, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   createHeaderRow,
@@ -11,13 +11,23 @@ import {
 import { useIssueText } from './issueText';
 import styles from './HeadersEditor.module.css';
 
+export interface HeaderValueRenderProps {
+  row: HeaderRow;
+  index: number;
+  label: string;
+  invalid: boolean;
+  describedBy: string | undefined;
+  onChange: (text: string) => void;
+}
+
 export interface HeadersEditorProps {
   rows: readonly HeaderRow[];
   issues: IssueMap;
   onChange: (rows: readonly HeaderRow[]) => void;
+  renderValue?: (props: HeaderValueRenderProps) => ReactNode;
 }
 
-export function HeadersEditor({ rows, issues, onChange }: HeadersEditorProps) {
+export function HeadersEditor({ rows, issues, onChange, renderValue }: HeadersEditorProps) {
   const { t } = useTranslation();
   const issueText = useIssueText();
   const baseId = useId();
@@ -84,16 +94,27 @@ export function HeadersEditor({ rows, issues, onChange }: HeadersEditorProps) {
               )}
             </div>
             <div className={styles.field}>
-              <input
-                id={`${baseId}-${index}-value`}
-                type="text"
-                className={styles.input}
-                aria-label={t('wl.home.headers.valueLabel', { index: position })}
-                aria-invalid={valueIssue === undefined ? undefined : true}
-                aria-describedby={valueIssue === undefined ? undefined : `${baseId}-${index}-value-error`}
-                value={row.value}
-                onChange={(event) => editRow(row.key, 'value', event.target.value)}
-              />
+              {renderValue === undefined ? (
+                <input
+                  id={`${baseId}-${index}-value`}
+                  type="text"
+                  className={styles.input}
+                  aria-label={t('wl.home.headers.valueLabel', { index: position })}
+                  aria-invalid={valueIssue === undefined ? undefined : true}
+                  aria-describedby={valueIssue === undefined ? undefined : `${baseId}-${index}-value-error`}
+                  value={row.value}
+                  onChange={(event) => editRow(row.key, 'value', event.target.value)}
+                />
+              ) : (
+                renderValue({
+                  row,
+                  index,
+                  label: t('wl.home.headers.valueLabel', { index: position }),
+                  invalid: valueIssue !== undefined,
+                  describedBy: valueIssue === undefined ? undefined : `${baseId}-${index}-value-error`,
+                  onChange: (text) => editRow(row.key, 'value', text),
+                })
+              )}
               {valueIssue !== undefined && (
                 <p id={`${baseId}-${index}-value-error`} className={styles.error}>
                   {issueText(valuePath, valueIssue)}

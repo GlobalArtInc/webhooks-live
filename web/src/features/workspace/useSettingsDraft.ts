@@ -11,6 +11,15 @@ export interface SettingsDraftOptions<TDraft, TSource> {
   readOnly?: boolean;
 }
 
+interface NavigationPoint {
+  pathname: string;
+}
+
+interface BlockedNavigation {
+  current: NavigationPoint;
+  next: NavigationPoint;
+}
+
 export type DraftBlocker = ReturnType<typeof useBlocker<RegisteredRouter, true>>;
 
 export interface DraftStatus {
@@ -108,7 +117,10 @@ export function useSettingsDraft<TDraft, TSource>(
     };
   }, [save]);
 
-  const shouldBlock = useCallback(() => dirty, [dirty]);
+  const shouldBlock = useCallback(
+    ({ current, next }: BlockedNavigation) => dirty && current.pathname !== next.pathname,
+    [dirty],
+  );
   const blocker = useBlocker({
     shouldBlockFn: shouldBlock,
     enableBeforeUnload: dirty,

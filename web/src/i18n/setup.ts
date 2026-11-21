@@ -21,6 +21,7 @@ import selection from './en/selection.json';
 import state from './en/state.json';
 import steps from './en/steps.json';
 import tokens from './en/tokens.json';
+import templating from './en/templating.json';
 import workspace from './en/workspace.json';
 
 export const SOURCE_LANGUAGE = 'en';
@@ -56,6 +57,7 @@ export function createI18nInstance(): I18nInstance {
           ...state,
           ...steps,
           ...tokens,
+          ...templating,
           ...workspace,
         },
       },

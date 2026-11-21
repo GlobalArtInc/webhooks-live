@@ -19,6 +19,7 @@ import selection from './en/selection.json';
 import state from './en/state.json';
 import steps from './en/steps.json';
 import tokens from './en/tokens.json';
+import templating from './en/templating.json';
 import workspace from './en/workspace.json';
 
 export type SourceMessages = typeof access &
@@ -42,6 +43,7 @@ export type SourceMessages = typeof access &
   typeof state &
   typeof steps &
   typeof tokens &
+  typeof templating &
   typeof workspace;
 
 export type SourceKey = keyof SourceMessages;
