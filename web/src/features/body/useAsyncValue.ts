@@ -28,7 +28,7 @@ function describeError(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown error';
 }
 
-export function useAsyncValue<T>(key: object | null, run: () => Promise<T>): AsyncState<T> {
+export function useAsyncValue<T>(key: object | null, run: (signal: AbortSignal) => Promise<T>): AsyncState<T> {
   const [stored, setStored] = useState<StoredState<T> | null>(null);
   const start = useEffectEvent(run);
 
@@ -37,8 +37,9 @@ export function useAsyncValue<T>(key: object | null, run: () => Promise<T>): Asy
       return undefined;
     }
     let cancelled = false;
+    const controller = new AbortController();
     new Promise<T>((resolve) => {
-      resolve(start());
+      resolve(start(controller.signal));
     }).then(
       (value) => {
         if (!cancelled) {
@@ -53,6 +54,7 @@ export function useAsyncValue<T>(key: object | null, run: () => Promise<T>): Asy
     );
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [key]);
 

@@ -8,6 +8,7 @@ import { KeyValueTable } from '../../components/KeyValueTable/KeyValueTable';
 import { SectionNav, type SectionNavItem } from '../../components/SectionNav/SectionNav';
 import type { BodyLoader, BodyViewMode } from '../body';
 import { DnsDetail } from '../kinds/dns/DnsDetail';
+import { EmailDetail, readEmailView } from '../email';
 import { BodySection } from './BodySection';
 import { DetailSection } from './DetailSection';
 import { FormSection } from './FormSection';
@@ -68,6 +69,10 @@ export function CaptureDetail(props: CaptureDetailProps) {
   }
   if (capture === null) {
     return null;
+  }
+  const email = readEmailView(capture);
+  if (email !== null) {
+    return <EmailDetail key={email.capture.id} view={email} loadBody={rest.loadBody} />;
   }
   return <ReadyDetail {...rest} capture={capture} />;
 }

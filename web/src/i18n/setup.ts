@@ -7,6 +7,7 @@ import conditions from './en/conditions.json';
 import detail from './en/detail.json';
 import diff from './en/diff.json';
 import editor from './en/editor.json';
+import email from './en/email.json';
 import endpoint from './en/endpoint.json';
 import exportMessages from './en/export.json';
 import exportDialog from './en/exportdialog.json';
@@ -44,6 +45,7 @@ export function createI18nInstance(): I18nInstance {
           ...detail,
           ...diff,
           ...editor,
+          ...email,
           ...endpoint,
           ...exportMessages,
           ...exportDialog,
