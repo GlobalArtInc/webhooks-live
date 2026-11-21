@@ -1,8 +1,6 @@
 use axum::Json;
-use axum::Router;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::routing::{get, patch, put};
 use serde::Serialize;
 use serde_json::{Map, Value};
 use whl_auth::{AuthRejection, Caller};
@@ -12,6 +10,7 @@ use whl_store::{CreateFolderOutcome, FolderRecord, UpdateFolderOutcome, Uuid};
 use crate::body::RawBody;
 use crate::dto::timestamp;
 use crate::error::{ApiError, FieldCode, FieldViolation};
+use crate::routing::{Routes, get, patch, put};
 use crate::state::ApiState;
 
 const NAME_MAX_CHARS: usize = 64;
@@ -47,8 +46,8 @@ struct FolderPatch {
     position: Option<i32>,
 }
 
-pub fn routes() -> Router<ApiState> {
-    Router::new()
+pub fn routes() -> Routes {
+    Routes::new()
         .route("/folders", get(list).post(create))
         .route("/folders/{folder_id}", patch(update).delete(destroy))
         .route(

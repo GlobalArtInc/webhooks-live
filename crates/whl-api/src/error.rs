@@ -3,6 +3,7 @@ use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 use time::OffsetDateTime;
+use utoipa::ToSchema;
 use whl_auth::{AccessDenied, AuthRejection};
 use whl_core::validation::{FieldPath, Violation, ViolationCode};
 use whl_script::LimitsError;
@@ -26,7 +27,7 @@ use whl_store::{
 use crate::dto::timestamp;
 use crate::tokens::MAX_TOKENS_PER_HOUR;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum FieldCode {
     Required,
@@ -50,14 +51,16 @@ pub enum FieldCode {
     HostNotAllowed,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
 pub struct FieldViolation {
     field: String,
     code: FieldCode,
     message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
     line: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
     column: Option<u32>,
 }
 
@@ -513,36 +516,44 @@ impl From<EndpointError> for ApiError {
     }
 }
 
-#[derive(Serialize)]
-struct ErrorBody {
+#[derive(Serialize, ToSchema)]
+#[schema(as = Error)]
+pub(crate) struct ErrorBody {
     error: ErrorDetail,
 }
 
-#[derive(Serialize)]
-struct ErrorDetail {
+#[derive(Serialize, ToSchema)]
+pub(crate) struct ErrorDetail {
     code: &'static str,
     message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
     fields: Option<Vec<FieldViolation>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
     limit: Option<LimitDetail>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
     references: Option<Vec<ReferenceDetail>>,
 }
 
-#[derive(Serialize)]
-struct ReferenceDetail {
+#[derive(Serialize, ToSchema)]
+#[schema(as = ErrorReference)]
+pub(crate) struct ReferenceDetail {
     kind: &'static str,
     id: String,
 }
 
-#[derive(Serialize)]
-struct LimitDetail {
+#[derive(Serialize, ToSchema)]
+#[schema(as = ErrorLimit)]
+pub(crate) struct LimitDetail {
     name: &'static str,
     max: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
     window: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
     resets_at: Option<String>,
 }
 

@@ -5,21 +5,19 @@ mod selection;
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::Router;
 use axum::extract::Query;
 use axum::http::Uri;
 use axum::response::IntoResponse;
-use axum::routing::get;
 use serde::Deserialize;
 use whl_auth::AccessControl;
 use whl_live::{InboxSelection, InboxSelector, SelectionFuture, StreamRequest};
 use whl_store::Store;
 
 use crate::error::{ApiError, FieldCode, FieldViolation};
-use crate::state::ApiState;
+use crate::routing::{Routes, get};
 
-pub fn routes() -> Router<ApiState> {
-    Router::new().route("/inbox/captures", get(list::list))
+pub fn routes() -> Routes {
+    Routes::new().route("/inbox/captures", get(list::list))
 }
 
 #[derive(Debug, Default, Deserialize)]

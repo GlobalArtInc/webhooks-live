@@ -5,13 +5,10 @@ mod stream;
 
 pub use slots::ExportSlots;
 
-use axum::Router;
-use axum::routing::get;
+use crate::routing::{Routes, get};
 
-use crate::state::ApiState;
-
-pub fn routes() -> Router<ApiState> {
-    Router::new().route(
+pub fn routes() -> Routes {
+    Routes::new().route(
         "/endpoints/{id}/export",
         get(handlers::get).post(handlers::post).head(handlers::head),
     )

@@ -1,9 +1,8 @@
 use axum::Json;
-use axum::Router;
 use axum::extract::State;
-use axum::routing::get;
 use serde::Serialize;
 use time::OffsetDateTime;
+use utoipa::{OpenApi, ToSchema};
 use whl_auth::{AuthRejection, Caller};
 use whl_core::tier::Tier;
 use whl_store::composer::{QuotaCharge, QuotaOutcome, QuotaWindow};
@@ -11,26 +10,42 @@ use whl_store::quota::OwnerUsage;
 use whl_telemetry::series;
 
 use crate::dto::timestamp;
-use crate::error::ApiError;
+use crate::error::{ApiError, ErrorBody};
+use crate::openapi::responses::{StoreUnavailable, Unauthenticated};
+use crate::routing::{Routes, get};
 use crate::state::ApiState;
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = Usage)]
 pub struct UsageDto {
+    #[schema(example = "member")]
     tier: String,
     items: Vec<UsageItemDto>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = UsageItem)]
 struct UsageItemDto {
+    #[schema(example = "endpoints")]
     name: &'static str,
+    #[schema(example = "total")]
     window: &'static str,
     used: u64,
     max: u64,
+    #[schema(format = DateTime)]
     resets_at: Option<String>,
 }
 
-pub fn routes() -> Router<ApiState> {
-    Router::new().route("/usage", get(usage))
+#[derive(OpenApi)]
+#[openapi(
+    paths(usage),
+    components(schemas(UsageDto, UsageItemDto)),
+    tags((name = "Usage", description = "The caller's tier and quota consumption"))
+)]
+pub struct UsageDoc;
+
+pub fn routes() -> Routes {
+    Routes::new().route("/usage", get(usage))
 }
 
 pub(crate) async fn charge(
@@ -63,6 +78,21 @@ pub(crate) async fn charge(
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/usage",
+    operation_id = "usage_get",
+    tag = "Usage",
+    summary = "Quota usage of the signed-in caller",
+    description = "Lists the caller's tier and, for every limit the tier has, the amount used and the maximum. Item `name` is one of `endpoints`, `never_expire`, `schedules`, `tokens`, `storage_bytes`, `outbound`, `notifications`, `exports`; `window` is `hour` or `total`; `resets_at` is null for `total`. Needs a signed-in caller; a token needs the `read` scope and no endpoint limit.",
+    security(("session_cookie" = []), ("api_token" = [])),
+    responses(
+        (status = 200, description = "The usage", body = UsageDto),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`insufficient_scope`: the token has an endpoint limit or lacks `read`", body = ErrorBody),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 async fn usage(State(state): State<ApiState>, caller: Caller) -> Result<Json<UsageDto>, ApiError> {
     let user = caller.user().ok_or(AuthRejection::Unauthenticated)?;
     if caller

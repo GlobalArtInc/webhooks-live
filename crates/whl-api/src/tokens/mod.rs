@@ -1,16 +1,16 @@
+mod doc;
 mod dto;
 mod handlers;
 mod input;
 
-use axum::Router;
-use axum::routing::{delete, get};
+use crate::routing::{Routes, delete, get};
 
-use crate::state::ApiState;
+pub use doc::TokensDoc;
 
 pub const MAX_TOKENS_PER_HOUR: u32 = 10;
 
-pub fn routes() -> Router<ApiState> {
-    Router::new()
+pub fn routes() -> Routes {
+    Routes::new()
         .route("/tokens", get(handlers::list).post(handlers::create))
         .route("/tokens/{token_id}", delete(handlers::revoke))
 }

@@ -1,8 +1,6 @@
 use axum::Json;
-use axum::Router;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::routing::{get, put};
 use serde::Serialize;
 use whl_auth::Caller;
 use whl_core::alias::{Alias, AliasError};
@@ -12,6 +10,7 @@ use whl_store::{AliasAvailability, AliasClaim, AliasRecord, PutAliasOutcome, Rel
 use crate::dto::timestamp;
 use crate::error::{ApiError, FieldCode, FieldViolation};
 use crate::folders::signed_in;
+use crate::routing::{Routes, get, put};
 use crate::state::ApiState;
 
 #[derive(Serialize)]
@@ -43,8 +42,8 @@ pub struct AvailabilityDto {
     reason: Option<&'static str>,
 }
 
-pub fn routes() -> Router<ApiState> {
-    Router::new()
+pub fn routes() -> Routes {
+    Routes::new()
         .route("/endpoints/{id}/aliases", get(list))
         .route(
             "/endpoints/{id}/aliases/{alias}",

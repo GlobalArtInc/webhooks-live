@@ -30,7 +30,7 @@ const ALIAS_TAIL: &str = "/aliases/{alias}";
 pub fn requirement(mode: AccessMode, method: &Method, pattern: &str) -> Requirement {
     let rest = pattern.strip_prefix(API_PREFIX).unwrap_or(pattern);
     match rest {
-        "/instance" | "/inbox/captures" | "/inbox/stream" => Requirement::Anyone,
+        "/instance" | "/openapi.json" | "/inbox/captures" | "/inbox/stream" => Requirement::Anyone,
         "/email-addresses/verify" | "/notifications/disable" => Requirement::Anyone,
         "/email-addresses" | "/email-addresses/{address_id}" => Requirement::SignedIn,
         TOKENS_PATH | TOKEN_PATH | ALIAS_AVAILABILITY_PATH | USAGE_PATH => Requirement::SignedIn,
@@ -72,7 +72,7 @@ pub fn token_policy(method: &Method, pattern: &str) -> TokenPolicy {
     let rest = pattern.strip_prefix(API_PREFIX).unwrap_or(pattern);
     let read = matches!(*method, Method::GET | Method::HEAD);
     let scope = match rest {
-        "/instance" | USAGE_PATH if read => Some(TokenScope::Read),
+        "/instance" | "/openapi.json" | USAGE_PATH if read => Some(TokenScope::Read),
         "/endpoints" if read => Some(TokenScope::Read),
         "/endpoints" if *method == Method::POST => Some(TokenScope::EndpointsWrite),
         "/send" if *method == Method::POST => Some(TokenScope::Send),
@@ -1006,6 +1006,25 @@ mod tests {
         }
         assert_eq!(
             token_policy(&POST, "/api/v1/usage"),
+            TokenPolicy::SessionOnly
+        );
+    }
+
+    #[test]
+    fn the_openapi_document_is_public_and_takes_the_read_scope_for_tokens() {
+        for mode in MODES {
+            assert_eq!(
+                requirement(mode, &GET, "/api/v1/openapi.json"),
+                Requirement::Anyone,
+                "{mode:?}"
+            );
+        }
+        assert_eq!(
+            token_policy(&GET, "/api/v1/openapi.json"),
+            TokenPolicy::Scope(TokenScope::Read)
+        );
+        assert_eq!(
+            token_policy(&POST, "/api/v1/openapi.json"),
             TokenPolicy::SessionOnly
         );
     }

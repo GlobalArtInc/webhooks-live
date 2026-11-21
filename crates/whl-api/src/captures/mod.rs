@@ -7,16 +7,13 @@ mod parts;
 pub(crate) mod query;
 mod stats;
 
-use axum::Router;
-use axum::routing::get;
-
 pub(crate) use dto::SummaryDto;
 pub(crate) use query::{ListParams, inbox_query};
 
-use crate::state::ApiState;
+use crate::routing::{Routes, get};
 
-pub fn routes() -> Router<ApiState> {
-    Router::new()
+pub fn routes() -> Routes {
+    Routes::new()
         .route(
             "/endpoints/{id}/captures",
             get(handlers::list).delete(handlers::clear),

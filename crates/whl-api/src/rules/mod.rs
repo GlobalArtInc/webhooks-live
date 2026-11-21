@@ -6,16 +6,13 @@ mod runs;
 
 pub(crate) use runs::RuleRunDto;
 
-use axum::Router;
-use axum::routing::{get, post, put};
-
-use crate::state::ApiState;
+use crate::routing::{Routes, get, post, put};
 
 pub(crate) use handlers::vet_all;
 pub(crate) use input::violations as rule_violations;
 
-pub fn routes() -> Router<ApiState> {
-    Router::new()
+pub fn routes() -> Routes {
+    Routes::new()
         .route(
             "/endpoints/{id}/rules",
             get(handlers::list).post(handlers::create),

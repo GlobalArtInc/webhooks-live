@@ -3,18 +3,15 @@ mod handlers;
 mod input;
 mod settings;
 
-use axum::Router;
-use axum::routing::{get, patch, post};
-
-use crate::state::ApiState;
+use crate::routing::{Routes, get, patch, post};
 
 pub(crate) use dto::{JobDto, RuleDto};
 pub(crate) use handlers::build_rule;
 pub(crate) use input::target_violation_for;
 pub use settings::ForwardSettings;
 
-pub fn routes() -> Router<ApiState> {
-    Router::new()
+pub fn routes() -> Routes {
+    Routes::new()
         .route(
             "/endpoints/{id}/forward-rules",
             get(handlers::list).post(handlers::create),

@@ -6,22 +6,18 @@ mod redact;
 mod settings;
 mod target;
 
-use axum::Router;
-use axum::extract::DefaultBodyLimit;
-use axum::routing::{delete, get, post};
-
-use crate::state::ApiState;
+use crate::routing::{Routes, delete, get, post};
 
 pub use settings::{
     ComposerLimits, ComposerSettings, LocalDelivery, LocalError, LocalFuture, LocalReply,
     LocalRequest, MAX_SEND_BODY_BYTES,
 };
 
-pub fn routes() -> Router<ApiState> {
-    Router::new()
+pub fn routes() -> Routes {
+    Routes::new()
         .route(
             "/send",
-            post(handlers::send).layer(DefaultBodyLimit::max(MAX_SEND_BODY_BYTES)),
+            post(handlers::send).body_limit(MAX_SEND_BODY_BYTES),
         )
         .route("/send/history", get(handlers::history))
         .route("/send/history/{sent_id}", delete(handlers::delete))

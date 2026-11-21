@@ -2,13 +2,10 @@ mod dto;
 mod handlers;
 mod input;
 
-use axum::Router;
-use axum::routing::{delete, get};
+use crate::routing::{Routes, delete, get};
 
-use crate::state::ApiState;
-
-pub fn routes() -> Router<ApiState> {
-    Router::new()
+pub fn routes() -> Routes {
+    Routes::new()
         .route("/push/public-key", get(handlers::public_key))
         .route(
             "/push/subscriptions",

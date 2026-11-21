@@ -6,10 +6,13 @@ use whl_auth::{ApiTokenSecret, AuthRejection, Caller};
 use whl_store::{CreateTokenOutcome, NewApiToken, RevokeTokenOutcome, TokenCaps, UserRecord, Uuid};
 
 use super::MAX_TOKENS_PER_HOUR;
-use super::dto::{ApiTokenDto, ApiTokenListDto, CreatedApiTokenDto};
+use super::dto::{ApiTokenDto, ApiTokenInputDoc, ApiTokenListDto, CreatedApiTokenDto};
 use super::input::parse_token_input;
 use crate::body::RawBody;
-use crate::error::ApiError;
+use crate::error::{ApiError, ErrorBody};
+use crate::openapi::responses::{
+    BadRequest, PayloadTooLarge, StoreUnavailable, Unauthenticated, UnsupportedMediaType,
+};
 use crate::state::ApiState;
 
 fn session_user<'a>(state: &ApiState, caller: &'a Caller) -> Result<&'a UserRecord, ApiError> {
@@ -25,6 +28,21 @@ fn session_user<'a>(state: &ApiState, caller: &'a Caller) -> Result<&'a UserReco
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/tokens",
+    operation_id = "tokens_list",
+    tag = "Tokens",
+    summary = "List the caller's API tokens",
+    description = "Includes revoked and expired tokens until the maintenance job removes them. The secret is never listed. `scopes` is a subset of `read`, `endpoints:write`, `captures:write`, `rules:write`, `send`; `endpoint_ids` null means no endpoint limit.",
+    security(("session_cookie" = [])),
+    responses(
+        (status = 200, description = "The caller's tokens", body = ApiTokenListDto),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`session_required`: a Bearer token was used; `not_available_in_mode`: the instance has no accounts", body = ErrorBody),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 pub async fn list(
     State(state): State<ApiState>,
     caller: Caller,
@@ -36,6 +54,27 @@ pub async fn list(
     }))
 }
 
+#[utoipa::path(
+    post,
+    path = "/tokens",
+    operation_id = "tokens_create",
+    tag = "Tokens",
+    summary = "Create an API token",
+    description = "Expiry is 1 to 365 days (default 90). At most 20 active tokens and 10 creations per hour per user. `token`, the secret, is in this response only and never again.",
+    security(("session_cookie" = [])),
+    request_body(content = ApiTokenInputDoc, content_type = "application/json"),
+    responses(
+        (status = 201, description = "The token with its secret", body = CreatedApiTokenDto),
+        (status = 400, response = BadRequest),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`session_required`: a Bearer token was used; `csrf_rejected`: the Origin check failed; `not_available_in_mode`: the instance has no accounts", body = ErrorBody),
+        (status = 413, response = PayloadTooLarge),
+        (status = 415, response = UnsupportedMediaType),
+        (status = 422, description = "`validation_failed` (see `error.fields`) or `limit_reached` (`error.limit` = `{name: \"tokens\", max}`)", body = ErrorBody),
+        (status = 429, description = "`quota_exceeded`: 10 creations per hour (`error.limit.name` = `token_creation`, `Retry-After` set); also `rate_limited`", body = ErrorBody),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 pub async fn create(
     State(state): State<ApiState>,
     caller: Caller,
@@ -79,6 +118,23 @@ pub async fn create(
     }
 }
 
+#[utoipa::path(
+    delete,
+    path = "/tokens/{token_id}",
+    operation_id = "tokens_revoke",
+    tag = "Tokens",
+    summary = "Revoke an API token",
+    description = "A token of another user, an unknown id and a malformed id all answer 404 `token_not_found`.",
+    security(("session_cookie" = [])),
+    params(("token_id" = String, Path, pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", description = "Token id, lowercase hyphenated UUID")),
+    responses(
+        (status = 204, description = "The token is revoked"),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`session_required`: a Bearer token was used; `csrf_rejected`: the Origin check failed; `not_available_in_mode`: the instance has no accounts", body = ErrorBody),
+        (status = 404, description = "`token_not_found`", body = ErrorBody),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 pub async fn revoke(
     State(state): State<ApiState>,
     caller: Caller,

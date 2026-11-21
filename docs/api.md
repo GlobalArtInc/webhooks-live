@@ -20,7 +20,7 @@ This document is the contract between the Rust backend and the React frontend.
 | Access | Unknown, expired and deleted endpoints answer 410 `endpoint_gone`; in `sso` so does an endpoint the caller has no role on, never 403. A malformed endpoint id answers 404 `not_found`. |
 | Current user | There is no `/me` route. `GET /api/v1/instance` carries `user` (`null` when anonymous or in `open`); the UI fetches it at start and after login or logout. |
 | Rate limits | First release: management routes send no rate-limit headers until milestone M9. From M9 every `/api` response carries `RateLimit-Limit` (burst size) and `RateLimit-Remaining`; 429 adds `Retry-After` (seconds). Limits are per replica. |
-| Caching | All `/api` responses: `Cache-Control: no-store`. |
+| Caching | All `/api` responses: `Cache-Control: no-store`, except `GET /api/v1/openapi.json` (§23). |
 
 ### 1.1 Error body
 
@@ -896,7 +896,9 @@ When a templated response drops a header or falls back, the capture `meta.templa
 ## 23. OpenAPI
 
 `GET /api/v1/openapi.json`: OpenAPI 3.1 document of every `/api/v1` route, `ETag` = build version, public in all
-modes. The reference page is a UI route (ui-design.md).
+modes. `If-None-Match` with the tag answers 304. `Cache-Control: no-cache` (the one `/api` response that may be
+stored, always revalidated). A Bearer token needs the `read` scope, as for `/instance`. Paths are relative to the
+server `/api/v1`. The reference page is a UI route (ui-design.md).
 
 ## 24. Examples
 
@@ -937,3 +939,15 @@ curl -s -X PATCH https://webhooks.live/api/v1/endpoints/7k2m9q4xw8c1d5f3h6j0n2p4
 ```
 
 The first three steps run before the response; `http` and `notify` run after it (architecture §22).
+
+## 25. Annotating a route
+
+- Each API area owns an `#[derive(OpenApi)]` struct beside its handlers (`quota.rs` has `UsageDoc`, `tokens/doc.rs` has `TokensDoc`); handlers carry `#[utoipa::path]`, DTOs carry `ToSchema`.
+- Register the area with one line in `crates/whl-api/src/openapi/registry.rs` (`area_docs`, alphabetical). Nothing else is shared.
+- Paths are relative to `/api/v1` and use the router's `{param}` names. Every `{param}` needs a `params(...)` entry or an `IntoParams` type (`EndpointIdParam` for `{id}`).
+- `operation_id` = `<area>_<verb>` in snake case (`tokens_create`); `tag` = the area's title-case name, described in the area's `tags(...)`.
+- Schema names follow this document (`#[schema(as = ApiToken)]`); doc-only request types are named after their object (`ApiTokenInput`). No field names or shapes change for the sake of the schema.
+- Security: `security(("session_cookie" = []), ("api_token" = []))` when tokens may call the route, `("session_cookie" = [])` alone for session-only routes, `security(())` for public ones.
+- Errors: one `responses` entry per status. Reuse `crate::openapi::responses` (`Unauthenticated`, `StoreUnavailable`, `ValidationFailed`, `BadRequest`, `PayloadTooLarge`, `UnsupportedMediaType`); when a status carries several codes, use `body = ErrorBody` and name each code in `description` as in the tables of §1 and §9. 429 and 500 are added to every operation automatically.
+- Allowlist: `crates/whl-api/src/openapi/undocumented.rs` lists every route still undocumented, one constant per area. When an area is documented, delete its lines from its constant and leave the constant in place. The coverage test fails for a routed route that is neither documented nor listed, for a listed route that is documented, and for a documented operation without a route.
+- Routes are registered through `crate::routing` (`Routes`, `get`, `post`, ...), which records each method and path for the coverage test; do not use `axum::routing` in an area.

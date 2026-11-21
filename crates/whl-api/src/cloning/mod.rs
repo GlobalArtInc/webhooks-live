@@ -6,15 +6,12 @@ mod request;
 mod scan;
 mod templates;
 
-use axum::Router;
-use axum::routing::{get, post};
-
-use crate::state::ApiState;
+use crate::routing::{Routes, get, post};
 
 pub(crate) use templates::{create_from_template, split_template_request};
 
-pub fn routes() -> Router<ApiState> {
-    Router::new()
+pub fn routes() -> Routes {
+    Routes::new()
         .route("/endpoints/{id}/clone", post(handlers::clone_endpoint))
         .route("/templates", get(templates::list).post(templates::create))
         .route(

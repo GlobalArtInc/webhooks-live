@@ -20,10 +20,12 @@ mod limit;
 mod listing;
 mod members;
 mod notify;
+mod openapi;
 mod policy;
 mod push;
 mod quota;
 mod resolve;
+mod routing;
 mod rules;
 mod schedules;
 mod secrets;
@@ -39,7 +41,6 @@ use axum::extract::DefaultBodyLimit;
 use axum::http::{HeaderValue, header};
 use axum::middleware::{from_fn_with_state, map_response};
 use axum::response::Response;
-use axum::routing::{get, post};
 
 pub use composer::{
     ComposerLimits, ComposerSettings, LocalDelivery, LocalError, LocalFuture, LocalReply,
@@ -57,10 +58,10 @@ pub use state::ApiState;
 pub use stream::stream_authorizer;
 
 use error::ApiError;
+use routing::{Routes, get, post};
 
-pub fn router(state: ApiState) -> Router {
-    let limits = state.limits.clone();
-    let api = Router::new()
+fn api_routes() -> Routes {
+    Routes::new()
         .route("/instance", get(handlers::instance))
         .route("/endpoints", get(listing::list).post(handlers::create))
         .route(
@@ -88,8 +89,13 @@ pub fn router(state: ApiState) -> Router {
         .merge(composer::routes())
         .merge(tokens::routes())
         .merge(quota::routes())
-        .merge(vars::routes());
-    let api = guard_routes(api, &state.access)
+        .merge(vars::routes())
+        .merge(openapi::routes())
+}
+
+pub fn router(state: ApiState) -> Router {
+    let limits = state.limits.clone();
+    let api = guard_routes(api_routes().into_router(), &state.access)
         .fallback(not_found)
         .method_not_allowed_fallback(method_not_allowed)
         .with_state(state);
@@ -113,7 +119,9 @@ async fn method_not_allowed() -> ApiError {
 
 async fn secure(mut response: Response) -> Response {
     let headers = response.headers_mut();
-    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    headers
+        .entry(header::CACHE_CONTROL)
+        .or_insert(HeaderValue::from_static("no-store"));
     headers.insert(
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),

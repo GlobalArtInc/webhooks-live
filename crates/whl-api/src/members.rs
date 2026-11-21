@@ -1,8 +1,6 @@
 use axum::Json;
-use axum::Router;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::routing::{delete, get};
 use serde::Serialize;
 use serde_json::{Map, Value};
 use whl_core::endpoint_id::EndpointId;
@@ -11,13 +9,14 @@ use whl_store::{GrantedRole, MemberRecord, RemoveMemberOutcome, SetMemberOutcome
 use crate::body::RawBody;
 use crate::dto::{UserDto, timestamp};
 use crate::error::{ApiError, FieldCode, FieldViolation};
+use crate::routing::{Routes, delete, get};
 use crate::state::ApiState;
 
 const MAX_EMAIL_BYTES: usize = 254;
 const MEMBER_KEYS: &[&str] = &["email", "role"];
 
-pub fn routes() -> Router<ApiState> {
-    Router::new()
+pub fn routes() -> Routes {
+    Routes::new()
         .route("/endpoints/{id}/members", get(list).put(set))
         .route("/endpoints/{id}/members/{user_id}", delete(remove))
 }

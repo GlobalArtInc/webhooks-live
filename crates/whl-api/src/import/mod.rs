@@ -5,13 +5,10 @@ mod upload;
 
 use std::time::Duration;
 
-use axum::Router;
-use axum::routing::post;
-
 pub use cooldown::ImportCooldown;
 
 use crate::export::ExportSlots;
-use crate::state::ApiState;
+use crate::routing::{Routes, post};
 
 pub const IMPORT_REPLICA_CONCURRENCY: u32 = 2;
 pub const UPLOAD_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
@@ -22,8 +19,8 @@ pub fn import_slots() -> ExportSlots {
     ExportSlots::new(IMPORT_REPLICA_CONCURRENCY)
 }
 
-pub fn routes() -> Router<ApiState> {
-    Router::new()
+pub fn routes() -> Routes {
+    Routes::new()
         .route("/endpoints/import", post(handlers::into_new_endpoint))
         .route("/endpoints/{id}/import", post(handlers::into_endpoint))
 }

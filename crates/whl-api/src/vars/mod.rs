@@ -2,13 +2,10 @@ mod dto;
 mod handlers;
 mod input;
 
-use axum::Router;
-use axum::routing::{get, put};
+use crate::routing::{Routes, get, put};
 
-use crate::state::ApiState;
-
-pub fn routes() -> Router<ApiState> {
-    Router::new()
+pub fn routes() -> Routes {
+    Routes::new()
         .route("/endpoints/{id}/vars", get(handlers::list))
         .route(
             "/endpoints/{id}/vars/{name}",
