@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use whl_core::endpoint_id::EndpointId;
+use whl_core::tier::Tier;
 use whl_forward::GuardedClient;
 use whl_rules::{Failure, FailureCode, OutboundCall, OutboundDone, OutboundStep};
 use whl_store::CaptureDetail;
@@ -10,11 +11,9 @@ use whl_store::rule_exec::ClaimedRun;
 use whl_telemetry::series::{OUTBOUND_REQUESTS_TOTAL, QUOTA_EXCEEDED_TOTAL};
 
 use crate::scrub::{Opened, Scrubber};
-use crate::settings::{OutboundLimits, WorkerSettings};
+use crate::settings::WorkerSettings;
 use crate::{forward, http, notify, s3};
 
-const TIER_MEMBER: &str = "member";
-const TIER_ANONYMOUS: &str = "anonymous";
 const QUOTA_RETRY: Duration = Duration::from_secs(30);
 
 pub(crate) enum StepAttempt {
@@ -39,12 +38,13 @@ pub(crate) fn failed(scrub: &Scrubber, code: FailureCode, detail: &str) -> StepA
     StepAttempt::Failed(Failure::new(code, scrub.text(detail)))
 }
 
-pub(crate) fn charges(run: &ClaimedRun, limits: OutboundLimits) -> Vec<QuotaCharge> {
+pub(crate) fn charges(run: &ClaimedRun, tier: Tier<'_>) -> Vec<QuotaCharge> {
+    let limits = tier.limits();
     if let Some(owner) = run.owner_id {
         return vec![QuotaCharge {
             subject: format!("u:{}", owner.hyphenated()),
             window: QuotaWindow::Hour,
-            limit: limits.user_per_hour,
+            limit: limits.outbound_per_user_hour.unwrap_or(0),
             name: "rule_user_hour",
         }];
     }
@@ -53,21 +53,22 @@ pub(crate) fn charges(run: &ClaimedRun, limits: OutboundLimits) -> Vec<QuotaChar
         charges.push(QuotaCharge {
             subject: format!("n:{network}"),
             window: QuotaWindow::Day,
-            limit: limits.network_per_day,
+            limit: limits.outbound_per_network_day.unwrap_or(0),
             name: "rule_network_day",
         });
     }
     charges.push(QuotaCharge {
         subject: format!("e:{}", run.endpoint_id),
         window: QuotaWindow::Hour,
-        limit: limits.endpoint_per_hour,
+        limit: limits.outbound_per_endpoint_hour.unwrap_or(0),
         name: "rule_endpoint_hour",
     });
     charges
 }
 
 pub(crate) async fn charge(ctx: &Ctx<'_>) -> Result<(), StepAttempt> {
-    let charges = charges(ctx.run, ctx.settings.limits);
+    let tier = ctx.settings.tiers.for_caller(ctx.run.owner_tier.as_deref());
+    let charges = charges(ctx.run, tier);
     match ctx.store.consume_quota(OUTBOUND_METRIC, &charges).await {
         Ok(QuotaOutcome::Allowed) => Ok(()),
         Ok(QuotaOutcome::Exceeded {
@@ -76,13 +77,12 @@ pub(crate) async fn charge(ctx: &Ctx<'_>) -> Result<(), StepAttempt> {
             retry_after,
             ..
         }) => {
-            let tier = if ctx.run.owner_id.is_some() {
-                TIER_MEMBER
-            } else {
-                TIER_ANONYMOUS
-            };
-            metrics::counter!(QUOTA_EXCEEDED_TOTAL, "metric" => OUTBOUND_METRIC, "tier" => tier)
-                .increment(1);
+            metrics::counter!(
+                QUOTA_EXCEEDED_TOTAL,
+                "metric" => OUTBOUND_METRIC,
+                "tier" => tier.name().to_owned()
+            )
+            .increment(1);
             Err(StepAttempt::Failed(Failure::new(
                 FailureCode::Quota,
                 format!(

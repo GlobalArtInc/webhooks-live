@@ -6,10 +6,12 @@ use std::time::{Duration, Instant};
 
 use common::{
     Scene, Target, closed_port, fake_value, header, keyring, loopback_guard, new_endpoint, scene,
-    settings, start,
+    settings, start, start_observed, tiers_with,
 };
 use serde_json::{Value, json};
+use tokio::sync::Notify;
 use uuid::Uuid;
+use whl_core::tier::{ANONYMOUS_TIER, MEMBER_TIER, Tiers};
 use whl_forward::GuardConfig;
 use whl_rules::PLAN_VERSION;
 use whl_rules_worker::step_id;
@@ -588,7 +590,9 @@ async fn the_outbound_budget_stops_a_run_before_the_request_that_would_exceed_it
         .await;
     let capture = scene.capture(Vec::new()).await;
     let mut limited = settings();
-    limited.limits.endpoint_per_hour = 1;
+    limited.tiers = tiers_with(ANONYMOUS_TIER, |limits| {
+        limits.outbound_per_endpoint_hour = Some(1);
+    });
     let worker = start(&scene, loopback_guard(), limited, None);
 
     let run = scene.wait_for_final(&capture).await;
@@ -654,11 +658,9 @@ async fn a_deferred_side_effect_runs_first_with_the_variables_of_its_snapshot() 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_shutdown_releases_the_run_at_its_next_checkpoint_and_a_peer_finishes_it() {
     let scene = scene().await;
-    let slow = Target::start(|_| {
-        std::thread::sleep(Duration::from_millis(400));
-        (200, "slow".to_owned())
-    })
-    .await;
+    let release = Arc::new(Notify::new());
+    let observed = Arc::new(Notify::new());
+    let slow = Target::held(Arc::clone(&release)).await;
     let next = Target::status(200).await;
     scene
         .add_rule(
@@ -670,7 +672,13 @@ async fn a_shutdown_releases_the_run_at_its_next_checkpoint_and_a_peer_finishes_
         )
         .await;
     let capture = scene.capture(Vec::new()).await;
-    let worker = start(&scene, loopback_guard(), settings(), None);
+    let worker = start_observed(
+        &scene,
+        loopback_guard(),
+        settings(),
+        None,
+        Arc::clone(&observed),
+    );
     let started = Instant::now();
     while slow.hits() == 0 {
         assert!(
@@ -680,7 +688,10 @@ async fn a_shutdown_releases_the_run_at_its_next_checkpoint_and_a_peer_finishes_
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
 
-    worker.stop().await;
+    let stopping = tokio::spawn(worker.stop());
+    observed.notified().await;
+    release.notify_one();
+    stopping.await.expect("the worker stops");
 
     let parked = scene.run(&capture).await;
     assert_eq!(parked.state, "queued", "{:?}", parked.error);
@@ -699,4 +710,61 @@ async fn a_shutdown_releases_the_run_at_its_next_checkpoint_and_a_peer_finishes_
     assert_eq!(done.state, "succeeded", "{:?}", done.error);
     assert_eq!(slow.hits(), 1);
     assert_eq!(next.hits(), 1);
+}
+
+async fn owned_run_hits(tier: &str, tiers: Tiers) -> (usize, Option<String>) {
+    let scene = scene().await;
+    let target = Target::status(200).await;
+    scene
+        .execute(&format!(
+            "INSERT INTO users (id, issuer, subject, email, tier) \
+             VALUES (gen_random_uuid(), 'issuer', 'subject', 'owner@example.test', '{tier}')"
+        ))
+        .await;
+    scene
+        .execute("UPDATE endpoints SET owner_id = (SELECT id FROM users)")
+        .await;
+    scene
+        .add_rule(
+            rule(vec![
+                post("one", &target.url("/a")),
+                post("two", &target.url("/b")),
+                post("three", &target.url("/c")),
+            ]),
+            &[],
+        )
+        .await;
+    let capture = scene.capture(Vec::new()).await;
+    let mut limited = settings();
+    limited.tiers = tiers;
+    let worker = start(&scene, loopback_guard(), limited, None);
+
+    let run = scene.wait_for_final(&capture).await;
+    worker.stop().await;
+
+    assert_eq!(run.state, "failed");
+    (target.hits(), run.error)
+}
+
+#[tokio::test]
+async fn the_outbound_budget_follows_the_tier_of_the_run_owner() {
+    let custom = tiers_with("small", |limits| limits.outbound_per_user_hour = Some(1));
+    let (hits, error) = owned_run_hits("small", custom).await;
+    assert_eq!(hits, 1);
+    assert!(
+        error
+            .expect("the failure is recorded")
+            .starts_with("quota_exceeded")
+    );
+
+    let member = tiers_with(MEMBER_TIER, |limits| {
+        limits.outbound_per_user_hour = Some(2)
+    });
+    let (hits, error) = owned_run_hits(MEMBER_TIER, member).await;
+    assert_eq!(hits, 2);
+    assert!(
+        error
+            .expect("the failure is recorded")
+            .starts_with("quota_exceeded")
+    );
 }

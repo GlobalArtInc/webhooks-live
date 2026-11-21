@@ -269,7 +269,12 @@ async fn one_endpoint_cannot_take_more_than_its_share_of_the_slots_and_others_ar
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn concurrent_first_requests_all_get_the_rule_response_from_one_shared_compile() {
-    let harness = Harness::new().await.with_rules(relaxed(), None);
+    const REQUESTS: usize = 12;
+    let settings = RulesSettings {
+        per_endpoint: REQUESTS,
+        ..relaxed()
+    };
+    let harness = Harness::new().await.with_rules(settings, None);
     let id = static_endpoint(&harness).await;
     add_rule(
         &harness,
@@ -283,7 +288,7 @@ async fn concurrent_first_requests_all_get_the_rule_response_from_one_shared_com
     .await;
 
     let mut tasks = JoinSet::new();
-    for _ in 0..12 {
+    for _ in 0..REQUESTS {
         let router = harness.router.clone();
         let path = format!("/{id}");
         tasks.spawn(async move {

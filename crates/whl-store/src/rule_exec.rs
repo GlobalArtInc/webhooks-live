@@ -55,8 +55,9 @@ const CLAIM: &str = "WITH busy AS ( \
          to_char(r.created_at AT TIME ZONE 'UTC', __TIMESTAMP__) AS created_at, \
          r.plan::text AS plan, r.vars::text AS vars, r.log::text AS log, \
          r.step_results::text AS step_results) \
-     SELECT c.*, e.owner_id, e.creator_net::text AS creator_net, e.title \
-     FROM claimed c JOIN endpoints e ON e.id = c.endpoint_id";
+     SELECT c.*, e.owner_id, ou.tier AS owner_tier, e.creator_net::text AS creator_net, e.title \
+     FROM claimed c JOIN endpoints e ON e.id = c.endpoint_id \
+     LEFT JOIN users ou ON ou.id = e.owner_id";
 
 const SAVE: &str = "WITH prior AS ( \
        SELECT COALESCE(octet_length(plan::text), 0) + octet_length(vars::text) \
@@ -230,6 +231,7 @@ pub struct ClaimedRun {
     pub log: Value,
     pub step_results: Value,
     pub owner_id: Option<Uuid>,
+    pub owner_tier: Option<String>,
     pub creator_net: Option<String>,
     pub title: Option<String>,
 }
@@ -385,6 +387,7 @@ fn claimed_from_row(row: &PgRow) -> Result<ClaimedRun, RuleStoreError> {
         log: parse_json(&log, "the run log")?,
         step_results: parse_json(&step_results, "the step results")?,
         owner_id: row.try_get("owner_id").map_err(classify)?,
+        owner_tier: row.try_get("owner_tier").map_err(classify)?,
         creator_net: row.try_get("creator_net").map_err(classify)?,
         title: row.try_get("title").map_err(classify)?,
     })

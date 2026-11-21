@@ -10,15 +10,16 @@ use serde_json::Value;
 use time::OffsetDateTime;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::oneshot;
+use tokio::sync::{Notify, oneshot};
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 use whl_core::capture_id::CaptureId;
 use whl_core::endpoint_id::EndpointId;
 use whl_core::response::ResponseConfig;
+use whl_core::tier::{ANONYMOUS_TIER, TierLimits, Tiers};
 use whl_forward::{GuardConfig, GuardedClient, RetryPolicy};
 use whl_rules::{References, validate_set};
-use whl_rules_worker::{OutboundLimits, RulesHandle, RulesWorker, WorkerSettings};
+use whl_rules_worker::{RulesHandle, RulesWorker, WorkerSettings};
 use whl_script::{EngineLimits, ScriptCompiler};
 use whl_secrets::{Keyring, Secret, SecretName};
 use whl_store::captures::{CaptureOutcome, CapturePolicy, NameValue, NewCapture};
@@ -81,14 +82,19 @@ pub fn loopback_guard() -> GuardConfig {
     }
 }
 
+pub fn tiers_with(name: &str, change: impl FnOnce(&mut TierLimits)) -> Tiers {
+    let mut limits = match name {
+        ANONYMOUS_TIER => TierLimits::anonymous(),
+        _ => TierLimits::member(),
+    };
+    change(&mut limits);
+    Tiers::default()
+        .with_limits(name, limits)
+        .expect("the tier limits are valid")
+}
+
 pub fn settings() -> WorkerSettings {
-    let mut settings = WorkerSettings::new(
-        "https://whl.test",
-        RETENTION,
-        4,
-        3,
-        OutboundLimits::default(),
-    );
+    let mut settings = WorkerSettings::new("https://whl.test", RETENTION, 4, 3, Tiers::default());
     settings.retry = RetryPolicy {
         max_attempts: 3,
         initial_backoff: Duration::from_millis(20),
@@ -124,6 +130,16 @@ pub fn start(
     settings: WorkerSettings,
     keyring: Option<Arc<Keyring>>,
 ) -> Running {
+    start_observed(scene, guard, settings, keyring, Arc::new(Notify::new()))
+}
+
+pub fn start_observed(
+    scene: &Scene,
+    guard: GuardConfig,
+    settings: WorkerSettings,
+    keyring: Option<Arc<Keyring>>,
+    observed: Arc<Notify>,
+) -> Running {
     let worker = RulesWorker::new(
         scene.store.clone(),
         GuardedClient::new(guard).expect("the client builds"),
@@ -135,6 +151,7 @@ pub fn start(
     let (stop, stopped) = oneshot::channel::<()>();
     let handle = worker.spawn(async move {
         let _ = stopped.await;
+        observed.notify_one();
     });
     Running {
         stop: Some(stop),
@@ -371,6 +388,17 @@ pub struct Target {
 
 impl Target {
     pub async fn start(handler: impl Fn(&Seen) -> (u16, String) + Send + Sync + 'static) -> Self {
+        Self::spawn(handler, None).await
+    }
+
+    pub async fn held(release: Arc<Notify>) -> Self {
+        Self::spawn(|_| (200, "held".to_owned()), Some(release)).await
+    }
+
+    async fn spawn(
+        handler: impl Fn(&Seen) -> (u16, String) + Send + Sync + 'static,
+        hold: Option<Arc<Notify>>,
+    ) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
             .expect("the target binds");
@@ -383,7 +411,8 @@ impl Target {
                 while let Ok((stream, _)) = listener.accept().await {
                     let seen = Arc::clone(&seen);
                     let handler = Arc::clone(&handler);
-                    tokio::spawn(async move { serve(stream, seen, handler).await });
+                    let hold = hold.clone();
+                    tokio::spawn(async move { serve(stream, seen, handler, hold).await });
                 }
             }
         });
@@ -429,6 +458,7 @@ async fn serve(
     mut stream: TcpStream,
     seen: Arc<Mutex<Vec<Arc<Seen>>>>,
     handler: Arc<impl Fn(&Seen) -> (u16, String)>,
+    hold: Option<Arc<Notify>>,
 ) {
     let mut buffer = Vec::new();
     let mut chunk = [0_u8; 4096];
@@ -466,6 +496,9 @@ async fn serve(
     seen.lock()
         .expect("the log is not poisoned")
         .push(Arc::clone(&request));
+    if let Some(release) = hold {
+        release.notified().await;
+    }
     let (status, text) = handler(&request);
     let response = format!(
         "HTTP/1.1 {status} Test\r\ncontent-type: text/plain\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{text}",
