@@ -3,7 +3,9 @@ mod error;
 mod forward;
 mod public;
 mod readiness;
+mod rotate;
 mod router;
+mod secrets;
 mod signal;
 
 use std::future::{Future, IntoFuture};
@@ -23,6 +25,7 @@ use whl_core::config::{AuthMode, Config};
 use whl_core::limiter::{LimiterSettings, Limiters};
 use whl_forward::WorkerHandle;
 use whl_live::{HUB_CAPACITY, Hub, ListenerHandle, LiveState, StreamSettings};
+use whl_secrets::Keyring;
 use whl_store::Store;
 use whl_telemetry::series;
 
@@ -31,6 +34,10 @@ pub use error::ServerError;
 pub use public::{
     HEADER_READ_TIMEOUT, HttpLimits, MAX_HEADER_COUNT, MAX_HEADER_LIST_BYTES, WRITE_TIMEOUT,
 };
+pub use rotate::{
+    DEFAULT_BATCH_SIZE, MAX_BATCH_SIZE, RotateError, RotateProgress, RotateReport, rotate_secrets,
+};
+pub use secrets::{SecretsSetupError, keyring_from_config, rotation_keyring};
 pub use signal::shutdown_signal;
 
 use background::Background;
@@ -55,6 +62,7 @@ pub struct Bound {
     limiters: Limiters,
     api_limits: ApiLimits,
     background: BackgroundSettings,
+    secrets: Option<Arc<Keyring>>,
 }
 
 impl Bound {
@@ -108,6 +116,10 @@ impl Bound {
             .with_access(access)
             .with_limits(self.api_limits.clone())
             .with_forward(ForwardSettings::with_system_lookup(self.forward.guard()));
+        let state = match &self.secrets {
+            Some(keyring) => state.with_secrets(Arc::clone(keyring)),
+            None => state,
+        };
         tracing::info!(public = %self.public_addr, admin = %self.admin_addr, "listening");
 
         let capture =
@@ -261,6 +273,15 @@ impl Bound {
 }
 
 pub async fn bind(config: &Config) -> Result<Bound, ServerError> {
+    let secrets = keyring_from_config(config)?.map(Arc::new);
+    match &secrets {
+        Some(keyring) => tracing::info!(
+            active_key = %keyring.active_id(),
+            keys = keyring.key_ids().len(),
+            "secrets are enabled"
+        ),
+        None => tracing::info!("secrets are disabled, no key set is configured"),
+    }
     let (public, public_addr) = bind_listener("public", config.listen_addr).await?;
     let (admin, admin_addr) = bind_listener("admin", config.admin_addr).await?;
     let limiters = Limiters::new(&LimiterSettings::from_config(&config.rate))?;
@@ -285,6 +306,7 @@ pub async fn bind(config: &Config) -> Result<Bound, ServerError> {
         limiters,
         api_limits,
         background: BackgroundSettings::from_config(config),
+        secrets,
     })
 }
 

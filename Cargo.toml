@@ -16,6 +16,7 @@ whl-capture = { path = "crates/whl-capture" }
 whl-core = { path = "crates/whl-core" }
 whl-forward = { path = "crates/whl-forward" }
 whl-live = { path = "crates/whl-live" }
+whl-secrets = { path = "crates/whl-secrets" }
 whl-server = { path = "crates/whl-server" }
 whl-store = { path = "crates/whl-store" }
 whl-telemetry = { path = "crates/whl-telemetry" }
@@ -63,6 +64,10 @@ dashmap = "6"
 governor = { version = "0.10", default-features = false, features = ["std"] }
 metrics = "0.24"
 hmac = "0.13"
+chacha20poly1305 = { version = "0.11", default-features = false, features = ["alloc", "zeroize"] }
+hkdf = "0.13"
+subtle = "2"
+zeroize = "1"
 proptest = "1"
 rand_chacha = "0.9"
 serde_json_path = { version = "0.7", default-features = false, features = ["functions"] }

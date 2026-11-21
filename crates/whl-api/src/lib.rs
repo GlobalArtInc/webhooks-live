@@ -11,6 +11,7 @@ mod listing;
 mod members;
 mod policy;
 mod resolve;
+mod secrets;
 mod settings;
 mod state;
 mod stream;
@@ -45,7 +46,8 @@ pub fn router(state: ApiState) -> Router {
         .route("/endpoints/{id}/claim", post(claim::claim))
         .merge(members::routes())
         .merge(captures::routes())
-        .merge(forward::routes());
+        .merge(forward::routes())
+        .merge(secrets::routes());
     let api = guard_routes(api, &state.access)
         .fallback(not_found)
         .method_not_allowed_fallback(method_not_allowed)

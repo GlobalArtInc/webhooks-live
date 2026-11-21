@@ -18,6 +18,7 @@ pub async fn instance(State(state): State<ApiState>, caller: Caller) -> Json<Ins
         &state.settings,
         &state.access,
         caller.user(),
+        state.secrets_enabled(),
     ))
 }
 

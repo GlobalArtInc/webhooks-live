@@ -14,6 +14,8 @@ use whl_core::config::{Config, ConfigError};
 use whl_store::Store;
 use whl_testkit::TestDb;
 
+const SECRETS_KEYS: &str = "1:AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=";
+
 struct Reply {
     status: u16,
     head: String,
@@ -161,6 +163,7 @@ fn sso_env(issuer: &str) -> Vec<(&str, &str)> {
         ("WEBHOOKS_LIVE_OIDC_ISSUER", issuer),
         ("WEBHOOKS_LIVE_OIDC_CLIENT_ID", "whl-client"),
         ("WEBHOOKS_LIVE_OIDC_CLIENT_SECRET", "whl-secret"),
+        ("WEBHOOKS_LIVE_SECRETS_KEYS", SECRETS_KEYS),
     ]
 }
 

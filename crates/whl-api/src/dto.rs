@@ -64,10 +64,16 @@ struct FeaturesDto {
     ring_mode_allowed: bool,
     forwarding: bool,
     private_forward_targets_allowed: bool,
+    secrets: bool,
 }
 
 impl InstanceDto {
-    pub fn new(settings: &ApiSettings, access: &AccessControl, user: Option<&UserRecord>) -> Self {
+    pub fn new(
+        settings: &ApiSettings,
+        access: &AccessControl,
+        user: Option<&UserRecord>,
+        secrets: bool,
+    ) -> Self {
         Self {
             version: env!("CARGO_PKG_VERSION"),
             auth_mode: access.mode().as_str(),
@@ -90,6 +96,7 @@ impl InstanceDto {
                 ring_mode_allowed: settings.ring_mode_allowed,
                 forwarding: settings.forwarding,
                 private_forward_targets_allowed: settings.private_forward_targets_allowed,
+                secrets,
             },
         }
     }

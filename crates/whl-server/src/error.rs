@@ -8,6 +8,8 @@ use whl_core::limiter::LimiterError;
 use whl_forward::{ForwardError, WorkerError};
 use whl_store::StoreError;
 
+use crate::secrets::SecretsSetupError;
+
 #[derive(Debug, thiserror::Error)]
 pub enum ServerError {
     #[error("cannot prepare the database: {0}")]
@@ -22,6 +24,8 @@ pub enum ServerError {
     Forward(#[from] ForwardError),
     #[error("the forward worker settings are invalid: {0}")]
     Worker(#[from] WorkerError),
+    #[error("cannot set up secrets: {0}")]
+    Secrets(#[from] SecretsSetupError),
     #[error("cannot bind the {listener} listener on {addr}: {source}")]
     Bind {
         listener: &'static str,

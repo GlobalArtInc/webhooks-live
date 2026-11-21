@@ -17,6 +17,7 @@ serde.workspace = true
 thiserror.workspace = true
 url.workspace = true
 uuid.workspace = true
+zeroize.workspace = true
 
 [dev-dependencies]
 figment = { workspace = true, features = ["test"] }

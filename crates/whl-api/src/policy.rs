@@ -52,6 +52,10 @@ fn endpoint_role(method: &Method, tail: &str) -> EndpointRole {
             EndpointRole::Editor
         }
         "/captures" | "/captures/{capture_id}" if *method == Method::DELETE => EndpointRole::Editor,
+        "/secrets" if read => EndpointRole::Editor,
+        "/secrets/{name}" if matches!(*method, Method::PUT | Method::DELETE) => {
+            EndpointRole::Editor
+        }
         "/captures/{capture_id}/forward" | "/captures/{capture_id}/resend"
             if *method == Method::POST =>
         {
@@ -103,7 +107,11 @@ mod tests {
     #[test]
     fn every_documented_route_needs_the_role_of_the_api_table() {
         use EndpointRole::{Editor, Owner, Viewer};
-        let table: [(&Method, &str, Requirement); 23] = [
+        let table: [(&Method, &str, Requirement); 27] = [
+            (&GET, "/secrets", Requirement::Role(Editor)),
+            (&Method::HEAD, "/secrets", Requirement::Role(Editor)),
+            (&PUT, "/secrets/{name}", Requirement::Role(Editor)),
+            (&DELETE, "/secrets/{name}", Requirement::Role(Editor)),
             (&GET, "", Requirement::Role(Viewer)),
             (&PATCH, "", Requirement::Role(Editor)),
             (&DELETE, "", Requirement::Role(Owner)),
@@ -177,6 +185,9 @@ mod tests {
         assert_eq!(role(&PATCH, "/captures/{capture_id}"), owner);
         assert_eq!(role(&PATCH, "/stream"), owner);
         assert_eq!(role(&GET, "/claim"), owner);
+        assert_eq!(role(&POST, "/secrets"), owner);
+        assert_eq!(role(&GET, "/secrets/{name}"), owner);
+        assert_eq!(role(&PATCH, "/secrets/{name}"), owner);
         assert_eq!(role(&GET, "/members-extra"), owner);
         assert_eq!(
             role(&Method::from_bytes(b"get").expect("method"), ""),

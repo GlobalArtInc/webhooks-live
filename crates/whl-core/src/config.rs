@@ -12,6 +12,7 @@ use ipnet::IpNet;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use url::Url;
+use zeroize::Zeroizing;
 
 use crate::rate::RateSpec;
 
@@ -97,6 +98,7 @@ const ENV_KEYS: &[(&str, &str)] = &[
     ("FORWARD_ALLOW_CIDRS", "forward.allow_cidrs"),
     ("SHUTDOWN_DRAIN", "shutdown.drain"),
     ("SHUTDOWN_GRACE", "shutdown.grace"),
+    ("SECRETS_KEYS", "secrets.keys"),
     ("LOG", "log"),
 ];
 
@@ -113,6 +115,8 @@ pub struct Config {
     pub capture: CaptureConfig,
     pub rate: RateConfig,
     pub forward: ForwardConfig,
+    #[serde(default)]
+    pub secrets: SecretsConfig,
     pub shutdown: ShutdownConfig,
 }
 
@@ -144,6 +148,18 @@ pub enum AuthMode {
 impl AuthMode {
     pub fn needs_oidc(self) -> bool {
         matches!(self, Self::Sso | Self::Mixed)
+    }
+
+    pub fn needs_secrets(self) -> bool {
+        matches!(self, Self::Sso | Self::Mixed)
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::Sso => "sso",
+            Self::Mixed => "mixed",
+        }
     }
 }
 
@@ -189,6 +205,17 @@ pub struct ForwardConfig {
     pub allow_cidrs: Vec<IpNet>,
 }
 
+#[derive(Debug, Default, Deserialize)]
+pub struct SecretsConfig {
+    pub keys: Option<SecretKeys>,
+}
+
+impl SecretsConfig {
+    pub fn keys(&self) -> Option<&SecretKeys> {
+        self.keys.as_ref().filter(|keys| !keys.is_blank())
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ShutdownConfig {
     #[serde(deserialize_with = "de::duration")]
@@ -210,6 +237,32 @@ impl DatabaseUrl {
 impl fmt::Debug for DatabaseUrl {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("DatabaseUrl(<redacted>)")
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(from = "String")]
+pub struct SecretKeys(Zeroizing<String>);
+
+impl SecretKeys {
+    pub fn unpack(&self) -> &str {
+        &self.0
+    }
+
+    pub fn is_blank(&self) -> bool {
+        self.0.trim().is_empty()
+    }
+}
+
+impl From<String> for SecretKeys {
+    fn from(text: String) -> Self {
+        Self(Zeroizing::new(text))
+    }
+}
+
+impl fmt::Debug for SecretKeys {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("SecretKeys(<redacted>)")
     }
 }
 

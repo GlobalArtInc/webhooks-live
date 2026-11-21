@@ -4,7 +4,9 @@ use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 use whl_auth::AuthRejection;
 use whl_core::validation::{FieldPath, Violation, ViolationCode};
+use whl_secrets::{MAX_SECRETS_PER_ENDPOINT, SealError};
 use whl_store::forward::ForwardStoreError;
+use whl_store::secrets::SecretStoreError;
 use whl_store::{EndpointError, MembershipError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -134,6 +136,26 @@ pub enum ApiError {
     Internal(EndpointError),
     #[error("forward storage failed: {0}")]
     ForwardStorage(ForwardStoreError),
+    #[error("the secret is not found in this endpoint")]
+    SecretNotFound,
+    #[error("the endpoint already has the maximum number of secrets")]
+    SecretLimit,
+    #[error("secrets are not configured on this instance")]
+    SecretsDisabled,
+    #[error("secret storage failed: {0}")]
+    SecretStorage(SecretStoreError),
+    #[error("a secret could not be sealed: {0}")]
+    SecretSeal(SealError),
+}
+
+impl From<SecretStoreError> for ApiError {
+    fn from(error: SecretStoreError) -> Self {
+        if error.is_unavailable() {
+            Self::StoreUnavailable
+        } else {
+            Self::SecretStorage(error)
+        }
+    }
 }
 
 impl From<ForwardStoreError> for ApiError {
@@ -181,6 +203,14 @@ struct ErrorDetail {
     message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     fields: Option<Vec<FieldViolation>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    limit: Option<LimitDetail>,
+}
+
+#[derive(Serialize)]
+struct LimitDetail {
+    name: &'static str,
+    max: usize,
 }
 
 impl IntoResponse for ApiError {
@@ -190,6 +220,13 @@ impl IntoResponse for ApiError {
         }
         let retry_after = match &self {
             Self::RateLimited { retry_after_secs } => Some(*retry_after_secs),
+            _ => None,
+        };
+        let limit = match &self {
+            Self::SecretLimit => Some(LimitDetail {
+                name: "secrets",
+                max: MAX_SECRETS_PER_ENDPOINT,
+            }),
             _ => None,
         };
         let (status, code, message, fields) = match self {
@@ -351,6 +388,42 @@ impl IntoResponse for ApiError {
                     None,
                 )
             }
+            Self::SecretNotFound => (
+                StatusCode::NOT_FOUND,
+                "secret_not_found",
+                self.to_string(),
+                None,
+            ),
+            Self::SecretLimit => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "limit_reached",
+                self.to_string(),
+                None,
+            ),
+            Self::SecretsDisabled => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "feature_disabled",
+                self.to_string(),
+                None,
+            ),
+            Self::SecretStorage(error) => {
+                tracing::error!(%error, "secret storage failed");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal_error",
+                    "the request could not be completed".to_owned(),
+                    None,
+                )
+            }
+            Self::SecretSeal(error) => {
+                tracing::error!(%error, "a secret could not be sealed");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal_error",
+                    "the request could not be completed".to_owned(),
+                    None,
+                )
+            }
         };
         let mut response = (
             status,
@@ -359,11 +432,12 @@ impl IntoResponse for ApiError {
                     code,
                     message,
                     fields,
+                    limit,
                 },
             }),
         )
             .into_response();
-        if status == StatusCode::SERVICE_UNAVAILABLE {
+        if status == StatusCode::SERVICE_UNAVAILABLE && code != "feature_disabled" {
             response
                 .headers_mut()
                 .insert(header::RETRY_AFTER, HeaderValue::from_static("5"));

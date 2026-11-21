@@ -1,4 +1,7 @@
+use std::sync::Arc;
+
 use whl_auth::AccessControl;
+use whl_secrets::Keyring;
 use whl_store::Store;
 
 use crate::forward::ForwardSettings;
@@ -12,6 +15,7 @@ pub struct ApiState {
     pub(crate) limits: Option<ApiLimits>,
     pub(crate) forward: ForwardSettings,
     pub(crate) access: AccessControl,
+    pub(crate) secrets: Option<Arc<Keyring>>,
 }
 
 impl ApiState {
@@ -22,7 +26,17 @@ impl ApiState {
             limits: None,
             forward: ForwardSettings::default(),
             access: AccessControl::open(),
+            secrets: None,
         }
+    }
+
+    pub fn with_secrets(mut self, keyring: Arc<Keyring>) -> Self {
+        self.secrets = Some(keyring);
+        self
+    }
+
+    pub fn secrets_enabled(&self) -> bool {
+        self.secrets.is_some()
     }
 
     pub fn with_access(mut self, access: AccessControl) -> Self {
