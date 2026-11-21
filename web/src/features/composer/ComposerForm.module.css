@@ -1,0 +1,22 @@
+.form {
+  display: grid;
+  align-items: start;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.notice {
+  margin: 0;
+  font: var(--text-data);
+  color: var(--color-danger);
+}
+
+@media (min-width: 960px) {
+  .form {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .notice {
+    grid-column: 1 / -1;
+  }
+}
