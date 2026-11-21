@@ -8,18 +8,18 @@ This document is the contract between the Rust backend and the React frontend.
 | Topic | Rule |
 |---|---|
 | Base | Management API under `/api/v1`, same origin as the UI. JSON in and out, UTF-8. |
-| Request bodies | `Content-Type: application/json` required on `POST`/`PUT`/`PATCH` with a body, else 415. Unknown fields are rejected (422). |
+| Request bodies | `Content-Type: application/json` required on `POST`/`PUT`/`PATCH` with a body, else 415. The body must be a JSON object, else 400 `invalid_json`. A `PATCH` with an empty body is 400 `invalid_json`; `POST /api/v1/endpoints` accepts an empty body. Limit: 256 KiB of request body as sent (base64 inflation counts), else 413; a decoded `response.body` may hold at most 64 KiB. |
 | Timestamps | RFC 3339, UTC, millisecond precision: `2026-11-21T10:15:30.123Z`. |
 | Ids | Endpoint id: 24 chars `[0-9a-hjkmnp-tv-z]`. Capture, job, user ids: UUID, lowercase hyphenated. |
 | Bytes in JSON | `Body` object: `{"encoding": "utf8" \| "base64", "data": string, "truncated": bool}`. `utf8` when the bytes are valid UTF-8, else `base64`. `truncated` is true when `data` holds only a prefix; each use states its prefix size. In requests `truncated` may be omitted and is ignored. |
-| Name/value lists | Headers, query, form fields: ordered arrays of `{"name": string, "value": string}`, duplicates kept. |
+| Name/value lists | Ordered arrays of `{"name": string, "value": string}`. Captured request headers, query and form fields keep duplicates. Configured `response.headers` reject a name repeated case-insensitively (field code `duplicate`). |
 | Absent vs null | In `PATCH`, an absent field is unchanged; `null` resets a nullable field. |
 | Auth, `open` mode | None. Knowing the endpoint id grants access. |
 | Auth, `sso` mode | Cookie `__Host-whl_session` set by `/auth/callback`. Missing or expired: 401 `unauthenticated`; the UI sends the browser to `/auth/login?return_to=<current path>`. |
 | CSRF, `sso` mode | Mutating requests with the session cookie must send `Origin` equal to the public origin, else 403 `csrf_rejected`. Browsers do this automatically for `fetch`. |
 | Access | Unknown, expired and deleted endpoints answer 410 `endpoint_gone`; in `sso` so does an endpoint the caller has no role on, never 403. A malformed endpoint id answers 404 `not_found`. |
 | Current user | There is no `/me` route. `GET /api/v1/instance` carries `user` (`null` when anonymous or in `open`); the UI fetches it at start and after login or logout. |
-| Rate limits | Every `/api` response: `RateLimit-Limit` (burst size), `RateLimit-Remaining`. 429 adds `Retry-After` (seconds). Limits are per replica. |
+| Rate limits | First release: management routes send no rate-limit headers until milestone M9. From M9 every `/api` response carries `RateLimit-Limit` (burst size) and `RateLimit-Remaining`; 429 adds `Retry-After` (seconds). Limits are per replica. |
 | Caching | All `/api` responses: `Cache-Control: no-store`. |
 
 ### 1.1 Error body
@@ -34,14 +34,28 @@ This document is the contract between the Rust backend and the React frontend.
 }
 ```
 
-`fields` is present only for `validation_failed`. `field` is a dotted path into the request body, with array
-indexes as numbers (`response.headers.2.name`). Field `code` is one of `required`, `invalid_format`,
-`too_long`, `out_of_range`, `too_many`, `not_allowed`, `target_refused`, `target_unresolvable`. Clients branch
-on `code`, never on `message`.
+`fields` is present only for `validation_failed`; all violations are reported together, up to 50. `field` is a
+dotted path into the request body, with array indexes as numbers (`response.headers.2.name`). The top-level
+`message` of `validation_failed` is `"<first field path> <its message>"`. Clients branch on `code`, never on
+`message`.
+
+Field `code` is a closed list:
+
+| Field code | Raised for |
+|---|---|
+| `required` | Missing or empty value |
+| `invalid_format` | Wrong JSON type, control character, non-ASCII where ASCII is required, invalid token, invalid media type, malformed URL |
+| `too_long` | Over the length limit |
+| `out_of_range` | Number outside its range |
+| `too_many` | Array over its item limit |
+| `duplicate` | Response header name repeated (case-insensitive) |
+| `not_allowed` | Denied header name, unknown JSON field, `overflow: ring` when not allowed |
+| `target_refused` | Forward target refused by the SSRF rules |
+| `target_unresolvable` | Forward target host does not resolve |
 
 | Status | `code` | When |
 |---|---|---|
-| 400 | `invalid_json` | Body is not parseable JSON |
+| 400 | `invalid_json` | Body is not parseable JSON, is not a JSON object, or is empty on `PATCH` |
 | 400 | `invalid_cursor` | Cursor malformed or used with different order or filters |
 | 401 | `unauthenticated` | `sso`, no valid session |
 | 403 | `csrf_rejected` | Origin check failed |
@@ -52,12 +66,14 @@ on `code`, never on `message`.
 | 404 | `user_not_found` | `PUT .../members` with an email nobody has signed in with |
 | 404 | `member_not_found` | `DELETE .../members/{user_id}` for a user who is not a member (including unknown ids and the owner) |
 | 404 | `not_found` | Unknown route or malformed id |
+| 405 | `method_not_allowed` | Known path, unsupported method; `Allow` lists the supported ones |
 | 410 | `endpoint_gone` | Endpoint unknown, expired or deleted, or (`sso`) no role on it |
-| 413 | `payload_too_large` | Request body over 256 KiB |
+| 413 | `payload_too_large` | Request body over 256 KiB as sent |
 | 415 | `unsupported_media_type` | Body without `application/json` |
 | 422 | `validation_failed` | Field rules in §4, including SSRF refusal of a forward target (field code `target_refused`) |
 | 422 | `forward_rule_limit` | Endpoint already has the maximum number of rules |
 | 429 | `rate_limited` | Limiter hit |
+| 500 | `internal_error` | Unexpected server failure; details only in server logs |
 | 503 | `store_unavailable` | Database timeout or outage; `Retry-After: 5` |
 
 ### 1.2 Pagination
@@ -73,7 +89,7 @@ Cursor-based. A list response has `next_cursor` (string or `null`). Pass it back
 | `/api/v1/...` | Management API |
 | `/api/v1/endpoints/{endpoint_id}/stream` | Live stream (SSE) |
 | `/auth/login`, `/auth/callback`, `/auth/logout` | OIDC, `sso` only |
-| `/`, `/e/{endpoint_id}`, `/e/{endpoint_id}/c/{capture_id}`, `/settings` | UI pages (deep links, V6) |
+| `/`, `/e/{endpoint_id}` and its sub-routes, `/endpoints`, `/signin`, `/settings` | UI pages (deep links, V6); full list in ui-design.md §2 |
 | `/assets/...`, `/favicon.ico`, `/robots.txt` | Static |
 | anything else | 404 |
 
@@ -115,11 +131,11 @@ The response is sent after the configured `delay_ms`; the capture is already sto
 | Field | Type | Notes |
 |---|---|---|
 | `id` | string | 24 chars |
-| `url` | string | Capture URL, `<public url>/<id>` |
+| `url` | string | Capture URL: `public_url` without trailing slash, plus `/<id>` |
 | `title` | string \| null | Up to 100 chars |
 | `response.status` | integer | 100–599, default 200 |
 | `response.content_type` | string | MIME type, up to 255 bytes, default `text/plain` |
-| `response.headers` | `{name, value}[]` | Up to 20; rules in architecture §9 |
+| `response.headers` | `{name, value}[]` | Up to 20; no name twice (case-insensitive); denylist in architecture §9 |
 | `response.body` | Body | Up to 64 KiB decoded; `truncated` always false; default empty `utf8` |
 | `response.delay_ms` | integer | 0–10000, default 0 |
 | `cors` | boolean | Default false |
@@ -246,7 +262,8 @@ User: `{id: uuid, email: string, name: string | null}`. Member: `{user: User, ro
 | `POST /api/v1/endpoints/{id}/captures/{capture_id}/forward` | editor | ForwardRequest | 202 ForwardJob (`state: "pending"`) |
 | `GET /api/v1/endpoints/{id}/stream` | viewer | `Last-Event-ID` header or `?last_event_id=` | 200 `text/event-stream`, §6 |
 
-Reading an endpoint, its captures or its stream extends its lifetime (E3). `PUT .../members` with an email
+Reading an endpoint, its captures or its stream extends its lifetime (E3) when `last_active_at` is older
+than 60 s; captures always extend it. `PUT .../members` with an email
 nobody has signed in with answers 404 `user_not_found`; the owner cannot add themself (422). Every rule change
 also emits `endpoint_updated` on the stream.
 
@@ -278,15 +295,15 @@ also emits `endpoint_updated` on the stream.
 
 | Field | Type | Notes |
 |---|---|---|
-| `version` | string | Server version |
+| `version` | string | Build version of the server binary |
 | `auth_mode` | `"open"` \| `"sso"` | Access mode |
 | `user` | User \| null | Signed-in user; `null` when anonymous or in `open`. Never answers 401 |
 | `public_url` | string | Base of capture URLs |
-| `auth.provider_name` | string \| null | Sign-in button label; `null` in `open` |
+| `auth.provider_name` | string \| null | Sign-in button label from `WEBHOOKS_LIVE_OIDC_PROVIDER_NAME`; `null` when not configured or in `open`, the UI then uses a neutral label |
 | `limits.*` | integer | Instance limits; `max_body_bytes` is the capture body limit |
 | `features.ring_mode_allowed` | boolean | Whether `overflow: ring` is accepted |
 | `features.forwarding` | boolean | Forward rules and resend available |
-| `features.private_forward_targets_allowed` | boolean | True when the operator re-opened any private range; the ranges themselves are not exposed |
+| `features.private_forward_targets_allowed` | boolean | True when the operator's forward allow list (`WEBHOOKS_LIVE_FORWARD_ALLOW_CIDRS`) is non-empty; the ranges themselves are not exposed |
 
 ### 5.1 Capture list query
 
@@ -354,7 +371,7 @@ a `: ping` comment every 15 s, and closes the stream after 30 minutes; `EventSou
 
 | Event | `id` | `data` | Client action |
 |---|---|---|---|
-| `ready` | – | `{"endpoint_id": string, "last_seq": integer, "capture_count": integer}` | First event of every connection; start catch-up (§5.1) |
+| `ready` | – | `{"endpoint_id": string, "last_seq": integer, "capture_count": integer}` | Always the first event of every connection, before any replay; start catch-up (§5.1) |
 | `capture` | `seq` | CaptureSummary | Prepend to list; fetch detail on demand |
 | `capture_deleted` | – | `{"capture_id": uuid, "seq": integer}` | Remove from list |
 | `captures_cleared` | – | `{}` | Empty the list |
@@ -362,9 +379,10 @@ a `: ping` comment every 15 s, and closes the stream after 30 minutes; `EventSou
 | `endpoint_deleted` | – | `{}` | Show gone state, stop |
 | `forward_result` | – | `{"capture_id": uuid, "job": ForwardJob}` | Update forward state |
 | `resync` | – | `{"reason": "lagged" \| "gap" \| "listener_reconnect"}` | Re-list from the top |
-| `bye` | – | `{}` | Server shutting down; let `EventSource` reconnect |
+| `bye` | – | `{}` | Server shutting down; let `EventSource` reconnect. A connection opened during drain gets 200 and an immediate `bye` |
 
-Resume: `EventSource` sends `Last-Event-ID` (the last `capture` `seq`) on reconnect. The server replays
+Resume: `EventSource` sends `Last-Event-ID` (the last `capture` `seq`) on reconnect. If both `?last_event_id`
+and the header are present the larger wins; a malformed value is ignored. The server replays
 missed `capture` events in ascending `seq` before live ones, up to 100; beyond that it sends `resync`. A page
 that already holds a list opens the stream with `?last_event_id=<highest seq it has>` to close the gap between
 its list request and the stream. Replayed events and the `after_seq` catch-up list (§5.1) may overlap; merge

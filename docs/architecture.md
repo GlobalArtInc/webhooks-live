@@ -193,13 +193,13 @@ transaction into a post-commit notifier task; the event contract does not change
 
 | Piece | Behaviour |
 |---|---|
-| Channel | `whl_events`, JSON `{"t":"capture","e":endpoint_id,"seq":n,"s":summary}`; also `capture_deleted`, `captures_cleared`, `endpoint_updated`, `endpoint_deleted`, `forward_result`. Path in the summary truncated to 1 KiB. |
-| Listener | One `sqlx::postgres::PgListener` per replica on a dedicated connection. On reconnect it broadcasts `resync` to every local subscriber, since events may have been missed. |
+| Channel | `whl_events`. Capture: `{"t":"capture","e":<endpoint id>,"seq":n,"s":<summary>}`, path in the summary truncated to 1 KiB. Other events: `{"t":"capture_deleted"\|"captures_cleared"\|"endpoint_updated"\|"endpoint_deleted"\|"forward_result","e":<endpoint id>,"d":<data>}`, where `d` is the event's data object exactly as in api.md §6 and is omitted when the event has none. |
+| Listener | One `sqlx::postgres::PgListener` per replica, holding one pool connection for its lifetime. After every successful `LISTEN`, including the first, it broadcasts one `resync` to every local subscriber, since events may have been missed while it was not listening. |
 | Hub | `HashMap<EndpointId, broadcast::Sender<Arc<Event>>>`, capacity 256, entry removed when the last receiver drops. Events for endpoints with no local viewer are discarded after decoding. |
 | Slow viewer | A lagging receiver gets `RecvError::Lagged`, the stream sends `resync` and continues. Viewers never back-pressure the listener or the capture path. |
-| Connect | Subscribe to the hub first, then read `seq > Last-Event-ID` from the database (at most 100 rows, ascending), then forward live events, skipping `seq` already replayed. More than 100 missing sends `resync`. Without `Last-Event-ID`, the stream starts with `ready` and live events only. |
+| Connect | `ready` is always the first event of every connection, then any replay, then live events. The resume point comes from `?last_event_id` and the `Last-Event-ID` header; when both are present the larger wins, and a malformed value is ignored. The stream subscribes to the hub first, then reads `seq >` resume point from the database (at most 100 rows, ascending), then forwards live events, skipping `seq` already replayed. More than 100 missing sends `resync`. Without a resume point there is no replay. |
 | Liveness | Comment ping every 15 s, `retry: 2000`, server closes each stream after 30 minutes so clients rebalance across replicas. Connecting and every reconnect extend endpoint lifetime. |
-| Shutdown | Streams receive `bye` and close; clients reconnect to another replica and resume by `Last-Event-ID`. |
+| Shutdown | Streams receive `bye` and close; clients reconnect to another replica and resume by `Last-Event-ID`. A connection that arrives during drain gets 200 and an immediate `bye`. |
 
 ## 4. Workspace and crates
 
@@ -236,7 +236,7 @@ webhooks-live/   GlobalArtInc/webhooks-live
 | Web framework | `axum` 0.8 on `hyper-util` auto (HTTP/1.1 + h2c) | House standard, tower middleware; TLS ends at Envoy. |
 | DB driver | `sqlx` 0.8, runtime-checked queries | Needs `PgListener` and `bytea` streaming; schema is ten tables. Rejected `sea-orm` (house default in Astrum): an entity layer with no value here and no LISTEN. |
 | Migrations | `sqlmig` (house), pairs `<ts>-<slug>.up/down.sql`, embedded; `webhooks-live migrate up|status` | One image and one tag; schema always matches the binary. Rejected the separate `Dockerfile.migrations` image: two artefacts to keep in lockstep. |
-| Config | `figment`: defaults, optional TOML (`WEBHOOKS_LIVE_CONFIG`), env `WEBHOOKS_LIVE_*` last | Used across GlobalArt Rust services; durations via `humantime`. |
+| Config | `figment`: defaults, optional TOML (`WEBHOOKS_LIVE_CONFIG`), env `WEBHOOKS_LIVE_*` last | Used across GlobalArt Rust services. Durations use the in-house parser in `whl-core`: whole numbers with units `ms`, `s`, `m`, `h`, `d`, `w`, compounds such as `1h30m`, lowercase, no spaces. |
 | Tracing | `tracing`, `tracing-subscriber` JSON, `tower-http` `TraceLayer` | House standard. |
 | Metrics | `metrics` + `metrics-exporter-prometheus` | Macro facade, one recorder. |
 | HTTP client | `reqwest` (rustls, custom resolver, redirects off) | SSRF guard needs control of resolution and every hop. |
@@ -278,12 +278,12 @@ in-memory queue (lost on restart, single replica) and a Redis stream (extra serv
 | Request | Method: rule override or captured. URL: rule target, plus captured sub-path and query when `append_path`. Body: captured bytes. Headers: captured headers on the allow-list (case-insensitive), `Content-Type` (override or captured), `User-Agent: webhooks.live/<version>` unless allow-listed, `X-Webhooks-Live-Capture-Id`. Hop-by-hop headers, `Host`, `Content-Length`, `Transfer-Encoding` are never copied. |
 | Retries | Retry on connect error, timeout, 408, 429, 5xx. Three attempts total by default, backoff 10 s then 60 s with ±20 % jitter, `Retry-After` honoured up to 5 min. Other statuses are final. |
 | Result | Each attempt is a row in `forward_attempts` (status, duration, error class and message, final URL, response content type, first 4 KiB of response). Job end emits `forward_result` on `whl_events`. |
-| Timeouts | Connect 5 s, total 15 s per attempt, response read capped at 64 KiB. |
+| Timeouts | 15 s per attempt; response read capped at 64 KiB. |
 | Concurrency | Per replica: 32 jobs in flight, 4 per target host (`Semaphore` map). |
-| SSRF guard | Custom `reqwest::dns::Resolve` resolves, drops every address in a refused range, and hands only vetted addresses to the connector, so the checked address is the connected one (no rebinding). Literal-IP URLs are checked the same way. Refused: `0.0.0.0/8`, `10/8`, `100.64/10`, `127/8`, `169.254/16`, `172.16/12`, `192.0.0/24`, `192.168/16`, `198.18/15`, `224/4`, `240/4`, `255.255.255.255`, `::`, `::1`, `fc00::/7`, `fe80::/10`, `ff00::/8`, `64:ff9b::/96`, IPv4-mapped and IPv4-compatible forms of the above. `WEBHOOKS_LIVE_FORWARD_ALLOW_CIDRS` re-opens ranges. Schemes `http`/`https` only. |
-| Redirects | Automatic redirects off; the worker follows up to 5 hops itself, re-validating scheme and running each hop through the same resolver. 307/308 keep method and body; 301/302/303 become `GET` without body. |
+| SSRF guard | Custom `reqwest::dns::Resolve` resolves, drops every refused address, and hands only vetted addresses to the connector, so the checked address is the connected one (no rebinding). Literal-IP URLs are checked the same way. IPv4 refused: `0.0.0.0/8`, `10/8`, `100.64/10`, `127/8`, `169.254/16`, `172.16/12`, `192.0.0/24`, `192.168/16`, `198.18/15`, `224/4`, `240/4`, `255.255.255.255`, and `168.63.129.16/32` (Azure WireServer). IPv6: IPv4-mapped (`::ffff:0:0/96`), NAT64 (`64:ff9b::/96`) and 6to4 (`2002::/16`) are judged by their embedded IPv4; `64:ff9b:1::/48` and IPv4-compatible `::/96` are refused wholesale; every other address outside `2000::/3` is refused. `WEBHOOKS_LIVE_FORWARD_ALLOW_CIDRS` re-opens ranges. Schemes `http`/`https` only. |
+| Redirects | Automatic redirects off; the worker follows up to 5 hops itself, running each hop through the same resolver. `https` to `http` is refused (`invalid_redirect`); `http` to `https` is allowed. 307/308 keep method and body; 301/302/303 turn any method other than `GET`/`HEAD` into `GET` without body. When a hop changes origin (scheme, host or port), `Authorization`, `Cookie`, `Cookie2` and `Proxy-Authorization` are dropped. |
 | Proxy | System proxy settings ignored (`no_proxy`), because a proxy would resolve names itself and bypass the guard. |
-| Rule validation | Rules are created and edited one at a time (api.md §5.3). On save the target must parse as an `http`/`https` URL and its host must resolve to at least one address outside the refused ranges; otherwise 422 with a field error on `target_url` (`target_refused` or `target_unresolvable`). The check is repeated on every attempt and redirect, because DNS can change after save. |
+| Rule validation | Rules are created and edited one at a time (api.md §5.3). On save the target must parse as an `http`/`https` URL; the host names `localhost`, `*.localhost`, `*.internal` and `*.local` are refused; the host must resolve to at least one address outside the refused ranges. Failures answer 422 with a field error on `target_url` (`target_refused` or `target_unresolvable`). Local targets are reached only through IP literals inside `WEBHOOKS_LIVE_FORWARD_ALLOW_CIDRS`. The check is repeated on every attempt and redirect, because DNS can change after save. |
 | Manual resend | API creates a `manual` job with the same save-time check and the same guard; it may name a `rule_id` to reuse that rule's settings ("test with latest capture"). The result arrives as `forward_result`. |
 
 ## 7. Auth
@@ -335,13 +335,13 @@ delete expired sessions and login states; hourly counter reconcile. Sliding expi
 |---|---|
 | Stored XSS, raw body | `GET .../body` always answers `application/octet-stream`, or `text/plain; charset=utf-8` when `?view=text`, with `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox; default-src 'none'`, `Cross-Origin-Resource-Policy: same-origin`, and `Content-Disposition: attachment` when `?download=1`. The captured `Content-Type` is never echoed. The UI renders bodies as text through React escaping, never `dangerouslySetInnerHTML`; captured HTML and SVG are shown as highlighted text and never rendered. Image preview is limited to raster types and uses `blob:` URLs created with the detected image MIME type. |
 | Stored XSS, capture response | The configured response is served from the UI origin, so every capture response carries `Content-Security-Policy: sandbox` and `nosniff`: the document gets an opaque origin, no cookie or same-origin API access. |
-| Header injection | Configured response headers: at most 20; name an RFC 9110 token up to 64 bytes; value visible ASCII, space and tab, up to 1024 bytes, no CR, LF or NUL. Denied names: `Content-Length`, `Transfer-Encoding`, `Connection`, `Keep-Alive`, `Upgrade`, `Trailer`, `TE`, `Host`, `Proxy-*`, `Set-Cookie`, `Content-Security-Policy*`, `X-Content-Type-Options`, `Access-Control-*`, `X-Request-Id`, `X-Endpoint-Id`, `Content-Type` (has its own field). `Set-Cookie` is denied because a capture response could toss a `__Host-` session cookie on the shared origin. |
-| Content type | Parsed as a MIME type (`type/subtype` plus parameters), up to 255 bytes, no control characters. |
+| Header injection | Configured response headers: at most 20; name an RFC 9110 token up to 64 bytes; value visible ASCII, space and tab, up to 1024 bytes, no CR, LF or NUL. A name repeated case-insensitively is rejected (`duplicate`); this applies to the configured response only, captured request headers keep their duplicates. Denied names: `Set-Cookie`, `Set-Cookie2`, `Cache-Control`, `Content-Encoding`, `Content-Length`, `Transfer-Encoding`, `Connection`, `Upgrade`, `TE`, `Trailer`, `Keep-Alive`, `Proxy-*`, `Strict-Transport-Security`, `Clear-Site-Data`, `Alt-Svc`, `Refresh`, `Content-Security-Policy`, `Content-Security-Policy-Report-Only`, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, `Service-Worker-Allowed`, `Public-Key-Pins`, `Public-Key-Pins-Report-Only`, `Report-To`, `NEL`, `Origin-Trial`, `Document-Policy`, `WWW-Authenticate`, `Proxy-Authenticate`, `Accept-CH`, `Critical-CH`, `Set-Login`, `Access-Control-*`, `Cross-Origin-*`. `Set-Cookie` is denied because a capture response could toss a `__Host-` session cookie on the shared origin; `WWW-Authenticate` because a native browser login prompt on our origin would collect credentials for the endpoint owner; the rest because they change origin-wide browser state or the protections the server sets. Violations of all headers are reported together, up to 50 field errors. |
+| Content type | Parsed as a MIME type (`type/subtype` plus parameters), up to 255 bytes, no control characters; a trailing `;`, with optional spaces around it, is accepted. |
 | SSRF | §6. |
 | Smuggling and parsing | Hyper rejects conflicting `Content-Length`/`Transfer-Encoding`, obs-fold and malformed chunking; webhooks.live only listens behind Envoy; early responses close the connection (§5); the forwarder builds fresh requests and never relays raw bytes or hop-by-hop headers. |
 | CSRF | No CORS on `/api` and `/auth`. In `sso`, mutating requests carrying the session cookie must have `Origin` equal to `WEBHOOKS_LIVE_PUBLIC_URL`'s origin (else 403 `csrf_rejected`); request bodies must be `application/json` (else 415); cookie is `SameSite=Lax`. In `open` there is no ambient credential, so no CSRF surface. |
 | Id leakage | UI sends `Referrer-Policy: no-referrer`; logs carry endpoint and capture ids but never header values or bodies. |
-| UI headers | `Content-Security-Policy: default-src 'none'; script-src 'self' 'sha256-<theme script>'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob:; worker-src 'self'; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`, `X-Frame-Options: DENY`. The hash is that of the single inline theme script in `index.html`, computed by `whl-web`'s build script from the built file, so it cannot drift. `blob:` serves typed image previews, `worker-src` the pretty-printing workers, `connect-src 'self'` covers the API and SSE. |
+| UI headers | `Content-Security-Policy: default-src 'none'; script-src 'self' 'sha256-<theme script>'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob:; worker-src 'self'; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`, `X-Frame-Options: DENY`. The hash is that of the single inline theme script in `index.html`, computed by `whl-web` at server start from the embedded `index.html`, so it cannot drift. `blob:` serves typed image previews, `worker-src` the pretty-printing workers, `connect-src 'self'` covers the API and SSE. |
 | `style-src-attr 'unsafe-inline'` | Needed because the virtual list positions rows with inline `style` attributes. Acceptable because the UI never inserts untrusted markup as HTML (React text nodes and CodeMirror text only, no `dangerouslySetInnerHTML`, no rendered HTML or SVG), so no attacker-controlled element can carry a `style` attribute; scripts stay limited to `'self'` and one hash. |
 
 ## 10. Frontend delivery and path layout
@@ -356,7 +356,7 @@ server or container (two images to version, plus cross-origin cookies).
 | `/api/v1/...` | Management API and `/api/v1/endpoints/{id}/stream` |
 | `/auth/login`, `/auth/callback`, `/auth/logout` | OIDC |
 | `/assets/{file}` | Hashed build output: `Cache-Control: public, max-age=31536000, immutable` |
-| `/`, `/e/{endpoint_id}`, `/e/{endpoint_id}/c/{capture_id}`, `/settings` | `index.html`, `Cache-Control: no-cache`, UI headers and Content-Security-Policy of §9 |
+| `/`, `/e/{endpoint_id}`, `/e/{endpoint_id}/c/{capture_id}`, `/e/{endpoint_id}/settings`, `/e/{endpoint_id}/forwarding`, `/e/{endpoint_id}/diff/{a}/{b}`, `/endpoints`, `/signin`, `/settings` | `index.html`, `Cache-Control: no-cache`, UI headers and Content-Security-Policy of §9; the list follows ui-design.md §2 |
 | `/favicon.ico`, `/robots.txt` | Static, `max-age=86400`; `robots.txt` disallows everything |
 | anything else | 404 |
 
@@ -364,7 +364,8 @@ Endpoint id: 15 bytes from `OsRng` (120 bits, on par with UUID v4's 122), Crockf
 without padding, exactly 24 characters (alphabet `0-9a-z` minus `i l o u`). No UI or API root reaches 24
 characters, and deep links use the `/e/` prefix, so a root segment is either a capture id or a fixed route.
 The UI is fetched from `index.html` for known UI prefixes only; unknown paths stay 404 so typos in capture
-URLs are visible to senders. Release builds fail if `web/dist` is missing; debug builds read from disk.
+URLs are visible to senders. The release image build fails when `web/dist/index.html` is missing (the
+`Containerfile` checks it); debug builds read assets from disk.
 
 ## 11. Observability and operations
 
@@ -400,11 +401,11 @@ URLs are visible to senders. Release builds fail if `web/dist` is missing; debug
 | Env | Default |
 |---|---|
 | `WEBHOOKS_LIVE_PUBLIC_URL` | required |
-| `WEBHOOKS_LIVE_DATABASE_URL`, `WEBHOOKS_LIVE_DB_POOL_SIZE` | required, 20 |
+| `WEBHOOKS_LIVE_DATABASE_URL`, `WEBHOOKS_LIVE_DB_POOL_SIZE` | required, 20. `whl-core` enforces a minimum of 2; use at least 3 in practice, because migrations need 2 connections and the listener holds 1 for its lifetime |
 | `WEBHOOKS_LIVE_LISTEN_ADDR`, `WEBHOOKS_LIVE_ADMIN_ADDR` | `0.0.0.0:8080`, `0.0.0.0:9090` |
 | `WEBHOOKS_LIVE_AUTH_MODE` | `open` |
 | `WEBHOOKS_LIVE_OIDC_ISSUER`, `WEBHOOKS_LIVE_OIDC_CLIENT_ID`, `WEBHOOKS_LIVE_OIDC_CLIENT_SECRET`, `WEBHOOKS_LIVE_OIDC_SCOPES` | required in `sso`; scopes `openid email profile` |
-| `WEBHOOKS_LIVE_OIDC_PROVIDER_NAME` | `SSO`; shown on the sign-in button |
+| `WEBHOOKS_LIVE_OIDC_PROVIDER_NAME` | unset; shown on the sign-in button, the UI uses a neutral label when unset |
 | `WEBHOOKS_LIVE_RING_MODE_ALLOWED` | true; false rejects `overflow: ring` |
 | `WEBHOOKS_LIVE_SESSION_IDLE`, `WEBHOOKS_LIVE_SESSION_MAX` | `12h`, `7d` |
 | `WEBHOOKS_LIVE_TRUSTED_PROXIES` | empty |
@@ -466,7 +467,7 @@ Risky milestones go to `coder-pro` and get an `xhigh` review.
 | M9 | Rate limiters, storage cap flag, maintenance job, sliding expiry, purge | eviction and cap tests; job runs on one instance only | concurrency |
 | M10 | SSRF-guarded client: resolver, ranges, redirects, timeouts | unit tests per range and redirect case | security, network |
 | M11 | Forward queue: rule routes with save-time target check, jobs in capture transaction, claim loop, retries, attempts, manual resend, `forward_result` | integration tests incl. lease reclaim | concurrency |
-| M12 | `whl-web`: embedding, cache headers, UI security headers, SPA fallback | route table of §10 asserted | – |
+| M12 | `whl-web`: embedding, cache headers, UI security headers with the theme-script hash computed at start from the embedded `index.html`, SPA fallback for the routes of ui-design.md §2, `Containerfile` check for `web/dist/index.html` | route table of §10 asserted; CSP hash matches the served script | – |
 | M13 | Deploy: gitops HelmRelease, route, ImagePolicy, migrate job, OIDC client URIs, `webhooks-live.globalart.hu` | side-by-side instance live | deploy (`xhigh` review) |
 | M14 | Load scripts and Playwright scenarios | targets of §13 met on the side-by-side instance | – |
 | M15 | Cutover steps 2–3 | old stack removed | deploy |

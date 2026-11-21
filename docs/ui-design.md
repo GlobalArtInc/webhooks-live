@@ -60,9 +60,9 @@ an endpoint identifier. Filters live in the query string so a filtered view is a
 | State | Trigger | Shows |
 |---|---|---|
 | Empty endpoint | Endpoint exists, zero captures | Capture URL large, copyable sample `curl`, "Waiting for the first request" with a slow pulse, response config summary |
-| Gone (410) | Endpoint unknown or expired | Full page: "This endpoint no longer exists", Create new, Remove from my endpoints; no list chrome |
-| Not shared (403, sso) | Signed in, not the creator or a share | "Ask the owner to share it", signed-in identity, Sign out |
-| Sign-in (sso) | No session on any non-capture route | Wordmark, one button "Sign in with {provider}", nothing else |
+| Gone (410) | `endpoint_gone`: endpoint unknown, expired or deleted, or in sso not shared with the signed-in user | Full page: "This endpoint no longer exists" (sso adds "or it is not shared with you"), Create new, Remove from my endpoints; no list chrome |
+| Not shared (403 `forbidden`, sso) | An action the caller's role does not allow, e.g. a viewer editing settings or an editor deleting the endpoint | Inline message on that action: "Your role does not allow this; ask the owner"; the view stays |
+| Sign-in (sso) | No session on any non-capture route | Wordmark, one button "Sign in with {auth.provider_name}", or "Sign in" when it is null; nothing else |
 | Error | Initial load fails (5xx, malformed answer) | Inline panel with status, request id when known, Retry; chrome stays |
 | Offline | `navigator.onLine` false or stream down past 3 retries | Amber banner under the header; list and cached details stay readable; actions that write are disabled with a reason tooltip |
 | Not found | Unknown interface route | Short page with link home |
@@ -199,8 +199,8 @@ Copy-as menu (`[Copy v]`, `y` copies curl directly):
 
 | Item | Output |
 |---|---|
-| curl | POSIX shell, every value single-quoted with `'\''` escaping, `--data-binary`; binary bodies are embedded as `printf '<octal escapes>' | curl ... --data-binary @-` (POSIX `\ooo` escapes, `%` written as `%%`), so the command stays self-contained |
-| HAR | HAR 1.2 log with one entry built from the capture; response block from the answered status |
+| curl | POSIX shell, every value single-quoted with `'\''` escaping; always `--globoff`, `--path-as-is` and the URL passed with `--url`; `HEAD` uses `--head`. Text bodies under 64 KiB: `--data-binary '<body>'`. Binary bodies, text with control characters, and text of 64 KiB or more: `printf '<octal escapes, printable ASCII kept literal>' \| curl ... --data-binary @-` (POSIX `\ooo`, `%` as `%%`), self-contained. Bodies above 256 KiB: `--data-binary @capture-<short id>.bin` plus a Download raw button. Control characters in header values or the URL are written as `"$(printf '\ooo')"` words; a header with more than 8 of them is skipped and reported. Headers curl sets itself and hop-by-hop headers are omitted |
+| HAR | HAR 1.2 log with one entry built from the capture; the response block carries the answered status and the endpoint's current response configuration, which may differ from what was served at capture time |
 | JSON | Full capture as JSON |
 | URL | Captured URL |
 | Download JSON / Download raw body / Download HAR | Same content as files |
@@ -362,11 +362,11 @@ the only cheap tie to the GlobalArt family.
 |---|---|
 | List row | Capture id, method, path with query, size, content type, sender IP, received time, override status if any, latest forward outcome |
 | Live stream | Events: capture created (row summary; flag when large per V5), capture deleted, all captures cleared, forward result for a capture, endpoint settings changed, endpoint expired |
-| Catch-up | List the first page newer than a known capture id |
+| Catch-up | List captures with `seq` above the highest held (`after_seq`, ascending), all pages |
 | Filters | Server-side filter by method set, override status class, time range, free text over headers and body; total count for the filtered set |
 | Detail | Everything in C7, answered status, forward results (target, status, duration, error, time); raw body fetched separately |
 | Header and settings | Capture URL, capture count, capacity, ring mode, expiry time and idle window, response config, CORS, delay |
-| Server capabilities | Access mode, max captures, body limit, ring mode allowed, private forward targets allowed, provider name for sign-in |
+| Server capabilities (`Instance`) | `auth_mode`, `limits.max_captures`, `limits.max_body_bytes`, `features.ring_mode_allowed`, `features.private_forward_targets_allowed`, `auth.provider_name` (null: neutral sign-in label), `user` |
 | sso | Current user (name, email), endpoints the user created or that are shared with them, share list per endpoint |
 | Forwarding | Rule CRUD, manual resend result or a pending marker later resolved by a live event |
 
@@ -504,5 +504,5 @@ working rules and should go to the stronger coder.
 1. IBM Plex is licensed OFL-1.1, which the dependency policy in [licensing.md](licensing.md) does not
    list. Allow OFL for font assets, or use the system font stack and give up the family tie?
 2. Is per-user sharing in sso mode (spec section 8) part of the first release? If not, F10 drops
-   "Shared with" and the not-shared state stays a plain 403.
+   "Shared with" and the not-shared state (403 `forbidden` on a disallowed action) stays as is.
 3. Launch languages: English and Russian only, or more targets in the `webhooks-live` OwnLate project?
