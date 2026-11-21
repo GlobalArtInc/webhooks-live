@@ -43,10 +43,10 @@ describe('endpoint workspace routes', () => {
 
   it('shows sections without an implementation as disabled navigation items', async () => {
     seed();
-    renderAppAt(`${BASE_PATH}/settings/access`);
+    renderAppAt(`${BASE_PATH}/settings/notifications`);
 
     const nav = await screen.findByRole('navigation', { name: NAV_LABEL });
-    expect(within(nav).getByText('Access').getAttribute('aria-disabled')).toBe('true');
+    expect(within(nav).getByText('Notifications').getAttribute('aria-disabled')).toBe('true');
     expect(await screen.findByText('This section arrives in a later release.')).toBeTruthy();
   });
 
