@@ -25,6 +25,7 @@ whl-api.workspace = true
 whl-auth.workspace = true
 whl-capture.workspace = true
 whl-core.workspace = true
+whl-dns.workspace = true
 whl-forward.workspace = true
 whl-live.workspace = true
 whl-secrets.workspace = true

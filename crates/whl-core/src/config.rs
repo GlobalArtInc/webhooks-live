@@ -1,7 +1,7 @@
 mod de;
 
 use std::fmt;
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -61,6 +61,12 @@ concurrency = 32
 max_attempts = 3
 allow_cidrs = []
 
+[dns]
+trusted_proxies = []
+rate_source = "20/s:20"
+rate_global = "2000/s:2000"
+rate_capture_endpoint = "60/m:60"
+
 [export]
 concurrency = 2
 
@@ -105,6 +111,16 @@ const ENV_KEYS: &[(&str, &str)] = &[
     ("SHUTDOWN_DRAIN", "shutdown.drain"),
     ("SHUTDOWN_GRACE", "shutdown.grace"),
     ("SECRETS_KEYS", "secrets.keys"),
+    ("DNS_LISTEN_ADDR", "dns.listen_addr"),
+    ("DNS_ZONE", "dns.zone"),
+    ("DNS_TRUSTED_PROXIES", "dns.trusted_proxies"),
+    ("DNS_ANSWER_A", "dns.answer_a"),
+    ("DNS_ANSWER_AAAA", "dns.answer_aaaa"),
+    ("DNS_NS_NAME", "dns.ns_name"),
+    ("DNS_SOA_EMAIL", "dns.soa_email"),
+    ("DNS_RATE_SOURCE", "dns.rate_source"),
+    ("DNS_RATE_GLOBAL", "dns.rate_global"),
+    ("DNS_RATE_CAPTURE_ENDPOINT", "dns.rate_capture_endpoint"),
     ("LOG", "log"),
 ];
 
@@ -125,6 +141,7 @@ pub struct Config {
     pub export: ExportConfig,
     #[serde(default)]
     pub secrets: SecretsConfig,
+    pub dns: DnsConfig,
     pub shutdown: ShutdownConfig,
 }
 
@@ -230,6 +247,49 @@ impl SecretsConfig {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct DnsConfig {
+    #[serde(default, deserialize_with = "de::optional")]
+    pub listen_addr: Option<SocketAddr>,
+    #[serde(default, deserialize_with = "de::optional")]
+    pub zone: Option<String>,
+    #[serde(deserialize_with = "de::list")]
+    pub trusted_proxies: Vec<IpNet>,
+    #[serde(default, deserialize_with = "de::optional")]
+    pub answer_a: Option<Ipv4Addr>,
+    #[serde(default, deserialize_with = "de::optional")]
+    pub answer_aaaa: Option<Ipv6Addr>,
+    #[serde(default, deserialize_with = "de::optional")]
+    pub ns_name: Option<String>,
+    #[serde(default, deserialize_with = "de::optional")]
+    pub soa_email: Option<String>,
+    pub rate_source: RateSpec,
+    pub rate_global: RateSpec,
+    pub rate_capture_endpoint: RateSpec,
+}
+
+impl DnsConfig {
+    pub fn enabled(&self) -> bool {
+        self.listen_addr.is_some()
+    }
+
+    fn problems(&self) -> Vec<Problem> {
+        if self.listen_addr.is_none() && self.zone.is_none() {
+            return Vec::new();
+        }
+        [
+            (self.listen_addr.is_some(), "DNS_LISTEN_ADDR"),
+            (self.zone.is_some(), "DNS_ZONE"),
+            (self.ns_name.is_some(), "DNS_NS_NAME"),
+            (self.soa_email.is_some(), "DNS_SOA_EMAIL"),
+        ]
+        .into_iter()
+        .filter(|(present, _)| !present)
+        .map(|(_, key)| Problem::MissingForDns(key))
+        .collect()
+    }
+}
+
+#[derive(Debug, Deserialize)]
 pub struct ShutdownConfig {
     #[serde(deserialize_with = "de::duration")]
     pub drain: Duration,
@@ -301,6 +361,7 @@ pub enum Problem {
     InvalidRequired(&'static str),
     MissingForSso(&'static str),
     MissingForMixed(&'static str),
+    MissingForDns(&'static str),
     PoolSizeTooSmall,
 }
 
@@ -316,6 +377,10 @@ impl fmt::Display for Problem {
             Self::MissingForMixed(key) => write!(
                 f,
                 "{ENV_PREFIX}{key} is required when {ENV_PREFIX}AUTH_MODE is mixed"
+            ),
+            Self::MissingForDns(key) => write!(
+                f,
+                "{ENV_PREFIX}{key} is required when DNS capture is configured"
             ),
             Self::PoolSizeTooSmall => write!(
                 f,
@@ -452,6 +517,7 @@ impl Config {
             oidc.client_secret.is_some(),
         ));
         problems.extend(pool_size_problem(self.database.pool_size));
+        problems.extend(self.dns.problems());
 
         if problems.is_empty() {
             Ok(())

@@ -4,6 +4,7 @@ pub mod capture_body;
 pub mod capture_queries;
 pub mod captures;
 mod claim;
+pub mod dns;
 pub mod endpoints;
 mod error;
 mod export;

@@ -22,11 +22,11 @@ pub const EVENT_CHANNEL: &str = "whl_events";
 pub const PATH_SUMMARY_BYTES: usize = 1024;
 pub const SEARCH_BODY_BYTES: usize = 256 * 1024;
 
-const EVENT_PAYLOAD_LIMIT: usize = 7900;
-const MAX_EVICTIONS_PER_CAPTURE: i64 = 50;
+pub(crate) const EVENT_PAYLOAD_LIMIT: usize = 7900;
+pub(crate) const MAX_EVICTIONS_PER_CAPTURE: i64 = 50;
 const NUL: char = '\0';
 
-const SESSION_LIMITS: &str = "SELECT \
+pub(crate) const SESSION_LIMITS: &str = "SELECT \
        set_config('statement_timeout', '2s', true), \
        set_config('idle_in_transaction_session_timeout', '5s', true)";
 
@@ -54,7 +54,7 @@ const CLAIM_SLOT: &str = "UPDATE endpoints SET \
      RETURNING last_seq, capture_count, COALESCE(max_captures::bigint, $4) AS effective_max, response_status, response_content_type, \
        response_headers::text AS response_headers, response_body, response_delay_ms, cors";
 
-const EVICT_OLDEST: &str = "WITH evicted AS ( \
+pub(crate) const EVICT_OLDEST: &str = "WITH evicted AS ( \
        DELETE FROM captures WHERE endpoint_id = $1 AND seq IN ( \
          SELECT seq FROM captures WHERE endpoint_id = $1 AND NOT starred ORDER BY seq LIMIT $2) \
        RETURNING stored_bytes) \
@@ -70,10 +70,10 @@ const INSERT_CAPTURE: &str = "INSERT INTO captures \
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::inet, $10::text::jsonb, $11::text::jsonb, \
       $12::text::jsonb, $13, $14, $15, $16, $17, $18, '{}'::jsonb, $19)";
 
-const INSERT_BODY: &str =
+pub(crate) const INSERT_BODY: &str =
     "INSERT INTO capture_bodies (capture_id, data, search_text) VALUES ($1, $2, $3)";
 
-const NOTIFY: &str = "SELECT pg_notify($1, $2)";
+pub(crate) const NOTIFY: &str = "SELECT pg_notify($1, $2)";
 
 #[derive(Debug, thiserror::Error)]
 pub enum CaptureStoreError {
@@ -111,7 +111,7 @@ impl CaptureStoreError {
         )
     }
 
-    fn classify(source: sqlx::Error) -> Self {
+    pub(crate) fn classify(source: sqlx::Error) -> Self {
         let unavailable = match &source {
             sqlx::Error::PoolTimedOut
             | sqlx::Error::PoolClosed
@@ -277,7 +277,7 @@ impl NewCapture {
     }
 }
 
-fn scrub_string(text: &mut String) {
+pub(crate) fn scrub_string(text: &mut String) {
     if text.contains(NUL) {
         *text = text.replace(NUL, "\u{FFFD}");
     }
@@ -290,7 +290,7 @@ fn scrub_pairs(pairs: &mut [NameValue]) {
     }
 }
 
-fn truncate(text: &str, max_bytes: usize) -> &str {
+pub(crate) fn truncate(text: &str, max_bytes: usize) -> &str {
     if text.len() <= max_bytes {
         return text;
     }
@@ -395,14 +395,14 @@ pub fn capture_event_payload(
     Err(CaptureStoreError::PayloadTooLarge)
 }
 
-fn format_timestamp(moment: OffsetDateTime) -> Result<String, CaptureStoreError> {
+pub(crate) fn format_timestamp(moment: OffsetDateTime) -> Result<String, CaptureStoreError> {
     let utc = moment.to_offset(time::UtcOffset::UTC);
     Ok(utc.format(format_description!(
         "[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:3]Z"
     ))?)
 }
 
-fn to_i32(value: usize, what: &'static str) -> Result<i32, CaptureStoreError> {
+pub(crate) fn to_i32(value: usize, what: &'static str) -> Result<i32, CaptureStoreError> {
     i32::try_from(value).map_err(|_| CaptureStoreError::OutOfRange(what))
 }
 
@@ -470,7 +470,7 @@ impl Store {
             .map_err(|_| CaptureStoreError::DeadlineExceeded)?
     }
 
-    async fn acquire_capture_connection(
+    pub(crate) async fn acquire_capture_connection(
         &self,
     ) -> Result<PoolConnection<Postgres>, CaptureStoreError> {
         tokio::time::timeout(ACQUIRE_TIMEOUT, self.pool().acquire())
@@ -479,7 +479,7 @@ impl Store {
             .map_err(CaptureStoreError::classify)
     }
 
-    async fn begin_capture_transaction(
+    pub(crate) async fn begin_capture_transaction(
         &self,
     ) -> Result<Transaction<'static, Postgres>, CaptureStoreError> {
         tokio::time::timeout(ACQUIRE_TIMEOUT, self.pool().begin())

@@ -154,3 +154,17 @@ fn retry_after_is_rounded_up_to_whole_seconds_with_a_floor_of_one() {
     assert_eq!(whole_seconds_up(Duration::from_millis(1001)), 2);
     assert_eq!(whole_seconds_up(Duration::from_secs(3)), 3);
 }
+
+#[test]
+fn a_strict_limiter_refuses_new_keys_once_the_table_is_full_and_keeps_known_ones() {
+    let limiter = KeyedLimiter::new_strict(spec("1000/s:1000"), 2).expect("limiter builds");
+    let known = ClientKey::from_ip(ip("198.51.100.1"));
+    let other = ClientKey::from_ip(ip("198.51.100.2"));
+    let overflow = ClientKey::from_ip(ip("198.51.100.3"));
+
+    assert!(limiter.check(&known).is_allowed());
+    assert!(limiter.check(&other).is_allowed());
+
+    assert!(!limiter.check(&overflow).is_allowed());
+    assert!(limiter.check(&known).is_allowed());
+}

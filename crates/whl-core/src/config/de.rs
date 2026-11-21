@@ -60,3 +60,19 @@ where
         .map(|item| item.parse::<T>().map_err(D::Error::custom))
         .collect()
 }
+
+pub fn optional<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: FromStr,
+    T::Err: Display,
+{
+    let Some(text) = Option::<String>::deserialize(deserializer)? else {
+        return Ok(None);
+    };
+    let text = text.trim();
+    if text.is_empty() {
+        return Ok(None);
+    }
+    text.parse::<T>().map(Some).map_err(D::Error::custom)
+}
