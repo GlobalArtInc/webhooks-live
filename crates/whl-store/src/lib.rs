@@ -1,3 +1,4 @@
+pub mod api_tokens;
 pub mod auth;
 pub mod capture_body;
 pub mod capture_queries;
@@ -13,6 +14,10 @@ pub mod secrets;
 mod store;
 pub mod stream;
 
+pub use api_tokens::{
+    ApiTokenLookup, ApiTokenRecord, ApiTokenStoreError, CreateTokenOutcome, MAX_TOKEN_ENDPOINTS,
+    MAX_TOKEN_NAME_CHARS, NewApiToken, RevokeTokenOutcome, TokenCaps, TokenScope,
+};
 pub use auth::{
     AuthStoreError, EndpointRole, EndpointStanding, LoginCaps, LoginRecord, SessionLifetime,
     UserRecord, VerifiedIdentity,

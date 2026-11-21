@@ -61,6 +61,7 @@ pub struct Bound {
     proxies: TrustedProxies,
     limiters: Limiters,
     api_limits: ApiLimits,
+    api_cors: bool,
     background: BackgroundSettings,
     secrets: Option<Arc<Keyring>>,
 }
@@ -110,7 +111,8 @@ impl Bound {
             }
             None => AccessControl::open(),
         }
-        .with_proxies(self.proxies.clone());
+        .with_proxies(self.proxies.clone())
+        .with_token_limits(self.limiters.clone());
         let authorizer = whl_api::stream_authorizer(&access);
         let state = ApiState::new(store.clone(), self.api.clone())
             .with_access(access)
@@ -150,6 +152,7 @@ impl Bound {
             auth,
             readiness: Arc::clone(&readiness),
             limits: self.api_limits,
+            api_cors: self.api_cors,
             http: self.http,
             stop: stop_rx.clone(),
             ready: public_ready,
@@ -305,6 +308,7 @@ pub async fn bind(config: &Config) -> Result<Bound, ServerError> {
         proxies,
         limiters,
         api_limits,
+        api_cors: config.api_cors,
         background: BackgroundSettings::from_config(config),
         secrets,
     })
@@ -340,6 +344,7 @@ struct PublicParts {
     auth: Option<AuthState>,
     readiness: Arc<Readiness>,
     limits: ApiLimits,
+    api_cors: bool,
     http: HttpLimits,
     stop: watch::Receiver<bool>,
     ready: oneshot::Sender<()>,
@@ -359,6 +364,7 @@ async fn serve_public(parts: PublicParts) -> Result<(), ServerError> {
         parts.capture,
         parts.auth,
         parts.limits,
+        parts.api_cors,
     );
     let _ = parts.ready.send(());
     let server = public::serve(

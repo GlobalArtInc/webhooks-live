@@ -6,6 +6,7 @@ use openidconnect::reqwest;
 use whl_core::client_ip::TrustedProxies;
 use whl_store::{SessionLifetime, Store, UserRecord};
 
+use crate::api_token::bearer;
 use crate::cookies::CookiePolicy;
 use crate::error::{AuthError, AuthRejection};
 use crate::origin::OriginCheck;
@@ -152,6 +153,9 @@ impl AuthState {
         &self,
         headers: &HeaderMap,
     ) -> Result<Option<UserRecord>, AuthRejection> {
+        if bearer(headers).is_present() {
+            return Ok(None);
+        }
         let Some(hash) = self.session_hash(headers) else {
             return Ok(None);
         };

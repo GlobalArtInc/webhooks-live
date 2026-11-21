@@ -5,7 +5,7 @@ use axum::Router;
 use axum::body::Body;
 use axum::extract::{MatchedPath, State};
 use axum::http::{Request, StatusCode, header};
-use axum::middleware::from_fn_with_state;
+use axum::middleware::{from_fn, from_fn_with_state};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use tower_http::trace::TraceLayer;
@@ -23,6 +23,7 @@ pub fn public(
     capture: CaptureState,
     auth: Option<AuthState>,
     limits: ApiLimits,
+    api_cors: bool,
 ) -> Router {
     let ingest = whl_capture::router_with_fallback(capture, whl_web::router());
     let stream = whl_api::guard_routes(whl_live::router(live), api.access())
@@ -35,6 +36,11 @@ pub fn public(
         None => routes
             .merge(whl_api::router(api))
             .merge(whl_auth::unavailable_router()),
+    };
+    let routes = if api_cors {
+        routes.layer(from_fn(whl_api::api_cors))
+    } else {
+        routes
     };
     with_tracing(routes.fallback_service(ingest))
 }

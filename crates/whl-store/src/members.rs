@@ -300,6 +300,7 @@ impl Store {
         filter: RoleFilter,
         after: Option<&ListPosition>,
         limit: u32,
+        only: Option<&[EndpointId]>,
     ) -> Result<UserEndpointPage, MembershipError> {
         let sql = format!(
             "SELECT {QUALIFIED_COLUMNS}, \
@@ -315,10 +316,13 @@ impl Store {
                     OR ($3::text = 'owner' AND e.owner_id = $1) \
                     OR ($3::text = 'shared' AND e.owner_id IS DISTINCT FROM $1)) \
                 AND ($4::timestamptz IS NULL OR (e.last_active_at, e.id) < ($4::timestamptz, $5::text)) \
+                AND ($7::text[] IS NULL OR e.id = ANY($7::text[])) \
              ORDER BY e.last_active_at DESC, e.id DESC \
              LIMIT $6"
         );
         let fetch = i64::from(limit) + 1;
+        let only: Option<Vec<String>> =
+            only.map(|ids| ids.iter().map(|id| id.unpack().to_owned()).collect());
         let rows = sqlx::query(&sql)
             .bind(user_id)
             .bind(retention.as_secs_f64())
@@ -326,6 +330,7 @@ impl Store {
             .bind(after.map(|position| position.last_active_at))
             .bind(after.map(|position| position.id.as_str()))
             .bind(fetch)
+            .bind(only)
             .fetch_all(self.pool())
             .await
             .map_err(classify)?;

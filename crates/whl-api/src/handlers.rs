@@ -2,7 +2,7 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use whl_auth::{Access, Caller, Creation};
+use whl_auth::{Access, AuthRejection, Caller, Creation};
 use whl_core::endpoint_id::EndpointId;
 use whl_store::{EndpointRole, UserRecord};
 
@@ -27,6 +27,12 @@ pub async fn create(
     caller: Caller,
     RawBody(body): RawBody,
 ) -> Result<Response, ApiError> {
+    if caller
+        .token()
+        .is_some_and(|grant| grant.endpoint_limit().is_some())
+    {
+        return Err(AuthRejection::InsufficientScope.into());
+    }
     let creation = state.access.creation(&caller)?;
     let parsed = parse_endpoint_input(&body, true)?;
     let settings = resolve(

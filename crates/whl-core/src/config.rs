@@ -26,6 +26,7 @@ listen_addr = "0.0.0.0:8080"
 admin_addr = "0.0.0.0:9090"
 log = "info"
 trusted_proxies = []
+api_cors = true
 
 [database]
 pool_size = 20
@@ -81,6 +82,7 @@ const ENV_KEYS: &[(&str, &str)] = &[
     ("SESSION_MAX", "auth.session_max"),
     ("AUTH_MAX_PENDING_LOGINS", "auth.max_pending_logins"),
     ("TRUSTED_PROXIES", "trusted_proxies"),
+    ("API_CORS", "api_cors"),
     ("RETENTION", "capture.retention"),
     ("MAX_CAPTURES", "capture.max_captures"),
     ("MAX_BODY_BYTES", "capture.max_body_bytes"),
@@ -108,6 +110,7 @@ pub struct Config {
     pub listen_addr: SocketAddr,
     pub admin_addr: SocketAddr,
     pub log: String,
+    pub api_cors: bool,
     #[serde(deserialize_with = "de::list")]
     pub trusted_proxies: Vec<IpNet>,
     pub database: DatabaseConfig,

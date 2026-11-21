@@ -2,9 +2,10 @@ use axum::Json;
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
-use whl_store::AuthStoreError;
+use whl_store::{ApiTokenStoreError, AuthStoreError};
 
 const LONG_RETRY_AFTER: &str = "30";
+const BEARER_CHALLENGE: &str = "Bearer error=\"invalid_token\"";
 
 #[derive(Debug, thiserror::Error)]
 pub enum AuthError {
@@ -88,6 +89,14 @@ pub enum AuthRejection {
     ClaimRequired,
     #[error("the Origin of this request is not the public origin")]
     CsrfRejected,
+    #[error("the API token is invalid, expired or revoked")]
+    InvalidToken,
+    #[error("this route needs a signed-in session, not an API token")]
+    SessionRequired,
+    #[error("the API token does not cover this request")]
+    InsufficientScope,
+    #[error("too many requests with this API token")]
+    TokenRateLimited { retry_after_secs: u64 },
     #[error("this route needs sso mode")]
     NotAvailableInMode,
     #[error("the method is not allowed on this route")]
@@ -104,6 +113,17 @@ pub enum AuthRejection {
     LoginRateLimited,
     #[error("the request could not be completed")]
     Internal,
+}
+
+impl From<ApiTokenStoreError> for AuthRejection {
+    fn from(error: ApiTokenStoreError) -> Self {
+        if error.is_unavailable() {
+            Self::StoreUnavailable
+        } else {
+            tracing::error!(%error, "API token storage failed");
+            Self::Internal
+        }
+    }
 }
 
 impl From<AuthStoreError> for AuthRejection {
@@ -162,6 +182,10 @@ impl IntoResponse for AuthRejection {
             Self::SignInRequired => (StatusCode::FORBIDDEN, "sign_in_required"),
             Self::ClaimRequired => (StatusCode::CONFLICT, "claim_required"),
             Self::CsrfRejected => (StatusCode::FORBIDDEN, "csrf_rejected"),
+            Self::InvalidToken => (StatusCode::UNAUTHORIZED, "invalid_token"),
+            Self::SessionRequired => (StatusCode::FORBIDDEN, "session_required"),
+            Self::InsufficientScope => (StatusCode::FORBIDDEN, "insufficient_scope"),
+            Self::TokenRateLimited { .. } => (StatusCode::TOO_MANY_REQUESTS, "rate_limited"),
             Self::NotAvailableInMode => (StatusCode::NOT_FOUND, "not_available_in_mode"),
             Self::MethodNotAllowed => (StatusCode::METHOD_NOT_ALLOWED, "method_not_allowed"),
             Self::NotFound => (StatusCode::NOT_FOUND, "not_found"),
@@ -172,6 +196,17 @@ impl IntoResponse for AuthRejection {
             Self::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "internal_error"),
         };
         let mut response = error_response(status, code, self.to_string());
+        if matches!(self, Self::InvalidToken) {
+            response.headers_mut().insert(
+                header::WWW_AUTHENTICATE,
+                HeaderValue::from_static(BEARER_CHALLENGE),
+            );
+        }
+        if let Self::TokenRateLimited { retry_after_secs } = self {
+            response
+                .headers_mut()
+                .insert(header::RETRY_AFTER, HeaderValue::from(retry_after_secs));
+        }
         if matches!(
             self,
             Self::AuthUnavailable | Self::LoginBusy | Self::LoginRateLimited
