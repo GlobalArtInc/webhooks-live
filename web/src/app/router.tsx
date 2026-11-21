@@ -23,6 +23,7 @@ import { SignInScreen } from '../routes/signin/SignInScreen';
 import { validateCaptureSearch } from '../features/filters/captureSearch';
 import { isCaptureId, isEndpointId } from './ids';
 import { ensureEndpoint } from './endpointQuery';
+import { validatePreviewSearch } from '../features/templating/previewSearch';
 import { isWorkspaceSectionId } from '../features/workspace/sections';
 import { RouteError } from './RouteError';
 import { ShellLayout } from './shell/ShellLayout';
@@ -135,6 +136,7 @@ const settingsIndexRoute = createRoute({
 const settingsSectionRoute = createRoute({
   getParentRoute: () => endpointSettingsRoute,
   path: '$section',
+  validateSearch: validatePreviewSearch,
   beforeLoad: ({ params }) => assertWorkspaceSection(params.section),
   component: SettingsSectionScreen,
 });

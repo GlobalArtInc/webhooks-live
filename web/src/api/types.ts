@@ -85,6 +85,7 @@ export interface ResponseConfig {
   headers: NameValue[];
   body: Body;
   delay_ms: number;
+  templated?: boolean;
 }
 
 export interface ResponseInput {
@@ -93,6 +94,7 @@ export interface ResponseInput {
   headers?: NameValue[];
   body?: BodyInput;
   delay_ms?: number;
+  templated?: boolean;
 }
 
 export interface ForwardRule {

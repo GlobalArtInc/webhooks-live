@@ -1,0 +1,134 @@
+.heading {
+  margin: 0;
+  font: var(--text-section);
+  color: var(--color-text);
+}
+
+.note {
+  margin: 0;
+  font: var(--text-data);
+  color: var(--color-text-muted);
+}
+
+.column {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.wide {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+  min-width: 0;
+}
+
+.side {
+  position: sticky;
+  top: var(--space-3);
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  max-height: calc(100vh - var(--space-7));
+  padding: var(--space-3);
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.medium {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.panel {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.panelBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.panelBar .heading {
+  margin-right: auto;
+}
+
+.rangeLabel {
+  font: var(--text-meta);
+  color: var(--color-text-muted);
+}
+
+.range {
+  width: 8rem;
+  min-height: 24px;
+}
+
+.toggle {
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: var(--text-meta);
+  cursor: pointer;
+}
+
+.toggle:focus-visible,
+.range:focus-visible,
+.tab:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.panelBody {
+  min-width: 0;
+  overflow: auto;
+}
+
+.panelBody[hidden] {
+  display: none;
+}
+
+.narrow {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.tabs {
+  display: flex;
+  gap: var(--space-1);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.tab {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--color-text-muted);
+  font: var(--text-data);
+  cursor: pointer;
+}
+
+.tab[aria-selected='true'] {
+  border-bottom-color: var(--color-accent);
+  color: var(--color-text);
+  font-weight: 600;
+}

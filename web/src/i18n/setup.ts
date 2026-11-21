@@ -11,6 +11,7 @@ import home from './en/home.json';
 import live from './en/live.json';
 import sample from './en/sample.json';
 import state from './en/state.json';
+import templating from './en/templating.json';
 import workspace from './en/workspace.json';
 
 export const SOURCE_LANGUAGE = 'en';
@@ -36,6 +37,7 @@ export function createI18nInstance(): I18nInstance {
           ...live,
           ...sample,
           ...state,
+          ...templating,
           ...workspace,
         },
       },
