@@ -5,6 +5,7 @@ use tokio::task::JoinError;
 use whl_auth::AuthError;
 use whl_capture::StateError;
 use whl_core::limiter::LimiterError;
+use whl_dns::DnsError;
 use whl_forward::{ForwardError, WorkerError};
 use whl_store::StoreError;
 
@@ -24,6 +25,8 @@ pub enum ServerError {
     Forward(#[from] ForwardError),
     #[error("the forward worker settings are invalid: {0}")]
     Worker(#[from] WorkerError),
+    #[error("cannot set up DNS capture: {0}")]
+    Dns(#[from] DnsError),
     #[error("cannot set up secrets: {0}")]
     Secrets(#[from] SecretsSetupError),
     #[error("cannot bind the {listener} listener on {addr}: {source}")]

@@ -23,6 +23,7 @@ use whl_capture::{CaptureSettings, CaptureState};
 use whl_core::client_ip::TrustedProxies;
 use whl_core::config::{AuthMode, Config};
 use whl_core::limiter::{LimiterSettings, Limiters};
+use whl_dns::{DnsServer, DnsSettings, StorageProbe};
 use whl_forward::WorkerHandle;
 use whl_live::{HUB_CAPACITY, Hub, ListenerHandle, LiveState, StreamSettings};
 use whl_secrets::Keyring;
@@ -64,6 +65,13 @@ pub struct Bound {
     api_cors: bool,
     background: BackgroundSettings,
     secrets: Option<Arc<Keyring>>,
+    dns: Option<DnsServer>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DnsAddrs {
+    pub udp: SocketAddr,
+    pub tcp: SocketAddr,
 }
 
 impl Bound {
@@ -73,6 +81,13 @@ impl Bound {
 
     pub fn admin_addr(&self) -> SocketAddr {
         self.admin_addr
+    }
+
+    pub fn dns_addrs(&self) -> Option<DnsAddrs> {
+        self.dns.as_ref().map(|dns| DnsAddrs {
+            udp: dns.udp_addr(),
+            tcp: dns.tcp_addr(),
+        })
     }
 
     pub fn with_http_limits(mut self, limits: HttpLimits) -> Self {
@@ -213,11 +228,20 @@ impl Bound {
             .await;
         }
         readiness.mark_ready();
+        let dns = match self.dns {
+            Some(server) => {
+                let flag = storage_full.clone();
+                let probe = StorageProbe::new(move || flag.is_full());
+                Some(server.serve(store.clone(), probe, background_stop.clone())?)
+            }
+            None => None,
+        };
         let background = Background::spawn(
             store.clone(),
             &self.background,
             storage_full,
             self.limiters,
+            dns,
             &background_stop,
         );
         let mut forward = worker.map(|worker| worker.spawn(until_stopped(worker_stop)));
@@ -293,6 +317,10 @@ pub async fn bind(config: &Config) -> Result<Bound, ServerError> {
     }
     let (public, public_addr) = bind_listener("public", config.listen_addr).await?;
     let (admin, admin_addr) = bind_listener("admin", config.admin_addr).await?;
+    let dns = match DnsSettings::from_config(config)? {
+        Some(settings) => Some(DnsServer::bind(settings).await?),
+        None => None,
+    };
     let limiters = Limiters::new(&LimiterSettings::from_config(&config.rate))?;
     let proxies = TrustedProxies::new(config.trusted_proxies.clone());
     let api_limits = ApiLimits::new(limiters.clone(), proxies.clone());
@@ -317,6 +345,7 @@ pub async fn bind(config: &Config) -> Result<Bound, ServerError> {
         api_cors: config.api_cors,
         background: BackgroundSettings::from_config(config),
         secrets,
+        dns,
     })
 }
 

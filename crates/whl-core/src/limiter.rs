@@ -22,6 +22,7 @@ use crate::rate::{RatePeriod, RateSpec};
 pub const DEFAULT_MAX_KEYS: usize = 100_000;
 
 const IPV6_PREFIX_BYTES: usize = 8;
+const SATURATED_NANOS: u64 = u64::MAX / 4;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum LimiterError {
@@ -73,14 +74,16 @@ pub struct BoundedStore<K: Hash + Eq> {
     cells: DashMap<K, AtomicU64>,
     live: AtomicUsize,
     max_keys: usize,
+    fail_closed: bool,
 }
 
 impl<K: Hash + Eq> BoundedStore<K> {
-    fn new(max_keys: usize) -> Self {
+    fn new(max_keys: usize, fail_closed: bool) -> Self {
         Self {
             cells: DashMap::new(),
             live: AtomicUsize::new(0),
             max_keys,
+            fail_closed,
         }
     }
 
@@ -125,7 +128,8 @@ impl<K: Hash + Eq + Clone> StateStore for BoundedStore<K> {
             return swap(&cell, decide);
         }
         if !self.reserve() {
-            return decide(None).map(|(outcome, _)| outcome);
+            let tracked = self.fail_closed.then(|| Nanos::from(SATURATED_NANOS));
+            return decide(tracked).map(|(outcome, _)| outcome);
         }
         match self.cells.entry(key.clone()) {
             Entry::Occupied(occupied) => {
@@ -178,6 +182,14 @@ pub struct KeyedLimiter<K: Hash + Eq + Clone> {
 
 impl<K: Hash + Eq + Clone> KeyedLimiter<K> {
     pub fn new(spec: RateSpec, max_keys: usize) -> Result<Self, LimiterError> {
+        Self::build(spec, max_keys, false)
+    }
+
+    pub fn new_strict(spec: RateSpec, max_keys: usize) -> Result<Self, LimiterError> {
+        Self::build(spec, max_keys, true)
+    }
+
+    fn build(spec: RateSpec, max_keys: usize, fail_closed: bool) -> Result<Self, LimiterError> {
         if max_keys == 0 {
             return Err(LimiterError::ZeroCapacity);
         }
@@ -190,7 +202,11 @@ impl<K: Hash + Eq + Clone> KeyedLimiter<K> {
             RatePeriod::Minute => Quota::per_minute(count),
         }
         .allow_burst(burst);
-        let gcra = RateLimiter::new(quota, BoundedStore::new(max_keys), DefaultClock::default());
+        let gcra = RateLimiter::new(
+            quota,
+            BoundedStore::new(max_keys, fail_closed),
+            DefaultClock::default(),
+        );
         Ok(Self {
             gcra,
             burst: burst.get(),
