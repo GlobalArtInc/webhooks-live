@@ -132,6 +132,8 @@ export interface Endpoint {
   expires_at: Timestamp;
   owner: User | null;
   my_role: EndpointRole | null;
+  email?: EndpointEmail;
+  dns?: EndpointDns;
 }
 
 export interface EndpointInput {
@@ -140,6 +142,18 @@ export interface EndpointInput {
   cors?: boolean;
   overflow?: Overflow;
   forward_rules?: ForwardRuleInput[];
+}
+
+export type CaptureKind = 'http' | 'email' | 'dns' | 'schedule';
+
+export interface EndpointEmail {
+  enabled: boolean;
+  address: string | null;
+}
+
+export interface EndpointDns {
+  enabled: boolean;
+  name: string | null;
 }
 
 export interface CaptureSummary {
@@ -156,7 +170,12 @@ export interface CaptureSummary {
   status_override: number | null;
   response_status: number;
   forward_state: ForwardState | null;
+  kind?: CaptureKind;
+  subject?: string | null;
+  imported?: boolean;
 }
+
+export type CaptureMeta = Readonly<Record<string, unknown>>;
 
 export interface FormFile {
   name: string;
@@ -207,12 +226,14 @@ export interface Capture extends CaptureSummary {
   form: CaptureForm | null;
   body: Body;
   forwards: ForwardJob[];
+  meta?: CaptureMeta | null;
 }
 
 export interface CaptureListFilters {
   order?: CaptureOrder;
   limit?: number;
   method?: string;
+  kind?: string;
   status?: string;
   q?: string;
   since?: Timestamp;

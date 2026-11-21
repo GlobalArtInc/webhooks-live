@@ -119,12 +119,16 @@ function containsText(capture: Capture, needle: string): boolean {
 
 function matchesFilters(capture: Capture, params: URLSearchParams): boolean {
   const methods = params.get('method')?.split(',') ?? [];
+  const kinds = params.get('kind')?.split(',') ?? [];
   const statuses = params.get('status')?.split(',') ?? [];
   const since = params.get('since');
   const until = params.get('until');
   const q = params.get('q');
   const receivedAt = Date.parse(capture.received_at);
   if (methods.length > 0 && !methods.some((method) => method.toUpperCase() === capture.method.toUpperCase())) {
+    return false;
+  }
+  if (kinds.length > 0 && !kinds.includes(capture.kind ?? 'http')) {
     return false;
   }
   if (

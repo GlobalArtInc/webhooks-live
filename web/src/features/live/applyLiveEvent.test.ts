@@ -20,6 +20,7 @@ import {
   seqsOf,
   summaryFor,
 } from './liveFixtures';
+import { activeFiltersOf, hasActiveFilters } from '../list/listFilters';
 import { isLiveEventName, parseLiveEvent, readLiveEvent } from './parse';
 import type { LiveEvent } from './types';
 
@@ -268,6 +269,16 @@ describe('applyLiveEvent', () => {
     expect(matchesActiveFilter({ method: 'PUT' }, capture)).toBe(false);
     expect(matchesActiveFilter({ status: '4xx' }, capture)).toBe(true);
     expect(matchesActiveFilter({ status: 'none' }, capture)).toBe(false);
+  });
+
+  it('matches the kind list on the client, and a kind filter counts as an active filter', () => {
+    const mail = summaryFor(1, { kind: 'email' });
+    const http = summaryFor(2);
+
+    expect(matchesActiveFilter({ kind: 'email' }, mail)).toBe(true);
+    expect(matchesActiveFilter({ kind: 'email' }, http)).toBe(false);
+    expect(matchesActiveFilter({ kind: 'dns,email' }, mail)).toBe(true);
+    expect(hasActiveFilters(activeFiltersOf({ kind: 'email' }))).toBe(true);
   });
 
   it('matches the received time against the inclusive start and the exclusive end', () => {

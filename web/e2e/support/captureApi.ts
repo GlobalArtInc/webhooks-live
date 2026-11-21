@@ -23,6 +23,10 @@ function matchesListFilters(capture: Capture, url: URL): boolean {
   if (methods.length > 0 && !methods.includes(capture.method.toUpperCase())) {
     return false;
   }
+  const kinds = url.searchParams.get('kind')?.split(',') ?? [];
+  if (kinds.length > 0 && !kinds.includes(capture.kind ?? 'http')) {
+    return false;
+  }
   const text = url.searchParams.get('q');
   return text === null || capture.path.toLowerCase().includes(text.toLowerCase());
 }

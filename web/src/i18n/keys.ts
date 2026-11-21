@@ -6,6 +6,7 @@ import endpoint from './en/endpoint.json';
 import exportMessages from './en/export.json';
 import forwarding from './en/forwarding.json';
 import home from './en/home.json';
+import kinds from './en/kinds.json';
 import live from './en/live.json';
 import sample from './en/sample.json';
 import state from './en/state.json';
@@ -19,6 +20,7 @@ export type SourceMessages = typeof common &
   typeof exportMessages &
   typeof forwarding &
   typeof home &
+  typeof kinds &
   typeof live &
   typeof sample &
   typeof state &
