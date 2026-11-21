@@ -53,6 +53,12 @@
   resize: vertical;
 }
 
+.note {
+  margin: 0;
+  font: var(--text-data);
+  color: var(--color-text-muted);
+}
+
 .error {
   margin: 0;
   font: var(--text-meta);

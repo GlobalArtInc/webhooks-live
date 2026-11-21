@@ -6,9 +6,10 @@ import type { DraftStatus } from './useSettingsDraft';
 export interface DraftFooterProps {
   status: DraftStatus;
   readOnly: boolean;
+  saveBlockedText?: string;
 }
 
-export function DraftFooter({ status, readOnly }: DraftFooterProps) {
+export function DraftFooter({ status, readOnly, saveBlockedText }: DraftFooterProps) {
   const { t } = useTranslation();
   const { blocker } = status;
   return (
@@ -18,6 +19,7 @@ export function DraftFooter({ status, readOnly }: DraftFooterProps) {
           dirty={status.dirty}
           saving={status.saving}
           failed={status.error !== null}
+          blockedText={saveBlockedText}
           onSave={() => {
             void status.save();
           }}
