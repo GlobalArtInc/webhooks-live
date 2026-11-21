@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { StateKind } from './stateKind';
 import styles from './StatePage.module.css';
@@ -14,9 +15,10 @@ export interface StatePageProps {
   detail?: StateDetail;
   onRetry?: () => void;
   onSignOut?: () => void;
+  actions?: ReactNode;
 }
 
-export function StatePage({ kind, detail = {}, onRetry, onSignOut }: StatePageProps) {
+export function StatePage({ kind, detail = {}, onRetry, onSignOut, actions }: StatePageProps) {
   const { t } = useTranslation();
 
   let title: string;
@@ -84,6 +86,7 @@ export function StatePage({ kind, detail = {}, onRetry, onSignOut }: StatePagePr
             {signInLabel}
           </a>
         )}
+        {actions}
       </div>
     </section>
   );

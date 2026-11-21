@@ -95,7 +95,11 @@ function readFieldErrors(value: unknown): FieldError[] {
   const fields: FieldError[] = [];
   for (const item of items) {
     if (isRecord(item) && typeof item.field === 'string' && typeof item.message === 'string') {
-      fields.push({ field: item.field, message: item.message });
+      const field: FieldError = { field: item.field, message: item.message };
+      if (typeof item.code === 'string') {
+        field.code = item.code;
+      }
+      fields.push(field);
     }
   }
   return fields;

@@ -65,6 +65,7 @@ export interface CapturePage extends Page<CaptureSummary> {
 
 export interface FieldError {
   field: string;
+  code?: string;
   message: string;
 }
 

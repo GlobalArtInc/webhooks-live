@@ -4,6 +4,7 @@ import common from './en/common.json';
 import detail from './en/detail.json';
 import diff from './en/diff.json';
 import exportMessages from './en/export.json';
+import home from './en/home.json';
 import sample from './en/sample.json';
 import state from './en/state.json';
 
@@ -17,7 +18,9 @@ export function createI18nInstance(): I18nInstance {
     initAsync: false,
     keySeparator: false,
     resources: {
-      [SOURCE_LANGUAGE]: { translation: { ...common, ...detail, ...diff, ...exportMessages, ...sample, ...state } },
+      [SOURCE_LANGUAGE]: {
+        translation: { ...common, ...detail, ...diff, ...exportMessages, ...home, ...sample, ...state },
+      },
     },
     interpolation: { escapeValue: false },
   });

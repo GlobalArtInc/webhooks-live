@@ -64,4 +64,9 @@ describe('StatePage', () => {
 
     expect(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/auth/login');
   });
+  it('renders the extra actions slot next to the state actions', () => {
+    renderPage(<StatePage kind="gone" actions={<button type="button">Remove from my endpoints</button>} />);
+
+    expect(screen.getByRole('button', { name: 'Remove from my endpoints' })).toBeTruthy();
+  });
 });

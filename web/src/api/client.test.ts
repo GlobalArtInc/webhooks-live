@@ -24,6 +24,28 @@ describe('typed API client', () => {
     });
   });
 
+  it('keeps the field code of a validation error next to its path and message', async () => {
+    mockServer.use(
+      http.get(ENDPOINT_PATH, () =>
+        HttpResponse.json(
+          {
+            error: {
+              code: 'validation_failed',
+              message: 'response.status must be between 100 and 599',
+              fields: [{ field: 'response.status', code: 'out_of_range', message: 'must be between 100 and 599' }],
+            },
+          },
+          { status: 422 },
+        ),
+      ),
+    );
+
+    await expect(getEndpoint(ENDPOINT_ID)).rejects.toMatchObject({
+      status: 422,
+      details: [{ field: 'response.status', code: 'out_of_range', message: 'must be between 100 and 599' }],
+    });
+  });
+
   it('maps a 410 answer without a JSON error body into an ApiError with a null code', async () => {
     mockServer.use(
       http.get(ENDPOINT_PATH, () =>

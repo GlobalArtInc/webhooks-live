@@ -1,18 +1,21 @@
 import type { Page, Route } from '@playwright/test';
-import type { Instance } from '../../src/api/types';
+import type { FieldError, Instance } from '../../src/api/types';
 import { instanceFixture } from '../../src/test/fixtures/instance';
 
 export const ENDPOINT_ID = '0123456789abcdefghjkmnpq';
 
+export type ReplyHeaders = Readonly<Record<string, string>>;
+
 export interface Reply {
   status?: number;
   body?: unknown;
+  headers?: ReplyHeaders;
 }
 
 export type ReplyMap = Record<string, Reply>;
 
-export function apiError(status: number, code: string, message: string): Reply {
-  return { status, body: { error: { code, message } } };
+export function apiError(status: number, code: string, message: string, fields?: FieldError[]): Reply {
+  return { status, body: { error: fields === undefined ? { code, message } : { code, message, fields } } };
 }
 
 export async function mockApi(page: Page, replies: ReplyMap): Promise<void> {
@@ -39,6 +42,7 @@ async function answer(route: Route, replies: ReplyMap): Promise<void> {
   await route.fulfill({
     status: reply.status ?? 200,
     contentType: 'application/json',
+    headers: reply.headers === undefined ? undefined : { ...reply.headers },
     body: JSON.stringify(reply.body ?? {}),
   });
 }
