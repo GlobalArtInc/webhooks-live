@@ -160,6 +160,7 @@ CREATE TABLE forward_attempts (
   status       smallint,
   error        text,
   final_url    text,
+  response_content_type text,
   response_head bytea,
   PRIMARY KEY (job_id, attempt)
 );
@@ -168,7 +169,7 @@ CREATE TABLE forward_attempts (
 | Rule | Detail |
 |---|---|
 | Capture insert | One transaction: `UPDATE endpoints SET capture_count+1, bytes_used+n, last_seq+1, last_active_at=now() WHERE id=$1 AND deleted_at IS NULL AND last_active_at > now()-retention AND (capture_count < max OR overflow='ring') RETURNING last_seq, response_*`; ring mode then deletes `min(seq)` and corrects counters; `INSERT captures`, `INSERT capture_bodies`, `INSERT forward_jobs` per enabled rule, `pg_notify`. Zero rows from the `UPDATE` triggers one `SELECT` to tell gone (410) from full (410 with `X-Webhooks-Live-Error: endpoint_full`). |
-| Ordering | `seq` is assigned under the endpoint row lock, so per-endpoint commit order equals `seq` order across replicas. It is the cursor and the SSE event id. `id` is a UUIDv7 (`X-Request-Id`, URLs). |
+| Ordering | `seq` is assigned under the endpoint row lock, so per-endpoint commit order equals `seq` order across replicas. It is the cursor, the SSE event id, and the `after_seq` filter the UI uses to catch up after a reconnect. `id` is a UUIDv7 (`X-Request-Id`, URLs). |
 | `stored_bytes` | `body_size` plus serialized lengths of headers, query, form, `search_text`. Sum feeds `bytes_used` and the global cap. |
 | `search_text` | Lowercased lossy UTF-8 of path, query, header lines and the first 256 KiB of the body. Search is `strpos(search_text, lower($q)) > 0` inside one endpoint (at most 500 rows); no trigram index, to keep the write path cheap. |
 | No index on `last_active_at` | Keeps endpoint updates HOT; the eviction job sorts the endpoints table, which stays small. |
@@ -276,13 +277,14 @@ in-memory queue (lost on restart, single replica) and a Redis stream (extra serv
 | Claim | `UPDATE forward_jobs SET state='running', locked_until=now()+60s, attempts=attempts+1 WHERE id IN (SELECT id ... WHERE state IN ('pending','running') AND next_attempt_at <= now() AND (locked_until IS NULL OR locked_until < now()) ORDER BY next_attempt_at LIMIT n FOR UPDATE SKIP LOCKED) RETURNING *`. Woken by `pg_notify('whl_forward_wake')` from the capture transaction, polls every 2 s otherwise. An expired lease is reclaimed. |
 | Request | Method: rule override or captured. URL: rule target, plus captured sub-path and query when `append_path`. Body: captured bytes. Headers: captured headers on the allow-list (case-insensitive), `Content-Type` (override or captured), `User-Agent: webhooks.live/<version>` unless allow-listed, `X-Webhooks-Live-Capture-Id`. Hop-by-hop headers, `Host`, `Content-Length`, `Transfer-Encoding` are never copied. |
 | Retries | Retry on connect error, timeout, 408, 429, 5xx. Three attempts total by default, backoff 10 s then 60 s with ±20 % jitter, `Retry-After` honoured up to 5 min. Other statuses are final. |
-| Result | Each attempt is a row in `forward_attempts` (status, duration, error class and message, final URL, first 4 KiB of response). Job end emits `forward_result` on `whl_events`. |
+| Result | Each attempt is a row in `forward_attempts` (status, duration, error class and message, final URL, response content type, first 4 KiB of response). Job end emits `forward_result` on `whl_events`. |
 | Timeouts | Connect 5 s, total 15 s per attempt, response read capped at 64 KiB. |
 | Concurrency | Per replica: 32 jobs in flight, 4 per target host (`Semaphore` map). |
 | SSRF guard | Custom `reqwest::dns::Resolve` resolves, drops every address in a refused range, and hands only vetted addresses to the connector, so the checked address is the connected one (no rebinding). Literal-IP URLs are checked the same way. Refused: `0.0.0.0/8`, `10/8`, `100.64/10`, `127/8`, `169.254/16`, `172.16/12`, `192.0.0/24`, `192.168/16`, `198.18/15`, `224/4`, `240/4`, `255.255.255.255`, `::`, `::1`, `fc00::/7`, `fe80::/10`, `ff00::/8`, `64:ff9b::/96`, IPv4-mapped and IPv4-compatible forms of the above. `WEBHOOKS_LIVE_FORWARD_ALLOW_CIDRS` re-opens ranges. Schemes `http`/`https` only. |
 | Redirects | Automatic redirects off; the worker follows up to 5 hops itself, re-validating scheme and running each hop through the same resolver. 307/308 keep method and body; 301/302/303 become `GET` without body. |
 | Proxy | System proxy settings ignored (`no_proxy`), because a proxy would resolve names itself and bypass the guard. |
-| Manual resend | API creates a `manual` job with the same guard; the result arrives as `forward_result`. |
+| Rule validation | Rules are created and edited one at a time (api.md §5.3). On save the target must parse as an `http`/`https` URL and its host must resolve to at least one address outside the refused ranges; otherwise 422 with a field error on `target_url` (`target_refused` or `target_unresolvable`). The check is repeated on every attempt and redirect, because DNS can change after save. |
+| Manual resend | API creates a `manual` job with the same save-time check and the same guard; it may name a `rule_id` to reuse that rule's settings ("test with latest capture"). The result arrives as `forward_result`. |
 
 ## 7. Auth
 
@@ -299,7 +301,7 @@ capture path public while also knowing users for ownership and sharing).
 | Login | `/auth/login?return_to=` stores `state`, PKCE verifier and nonce in `login_states` (10 min), redirects to the issuer. `/auth/callback` validates state, exchanges the code, validates the ID token (issuer, audience, nonce, signature via discovery JWKS), upserts `users` by `(issuer, subject)`. `return_to` must be a relative path starting with `/` and not `//`. |
 | Session | 32 random bytes in cookie `__Host-whl_session` (`Secure; HttpOnly; SameSite=Lax; Path=/`); the database stores SHA-256 of it. Idle timeout 12 h, absolute 7 d, `last_seen_at` refreshed at most once a minute. IdP tokens are discarded after login. Logout deletes the row. |
 | Ownership | `endpoints.owner_id` = creator. Shares in `endpoint_members` with `viewer` or `editor`. Shared by email of a user who has signed in at least once. |
-| Roles | Owner: everything. Editor: update response and forwarding, delete captures, resend. Viewer: read and stream. Endpoint delete and member management: owner only. Non-members get 404, never 403, so ids do not leak. |
+| Roles | Owner: everything. Editor: update response and forwarding, delete captures, resend. Viewer: read and stream. Endpoint delete and member management: owner only. Non-members get the same 410 `endpoint_gone` as an unknown id, never 403, so ids do not leak. |
 | Who may sign in | Decided by the IdP client (GlobalArt SSO group enforcement); webhooks.live trusts any valid ID token from the issuer. |
 | Machine clients | Not in the first release; `Authorization: Bearer` is reserved for personal tokens (open question 3). |
 
@@ -331,7 +333,7 @@ delete expired sessions and login states; hourly counter reconcile. Sliding expi
 
 | Surface | Control |
 |---|---|
-| Stored XSS, raw body | `GET .../body` always answers `application/octet-stream`, or `text/plain; charset=utf-8` when `?view=text`, with `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox; default-src 'none'`, `Cross-Origin-Resource-Policy: same-origin`, and `Content-Disposition: attachment` when `?download=1`. The captured `Content-Type` is never echoed. The UI renders bodies as text through React escaping, never `dangerouslySetInnerHTML`; any HTML preview is an `<iframe sandbox>` without `allow-scripts`. |
+| Stored XSS, raw body | `GET .../body` always answers `application/octet-stream`, or `text/plain; charset=utf-8` when `?view=text`, with `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox; default-src 'none'`, `Cross-Origin-Resource-Policy: same-origin`, and `Content-Disposition: attachment` when `?download=1`. The captured `Content-Type` is never echoed. The UI renders bodies as text through React escaping, never `dangerouslySetInnerHTML`; captured HTML and SVG are shown as highlighted text and never rendered. Image preview is limited to raster types and uses `blob:` URLs created with the detected image MIME type. |
 | Stored XSS, capture response | The configured response is served from the UI origin, so every capture response carries `Content-Security-Policy: sandbox` and `nosniff`: the document gets an opaque origin, no cookie or same-origin API access. |
 | Header injection | Configured response headers: at most 20; name an RFC 9110 token up to 64 bytes; value visible ASCII, space and tab, up to 1024 bytes, no CR, LF or NUL. Denied names: `Content-Length`, `Transfer-Encoding`, `Connection`, `Keep-Alive`, `Upgrade`, `Trailer`, `TE`, `Host`, `Proxy-*`, `Set-Cookie`, `Content-Security-Policy*`, `X-Content-Type-Options`, `Access-Control-*`, `X-Request-Id`, `X-Endpoint-Id`, `Content-Type` (has its own field). `Set-Cookie` is denied because a capture response could toss a `__Host-` session cookie on the shared origin. |
 | Content type | Parsed as a MIME type (`type/subtype` plus parameters), up to 255 bytes, no control characters. |
@@ -339,7 +341,8 @@ delete expired sessions and login states; hourly counter reconcile. Sliding expi
 | Smuggling and parsing | Hyper rejects conflicting `Content-Length`/`Transfer-Encoding`, obs-fold and malformed chunking; webhooks.live only listens behind Envoy; early responses close the connection (§5); the forwarder builds fresh requests and never relays raw bytes or hop-by-hop headers. |
 | CSRF | No CORS on `/api` and `/auth`. In `sso`, mutating requests carrying the session cookie must have `Origin` equal to `WEBHOOKS_LIVE_PUBLIC_URL`'s origin (else 403 `csrf_rejected`); request bodies must be `application/json` (else 415); cookie is `SameSite=Lax`. In `open` there is no ambient credential, so no CSRF surface. |
 | Id leakage | UI sends `Referrer-Policy: no-referrer`; logs carry endpoint and capture ids but never header values or bodies. |
-| UI headers | `Content-Security-Policy: default-src 'self'; img-src 'self' data:; style-src 'self'; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`, `X-Frame-Options: DENY`. |
+| UI headers | `Content-Security-Policy: default-src 'none'; script-src 'self' 'sha256-<theme script>'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob:; worker-src 'self'; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`, `X-Frame-Options: DENY`. The hash is that of the single inline theme script in `index.html`, computed by `whl-web`'s build script from the built file, so it cannot drift. `blob:` serves typed image previews, `worker-src` the pretty-printing workers, `connect-src 'self'` covers the API and SSE. |
+| `style-src-attr 'unsafe-inline'` | Needed because the virtual list positions rows with inline `style` attributes. Acceptable because the UI never inserts untrusted markup as HTML (React text nodes and CodeMirror text only, no `dangerouslySetInnerHTML`, no rendered HTML or SVG), so no attacker-controlled element can carry a `style` attribute; scripts stay limited to `'self'` and one hash. |
 
 ## 10. Frontend delivery and path layout
 
@@ -353,7 +356,7 @@ server or container (two images to version, plus cross-origin cookies).
 | `/api/v1/...` | Management API and `/api/v1/endpoints/{id}/stream` |
 | `/auth/login`, `/auth/callback`, `/auth/logout` | OIDC |
 | `/assets/{file}` | Hashed build output: `Cache-Control: public, max-age=31536000, immutable` |
-| `/`, `/e/{endpoint_id}`, `/e/{endpoint_id}/c/{capture_id}`, `/settings` | `index.html`, `Cache-Control: no-cache` |
+| `/`, `/e/{endpoint_id}`, `/e/{endpoint_id}/c/{capture_id}`, `/settings` | `index.html`, `Cache-Control: no-cache`, UI headers and Content-Security-Policy of §9 |
 | `/favicon.ico`, `/robots.txt` | Static, `max-age=86400`; `robots.txt` disallows everything |
 | anything else | 404 |
 
@@ -401,6 +404,8 @@ URLs are visible to senders. Release builds fail if `web/dist` is missing; debug
 | `WEBHOOKS_LIVE_LISTEN_ADDR`, `WEBHOOKS_LIVE_ADMIN_ADDR` | `0.0.0.0:8080`, `0.0.0.0:9090` |
 | `WEBHOOKS_LIVE_AUTH_MODE` | `open` |
 | `WEBHOOKS_LIVE_OIDC_ISSUER`, `WEBHOOKS_LIVE_OIDC_CLIENT_ID`, `WEBHOOKS_LIVE_OIDC_CLIENT_SECRET`, `WEBHOOKS_LIVE_OIDC_SCOPES` | required in `sso`; scopes `openid email profile` |
+| `WEBHOOKS_LIVE_OIDC_PROVIDER_NAME` | `SSO`; shown on the sign-in button |
+| `WEBHOOKS_LIVE_RING_MODE_ALLOWED` | true; false rejects `overflow: ring` |
 | `WEBHOOKS_LIVE_SESSION_IDLE`, `WEBHOOKS_LIVE_SESSION_MAX` | `12h`, `7d` |
 | `WEBHOOKS_LIVE_TRUSTED_PROXIES` | empty |
 | `WEBHOOKS_LIVE_RETENTION`, `WEBHOOKS_LIVE_MAX_CAPTURES`, `WEBHOOKS_LIVE_MAX_BODY_BYTES` | `7d`, 500, 10 MiB |
@@ -457,10 +462,10 @@ Risky milestones go to `coder-pro` and get an `xhigh` review.
 | M5 | Serving untrusted content: configured response, override, delay, CORS, capture response headers, raw body endpoint headers | exact header sets asserted per api.md | security |
 | M6 | Capture read API: list with cursor, filters and search, detail, latest, deletes | integration tests per filter | – |
 | M7 | Live: `pg_notify`, listener, hub, SSE route with replay, `resync`, pings, lifetime, `bye` | two app instances on one database deliver events; lagging viewer gets `resync` | concurrency |
-| M8 | `sso`: OIDC, sessions, origin check, roles on every route, members API, endpoint listing | tests against a mock issuer; non-member gets 404 | security |
+| M8 | `sso`: OIDC, sessions, origin check, roles on every route, members API, endpoint listing | tests against a mock issuer; non-member gets 410 `endpoint_gone` | security |
 | M9 | Rate limiters, storage cap flag, maintenance job, sliding expiry, purge | eviction and cap tests; job runs on one instance only | concurrency |
 | M10 | SSRF-guarded client: resolver, ranges, redirects, timeouts | unit tests per range and redirect case | security, network |
-| M11 | Forward queue: jobs in capture transaction, claim loop, retries, attempts, manual resend, `forward_result` | integration tests incl. lease reclaim | concurrency |
+| M11 | Forward queue: rule routes with save-time target check, jobs in capture transaction, claim loop, retries, attempts, manual resend, `forward_result` | integration tests incl. lease reclaim | concurrency |
 | M12 | `whl-web`: embedding, cache headers, UI security headers, SPA fallback | route table of §10 asserted | – |
 | M13 | Deploy: gitops HelmRelease, route, ImagePolicy, migrate job, OIDC client URIs, `webhooks-live.globalart.hu` | side-by-side instance live | deploy (`xhigh` review) |
 | M14 | Load scripts and Playwright scenarios | targets of §13 met on the side-by-side instance | – |

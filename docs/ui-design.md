@@ -199,7 +199,7 @@ Copy-as menu (`[Copy v]`, `y` copies curl directly):
 
 | Item | Output |
 |---|---|
-| curl | POSIX shell, every value single-quoted with `'\''` escaping, `--data-binary`; binary bodies use `--data-binary @capture-<id>.bin` and download that file |
+| curl | POSIX shell, every value single-quoted with `'\''` escaping, `--data-binary`; binary bodies are embedded as `printf '<octal escapes>' | curl ... --data-binary @-` (POSIX `\ooo` escapes, `%` written as `%%`), so the command stays self-contained |
 | HAR | HAR 1.2 log with one entry built from the capture; response block from the answered status |
 | JSON | Full capture as JSON |
 | URL | Captured URL |
