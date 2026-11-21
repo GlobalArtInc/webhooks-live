@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>webhooks.live</title>
+    <script>
+      (function () {
+        try {
+          var prefs = JSON.parse(localStorage.getItem('webhooks-live:prefs:v1'));
+          var theme = prefs && typeof prefs === 'object' ? prefs.theme : null;
+          if (theme === 'light' || theme === 'dark') {
+            document.documentElement.setAttribute('data-theme', theme);
+          }
+        } catch (error) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
