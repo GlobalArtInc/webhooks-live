@@ -1,4 +1,5 @@
 mod background;
+mod composer;
 mod error;
 mod forward;
 mod public;
@@ -17,7 +18,7 @@ use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::sync::{oneshot, watch};
 use tokio::task::JoinHandle;
-use whl_api::{ApiLimits, ApiSettings, ApiState, ForwardSettings};
+use whl_api::{ApiLimits, ApiSettings, ApiState, ComposerSettings, ForwardSettings};
 use whl_auth::{AccessControl, AuthSettings, AuthState, DiscoveryBackoff};
 use whl_capture::{CaptureSettings, CaptureState};
 use whl_core::client_ip::TrustedProxies;
@@ -42,6 +43,7 @@ pub use secrets::{SecretsSetupError, keyring_from_config, rotation_keyring};
 pub use signal::shutdown_signal;
 
 use background::Background;
+use composer::CaptureDelivery;
 use forward::ForwardRuntime;
 use readiness::Readiness;
 
@@ -56,6 +58,7 @@ pub struct Bound {
     api: ApiSettings,
     capture: CaptureSettings,
     forward: ForwardRuntime,
+    composer: ComposerSettings,
     http: HttpLimits,
     auth: Option<AuthSettings>,
     auth_mode: AuthMode,
@@ -130,22 +133,24 @@ impl Bound {
         .with_token_limits(self.limiters.clone());
         let authorizer = whl_api::stream_authorizer(&access);
         let inbox = whl_api::inbox_selector(&access, store.clone(), self.retention);
-        let state = ApiState::new(store.clone(), self.api.clone())
-            .with_access(access)
-            .with_limits(self.api_limits.clone())
-            .with_forward(ForwardSettings::with_system_lookup(self.forward.guard()));
-        let state = match &self.secrets {
-            Some(keyring) => state.with_secrets(Arc::clone(keyring)),
-            None => state,
-        };
-        tracing::info!(public = %self.public_addr, admin = %self.admin_addr, "listening");
-
         let capture =
             CaptureState::new(store.clone(), self.capture)?.with_limiters(self.limiters.clone());
         let capture = match &self.secrets {
             Some(keyring) => capture.with_secrets(Arc::clone(keyring)),
             None => capture,
         };
+        let delivery = CaptureDelivery::new(whl_capture::router(capture.clone()));
+        let state = ApiState::new(store.clone(), self.api.clone())
+            .with_access(access)
+            .with_limits(self.api_limits.clone())
+            .with_forward(ForwardSettings::with_system_lookup(self.forward.guard()))
+            .with_composer(self.composer.with_local(Arc::new(delivery)));
+        let state = match &self.secrets {
+            Some(keyring) => state.with_secrets(Arc::clone(keyring)),
+            None => state,
+        };
+        tracing::info!(public = %self.public_addr, admin = %self.admin_addr, "listening");
+
         let storage_full = capture.storage_full().clone();
         let (stop_tx, stop_rx) = watch::channel(false);
         let background_stop = stop_rx.clone();
@@ -336,6 +341,7 @@ pub async fn bind(config: &Config) -> Result<Bound, ServerError> {
         api: ApiSettings::from_config(config),
         capture: CaptureSettings::from_config(config)?,
         forward: ForwardRuntime::from_config(config)?,
+        composer: ComposerSettings::from_config(config),
         http: HttpLimits::default(),
         auth: AuthSettings::from_config(config)?,
         auth_mode: config.auth.mode,

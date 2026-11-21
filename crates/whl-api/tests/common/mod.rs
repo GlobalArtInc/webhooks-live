@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+pub mod composer;
 pub mod matrix;
 pub mod tokens;
 
@@ -17,7 +18,7 @@ use sha2::{Digest, Sha256};
 use tokio::sync::watch;
 use tower::ServiceExt;
 use url::Url;
-use whl_api::{ApiLimits, ApiSettings, ApiState};
+use whl_api::{ApiLimits, ApiSettings, ApiState, ComposerSettings};
 use whl_auth::{AccessControl, AuthSettings, AuthState, OidcClient, SessionLimits};
 use whl_core::client_ip::TrustedProxies;
 use whl_live::{HUB_CAPACITY, Hub, LiveState, StreamSettings};
@@ -70,7 +71,7 @@ pub async fn send(app: &Router, request: Request<Body>) -> Reply {
         .await
         .expect("the router does not fail");
     let (parts, body) = response.into_parts();
-    let bytes = axum::body::to_bytes(body, 1024 * 1024)
+    let bytes = axum::body::to_bytes(body, 4 * 1024 * 1024)
         .await
         .expect("the body is readable");
     Reply {
@@ -148,18 +149,30 @@ pub struct SsoHarness {
 }
 
 pub async fn sso_harness() -> SsoHarness {
-    build_with_users(false, TrustedProxies::default()).await
+    build_with_users(false, TrustedProxies::default(), None).await
+}
+
+pub async fn sso_harness_with(composer: ComposerSettings) -> SsoHarness {
+    build_with_users(false, TrustedProxies::default(), Some(composer)).await
 }
 
 pub async fn mixed_harness() -> SsoHarness {
-    build_with_users(true, TrustedProxies::default()).await
+    build_with_users(true, TrustedProxies::default(), None).await
+}
+
+pub async fn mixed_harness_with(composer: ComposerSettings) -> SsoHarness {
+    build_with_users(true, TrustedProxies::default(), Some(composer)).await
 }
 
 pub async fn mixed_harness_behind(proxies: TrustedProxies) -> SsoHarness {
-    build_with_users(true, proxies).await
+    build_with_users(true, proxies, None).await
 }
 
-async fn build_with_users(mixed: bool, proxies: TrustedProxies) -> SsoHarness {
+async fn build_with_users(
+    mixed: bool,
+    proxies: TrustedProxies,
+    composer: Option<ComposerSettings>,
+) -> SsoHarness {
     let db = TestDb::new().await;
     let store = Store::from_pool(db.pool().clone());
     let issuer = Url::parse("https://sso.test").expect("the issuer URL parses");
@@ -187,6 +200,10 @@ async fn build_with_users(mixed: bool, proxies: TrustedProxies) -> SsoHarness {
     }
     .with_proxies(proxies);
     let state = ApiState::new(store.clone(), api_settings()).with_access(access.clone());
+    let state = match composer {
+        Some(composer) => state.with_composer(composer),
+        None => state,
+    };
     SsoHarness {
         db,
         app: whl_api::router(state),
@@ -274,6 +291,26 @@ impl SsoHarness {
             request.extensions_mut().insert(ConnectInfo(address));
         }
         send(&self.app, request).await
+    }
+
+    pub fn request_as(
+        &self,
+        actor: &Actor,
+        method: Method,
+        uri: &str,
+        body: &str,
+    ) -> Request<Body> {
+        let mut request = Request::builder()
+            .method(method)
+            .uri(uri)
+            .header(header::COOKIE, &actor.cookie)
+            .header(header::ORIGIN, "https://whl.test")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body.to_owned()))
+            .expect("the request is valid");
+        let address = SocketAddr::new(composer::PEER.parse().expect("a peer address"), 40000);
+        request.extensions_mut().insert(ConnectInfo(address));
+        request
     }
 
     pub async fn anonymous_endpoint(

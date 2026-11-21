@@ -3,7 +3,7 @@ use std::net::IpAddr;
 use ipnet::IpNet;
 use url::{Host, Url};
 
-use crate::config::GuardConfig;
+use crate::config::{GuardConfig, Hardening};
 use crate::error::{ForwardError, RefusalReason};
 use crate::ranges::is_refused;
 
@@ -26,7 +26,7 @@ impl TargetUrl {
 
 pub fn validate_target_url(input: &str, config: &GuardConfig) -> Result<TargetUrl, ForwardError> {
     parse_url(input)
-        .and_then(|url| check_url(url, &config.allow))
+        .and_then(|url| check_url(url, &config.allow, &config.hardening))
         .map(TargetUrl)
         .map_err(ForwardError::TargetRefused)
 }
@@ -41,7 +41,11 @@ pub(crate) fn parse_url(input: &str) -> Result<Url, RefusalReason> {
     Url::parse(input).map_err(|_| RefusalReason::InvalidUrl)
 }
 
-pub(crate) fn check_url(mut url: Url, allow: &[IpNet]) -> Result<Url, RefusalReason> {
+pub(crate) fn check_url(
+    mut url: Url,
+    allow: &[IpNet],
+    hardening: &Hardening,
+) -> Result<Url, RefusalReason> {
     if url.as_str().len() > MAX_URL_BYTES {
         return Err(RefusalReason::UrlTooLong);
     }
@@ -55,7 +59,13 @@ pub(crate) fn check_url(mut url: Url, allow: &[IpNet]) -> Result<Url, RefusalRea
         None => return Err(RefusalReason::MissingHost),
         Some(Host::Ipv4(address)) => check_address(IpAddr::V4(address), allow)?,
         Some(Host::Ipv6(address)) => check_address(IpAddr::V6(address), allow)?,
-        Some(Host::Domain(domain)) => check_domain(domain, allow)?,
+        Some(Host::Domain(domain)) => check_domain(domain, allow, hardening)?,
+    }
+    if url
+        .port_or_known_default()
+        .is_some_and(|port| hardening.denied_ports.contains(&port))
+    {
+        return Err(RefusalReason::ForbiddenPort);
     }
     url.set_fragment(None);
     Ok(url)
@@ -69,7 +79,7 @@ fn check_address(address: IpAddr, allow: &[IpNet]) -> Result<(), RefusalReason> 
     }
 }
 
-fn check_domain(domain: &str, allow: &[IpNet]) -> Result<(), RefusalReason> {
+fn check_domain(domain: &str, allow: &[IpNet], hardening: &Hardening) -> Result<(), RefusalReason> {
     let name = domain.trim_end_matches('.');
     if name.is_empty() {
         return Err(RefusalReason::MissingHost);
@@ -79,6 +89,9 @@ fn check_domain(domain: &str, allow: &[IpNet]) -> Result<(), RefusalReason> {
     }
     if !allow.is_empty() {
         return Ok(());
+    }
+    if hardening.refuse_dotless_hosts && !name.contains('.') {
+        return Err(RefusalReason::ForbiddenHost);
     }
     let forbidden = FORBIDDEN_DOMAINS.iter().any(|forbidden| {
         name == *forbidden
@@ -124,6 +137,39 @@ mod tests {
                 "{input}"
             );
         }
+    }
+
+    fn hardened() -> GuardConfig {
+        GuardConfig {
+            hardening: Hardening {
+                refuse_dotless_hosts: true,
+                denied_ports: vec![22, 6379],
+            },
+            ..GuardConfig::default()
+        }
+    }
+
+    #[test]
+    fn hardening_refuses_dotless_hosts_and_denied_ports_only_when_asked() {
+        for input in [
+            "http://vault/",
+            "http://postgres./x",
+            "http://example.com:6379/",
+        ] {
+            let refused = validate_target_url(input, &hardened()).unwrap_err();
+            assert!(refused.refusal().is_some(), "{input}");
+            assert!(
+                validate_target_url(input, &GuardConfig::default()).is_ok(),
+                "{input}"
+            );
+        }
+        assert!(validate_target_url("http://example.com/", &hardened()).is_ok());
+        assert!(validate_target_url("https://example.com:8443/", &hardened()).is_ok());
+        let allowed = GuardConfig {
+            allow: vec!["127.0.0.1/32".parse().unwrap()],
+            ..hardened()
+        };
+        assert!(validate_target_url("http://vault/", &allowed).is_ok());
     }
 
     #[test]

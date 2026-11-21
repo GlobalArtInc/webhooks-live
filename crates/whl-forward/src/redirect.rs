@@ -7,6 +7,7 @@ use http::header::{
 use http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode};
 use ipnet::IpNet;
 
+use crate::config::Hardening;
 use crate::error::RefusalReason;
 use crate::message::OutboundRequest;
 use crate::target::{MAX_URL_BYTES, TargetUrl, check_url};
@@ -61,6 +62,7 @@ pub(crate) fn plan_redirect(
     status: StatusCode,
     location: &HeaderValue,
     allow: &[IpNet],
+    hardening: &Hardening,
 ) -> Result<OutboundRequest, RefusalReason> {
     let raw = std::str::from_utf8(location.as_bytes()).map_err(|_| RefusalReason::InvalidUrl)?;
     if raw.len() > MAX_URL_BYTES {
@@ -74,7 +76,7 @@ pub(crate) fn plan_redirect(
         .unpack()
         .join(raw)
         .map_err(|_| RefusalReason::InvalidUrl)?;
-    let next = check_url(joined, allow)?;
+    let next = check_url(joined, allow, hardening)?;
     if current.url.unpack().scheme() == "https" && next.scheme() == "http" {
         return Err(RefusalReason::HttpsDowngrade);
     }
@@ -139,6 +141,7 @@ mod tests {
             StatusCode::from_u16(status).unwrap(),
             &HeaderValue::from_str(location).unwrap(),
             &[],
+            &Hardening::default(),
         )
     }
 
@@ -243,6 +246,7 @@ mod tests {
             StatusCode::FOUND,
             &invalid,
             &[],
+            &Hardening::default(),
         )
         .unwrap_err();
         assert_eq!(error, RefusalReason::InvalidUrl);
@@ -254,7 +258,7 @@ mod tests {
         let current = request(Method::GET, "http://example.com/");
         let status = StatusCode::FOUND;
         let location = HeaderValue::from_static("http://127.0.0.1:9000/");
-        assert!(plan_redirect(current, status, &location, &allow).is_ok());
+        assert!(plan_redirect(current, status, &location, &allow, &Hardening::default()).is_ok());
     }
 
     #[test]

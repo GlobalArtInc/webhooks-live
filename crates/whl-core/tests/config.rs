@@ -91,6 +91,11 @@ fn defaults_apply_when_only_required_keys_are_set() {
     assert_eq!(config.forward.concurrency, 32);
     assert_eq!(config.forward.max_attempts, 3);
     assert!(config.forward.allow_cidrs.is_empty());
+    assert!(config.composer.enabled);
+    assert_eq!(config.composer.endpoint_per_hour, 200);
+    assert_eq!(config.composer.network_per_day, 1000);
+    assert_eq!(config.composer.user_per_hour, 2000);
+    assert_eq!(config.composer.max_in_flight, 32);
     assert_eq!(config.shutdown.drain, Duration::from_secs(5));
     assert_eq!(config.shutdown.grace, Duration::from_secs(25));
 }
@@ -442,6 +447,8 @@ fn env_keys_reach_their_fields() {
         ("WEBHOOKS_LIVE_RATE_API_IP", "5/s:9"),
         ("WEBHOOKS_LIVE_FORWARD_ENABLED", "false"),
         ("WEBHOOKS_LIVE_FORWARD_MAX_ATTEMPTS", "4"),
+        ("WEBHOOKS_LIVE_COMPOSER_ENABLED", "false"),
+        ("WEBHOOKS_LIVE_COMPOSER_USER_PER_HOUR", "11"),
         ("WEBHOOKS_LIVE_SHUTDOWN_DRAIN", "300ms"),
         ("WEBHOOKS_LIVE_LOG", "debug"),
     ]))
@@ -461,6 +468,8 @@ fn env_keys_reach_their_fields() {
     );
     assert!(!config.forward.enabled);
     assert_eq!(config.forward.max_attempts, 4);
+    assert!(!config.composer.enabled);
+    assert_eq!(config.composer.user_per_hour, 11);
     assert_eq!(config.shutdown.drain, Duration::from_millis(300));
     assert_eq!(config.log, "debug");
 }

@@ -21,6 +21,10 @@ pub fn requirement(mode: AccessMode, method: &Method, pattern: &str) -> Requirem
     match rest {
         "/instance" | "/inbox/captures" | "/inbox/stream" => Requirement::Anyone,
         TOKENS_PATH | TOKEN_PATH => Requirement::SignedIn,
+        "/send" | "/send/history" | "/send/history/{sent_id}" if mode == AccessMode::Sso => {
+            Requirement::SignedIn
+        }
+        "/send" | "/send/history" | "/send/history/{sent_id}" => Requirement::Anyone,
         "/endpoints" if mode == AccessMode::Mixed && *method == Method::POST => Requirement::Anyone,
         "/endpoints" => Requirement::SignedIn,
         "/folders" | "/folders/{folder_id}" => Requirement::SignedIn,
@@ -44,6 +48,9 @@ pub fn token_policy(method: &Method, pattern: &str) -> TokenPolicy {
         "/instance" if read => Some(TokenScope::Read),
         "/endpoints" if read => Some(TokenScope::Read),
         "/endpoints" if *method == Method::POST => Some(TokenScope::EndpointsWrite),
+        "/send" if *method == Method::POST => Some(TokenScope::Send),
+        "/send/history" if read => Some(TokenScope::Read),
+        "/send/history/{sent_id}" if *method == Method::DELETE => Some(TokenScope::Send),
         _ => rest
             .strip_prefix(ENDPOINT_PREFIX)
             .and_then(|tail| endpoint_scope(method, tail)),
@@ -300,6 +307,47 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn the_composer_routes_need_sign_in_only_in_sso_mode() {
+        for pattern in [
+            "/api/v1/send",
+            "/api/v1/send/history",
+            "/api/v1/send/history/{sent_id}",
+        ] {
+            for method in [&GET, &POST, &DELETE] {
+                assert_eq!(
+                    requirement(AccessMode::Sso, method, pattern),
+                    Requirement::SignedIn,
+                    "{pattern}"
+                );
+                for mode in [AccessMode::Open, AccessMode::Mixed] {
+                    assert_eq!(
+                        requirement(mode, method, pattern),
+                        Requirement::Anyone,
+                        "{mode:?} {pattern}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_composer_routes_map_to_the_send_and_read_token_scopes() {
+        assert_eq!(
+            token_policy(&POST, "/api/v1/send"),
+            TokenPolicy::Scope(TokenScope::Send)
+        );
+        assert_eq!(
+            token_policy(&GET, "/api/v1/send/history"),
+            TokenPolicy::Scope(TokenScope::Read)
+        );
+        assert_eq!(
+            token_policy(&DELETE, "/api/v1/send/history/{sent_id}"),
+            TokenPolicy::Scope(TokenScope::Send)
+        );
+        assert_eq!(token_policy(&GET, "/api/v1/send"), TokenPolicy::SessionOnly);
     }
 
     #[test]

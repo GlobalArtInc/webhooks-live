@@ -4,6 +4,7 @@ use whl_auth::AccessControl;
 use whl_secrets::Keyring;
 use whl_store::Store;
 
+use crate::composer::ComposerSettings;
 use crate::export::ExportSlots;
 use crate::forward::ForwardSettings;
 use crate::limit::ApiLimits;
@@ -18,6 +19,7 @@ pub struct ApiState {
     pub(crate) access: AccessControl,
     pub(crate) secrets: Option<Arc<Keyring>>,
     pub(crate) exports: ExportSlots,
+    pub(crate) composer: ComposerSettings,
 }
 
 impl ApiState {
@@ -31,6 +33,7 @@ impl ApiState {
             access: AccessControl::open(),
             secrets: None,
             exports,
+            composer: ComposerSettings::default(),
         }
     }
 
@@ -54,6 +57,11 @@ impl ApiState {
 
     pub fn with_limits(mut self, limits: ApiLimits) -> Self {
         self.limits = Some(limits);
+        self
+    }
+
+    pub fn with_composer(mut self, composer: ComposerSettings) -> Self {
+        self.composer = composer;
         self
     }
 
