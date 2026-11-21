@@ -10,7 +10,7 @@ import type {
 
 export type ConnectionState = 'connecting' | 'open' | 'reconnecting' | 'offline' | 'ended';
 
-export type EndReason = 'deleted' | 'gone' | 'missing';
+export type EndReason = 'deleted' | 'gone' | 'missing' | 'locked';
 
 export interface LiveReadyPayload extends StreamReadyPayload {
   capture_count: number;

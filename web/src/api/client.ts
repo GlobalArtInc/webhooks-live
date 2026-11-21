@@ -43,6 +43,9 @@ export interface RateLimitInfo {
 
 export type RateLimitObserver = (info: RateLimitInfo) => void;
 
+export type GrantResolver = (endpointId: string) => string | null;
+export type GrantRejectedHandler = (endpointId: string) => void;
+
 interface ApiErrorInit {
   status: number;
   code: string | null;
@@ -84,10 +87,39 @@ interface ParsedError {
   limit: ApiLimit | null;
 }
 
+export const GRANT_HEADER = 'X-Webhooks-Live-Grant';
+const ENDPOINT_PATH = /^\/endpoints\/([^/]+)/;
+
 let rateLimitObserver: RateLimitObserver | null = null;
+let grantResolver: GrantResolver | null = null;
+let grantRejectedHandler: GrantRejectedHandler | null = null;
 
 export function setRateLimitObserver(observer: RateLimitObserver | null): void {
   rateLimitObserver = observer;
+}
+
+export function setGrantResolver(resolver: GrantResolver | null): void {
+  grantResolver = resolver;
+}
+
+export function setGrantRejectedHandler(handler: GrantRejectedHandler | null): void {
+  grantRejectedHandler = handler;
+}
+
+export function reportGrantRejected(endpointId: string): void {
+  grantRejectedHandler?.(endpointId);
+}
+
+function reportRejectedGrant(path: string, error: ApiError): void {
+  const endpointId = ENDPOINT_PATH.exec(path)?.[1];
+  if (endpointId !== undefined && error.status === 401 && error.code === 'grant_required') {
+    reportGrantRejected(endpointId);
+  }
+}
+
+function grantFor(path: string): string | null {
+  const endpointId = ENDPOINT_PATH.exec(path)?.[1];
+  return grantResolver === null || endpointId === undefined ? null : grantResolver(endpointId);
 }
 
 function isRecord(value: unknown): value is UnknownRecord {
@@ -181,6 +213,10 @@ function buildUrl(path: string, query: QueryParams | undefined): URL {
 
 async function send(path: string, options: RequestOptions): Promise<Response> {
   const headers = new Headers();
+  const grant = grantFor(path);
+  if (grant !== null) {
+    headers.set(GRANT_HEADER, grant);
+  }
   let body: string | undefined;
   if (options.body !== undefined) {
     headers.set('Content-Type', 'application/json');
@@ -195,7 +231,9 @@ async function send(path: string, options: RequestOptions): Promise<Response> {
   });
   observeRateLimit(response.headers);
   if (!response.ok) {
-    throw await readApiError(response);
+    const error = await readApiError(response);
+    reportRejectedGrant(path, error);
+    throw error;
   }
   return response;
 }
@@ -215,7 +253,7 @@ async function requestBlob(path: string, options: RequestOptions): Promise<Blob>
   return response.blob();
 }
 
-function endpointPath(endpointId: string): string {
+export function endpointPath(endpointId: string): string {
   return `/endpoints/${encodeURIComponent(endpointId)}`;
 }
 

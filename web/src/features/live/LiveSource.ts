@@ -1,4 +1,6 @@
-import { API_PREFIX } from '../../api/client';
+import { API_PREFIX, GRANT_HEADER, reportGrantRejected } from '../../api/client';
+import { GRANT_REQUIRED_CODE } from '../access/grantRequired';
+import { clearGrant, readGrant } from '../access/grants';
 import { BYE_LOOP_GUARD_MS, HIDDEN_GRACE_MS, STABLE_CONNECTION_MS, backoffDelay } from './backoff';
 import { parseLiveEvent } from './parse';
 import {
@@ -15,6 +17,8 @@ import {
 const READY_STATE_CLOSED = 2;
 const HTTP_GONE = 410;
 const HTTP_NOT_FOUND = 404;
+const HTTP_UNAUTHORIZED = 401;
+const UNKNOWN_STATUS = 0;
 
 type HandlerSets = { [K in LiveSourceEventName]: Set<LiveHandler<K>> };
 type Timer = ReturnType<typeof setTimeout>;
@@ -39,7 +43,16 @@ export interface LiveSourceOptions {
 
 export function streamUrl(endpointId: string, lastSeq: number): string {
   const base = `${API_PREFIX}/endpoints/${encodeURIComponent(endpointId)}/stream`;
-  return lastSeq > 0 ? `${base}?last_event_id=${lastSeq}` : base;
+  const params = new URLSearchParams();
+  if (lastSeq > 0) {
+    params.set('last_event_id', String(lastSeq));
+  }
+  const grant = readGrant(endpointId);
+  if (grant !== null) {
+    params.set('grant', grant);
+  }
+  const query = params.toString();
+  return query === '' ? base : `${base}?${query}`;
 }
 
 function browserEventSource(): EventSourceFactory | null {
@@ -47,11 +60,25 @@ function browserEventSource(): EventSourceFactory | null {
 }
 
 async function fetchEndpointStatus(endpointId: string): Promise<number> {
+  const grant = readGrant(endpointId);
   const response = await fetch(`${API_PREFIX}/endpoints/${encodeURIComponent(endpointId)}`, {
     method: 'GET',
     credentials: 'same-origin',
+    headers: grant === null ? undefined : { [GRANT_HEADER]: grant },
   });
+  if (response.status === HTTP_UNAUTHORIZED) {
+    return (await isGrantRequiredBody(response)) ? HTTP_UNAUTHORIZED : UNKNOWN_STATUS;
+  }
   return response.status;
+}
+
+async function isGrantRequiredBody(response: Response): Promise<boolean> {
+  const body: unknown = await response.json().catch(() => null);
+  if (typeof body !== 'object' || body === null || !('error' in body)) {
+    return false;
+  }
+  const { error } = body;
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === GRANT_REQUIRED_CODE;
 }
 
 function createHandlerSets(): HandlerSets {
@@ -300,6 +327,10 @@ export class LiveSource {
       this.finish('gone');
     } else if (status === HTTP_NOT_FOUND) {
       this.finish('missing');
+    } else if (status === HTTP_UNAUTHORIZED) {
+      this.finish('locked');
+      clearGrant(this.options.endpointId);
+      reportGrantRejected(this.options.endpointId);
     } else {
       this.scheduleRetry();
     }

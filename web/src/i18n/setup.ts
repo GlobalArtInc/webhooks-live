@@ -1,5 +1,6 @@
 import { createInstance, type i18n as I18nInstance } from 'i18next';
 import type { BundleLoader, BundleLoaders, Dictionary } from './bundles';
+import access from './en/access.json';
 import common from './en/common.json';
 import composer from './en/composer.json';
 import detail from './en/detail.json';
@@ -34,6 +35,7 @@ export function createI18nInstance(): I18nInstance {
     resources: {
       [SOURCE_LANGUAGE]: {
         translation: {
+          ...access,
           ...common,
           ...composer,
           ...detail,
