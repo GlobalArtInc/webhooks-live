@@ -1,5 +1,5 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from 'react';
-import type { Endpoint } from '../../api/types';
+import type { Endpoint, Instance } from '../../api/types';
 
 export const WORKSPACE_SECTION_IDS = [
   'general',
@@ -33,6 +33,7 @@ export interface WorkspaceSection {
   labelKey: WorkspaceLabelKey;
   Component: LazyExoticComponent<ComponentType<SectionProps>> | null;
   count?: (endpoint: Endpoint) => number;
+  available?: (instance: Instance | undefined) => boolean;
 }
 
 const GeneralSection = lazy(() =>
@@ -51,6 +52,9 @@ const RulesSection = lazy(() => import('../rules/RulesSection').then((module) =>
 const AccessSection = lazy(() =>
   import('../access/AccessSection').then((module) => ({ default: module.AccessSection })),
 );
+const ScheduleSection = lazy(() =>
+  import('../schedules/ScheduleSection').then((module) => ({ default: module.ScheduleSection })),
+);
 
 export const WORKSPACE_SECTIONS: readonly WorkspaceSection[] = [
   { id: 'general', labelKey: 'wl.workspace.section.general', Component: GeneralSection },
@@ -64,7 +68,12 @@ export const WORKSPACE_SECTIONS: readonly WorkspaceSection[] = [
   },
   { id: 'access', labelKey: 'wl.workspace.section.access', Component: AccessSection },
   { id: 'notifications', labelKey: 'wl.workspace.section.notifications', Component: null },
-  { id: 'schedules', labelKey: 'wl.workspace.section.schedules', Component: null },
+  {
+    id: 'schedules',
+    labelKey: 'wl.workspace.section.schedules',
+    Component: ScheduleSection,
+    available: (instance) => instance?.features.schedules === true,
+  },
   { id: 'cli', labelKey: 'wl.workspace.section.cli', Component: null },
 ];
 

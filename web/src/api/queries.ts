@@ -16,9 +16,15 @@ import {
   getCapture,
   getEndpoint,
   getInstance,
+  createSchedule,
+  deleteSchedule,
   listCaptures,
+  listScheduleRuns,
+  listSchedules,
   patchEndpoint,
+  patchSchedule,
   resendCapture,
+  runSchedule,
 } from './client';
 import type {
   CaptureListFilters,
@@ -28,6 +34,7 @@ import type {
   Endpoint,
   EndpointInput,
   ForwardRequest,
+  ScheduleInput,
 } from './types';
 
 export type CaptureListData = InfiniteData<CapturePage, string | null>;
@@ -52,6 +59,8 @@ export const queryKeys = {
   captureList: (endpointId: string, filters: CaptureListFilters) => ['captures', endpointId, 'list', filters] as const,
   captureDetails: (endpointId: string) => ['captures', endpointId, 'detail'] as const,
   capture: (endpointId: string, captureId: string) => ['captures', endpointId, 'detail', captureId] as const,
+  schedules: (endpointId: string) => ['schedules', endpointId] as const,
+  scheduleRuns: (endpointId: string, scheduleId: string) => ['schedules', endpointId, scheduleId, 'runs'] as const,
 };
 
 export function shouldRetryRequest(failureCount: number, error: Error): boolean {
@@ -256,6 +265,69 @@ export function useResendCapture(endpointId: string) {
     onSuccess: (_job, variables) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.capture(endpointId, variables.captureId) });
       void queryClient.invalidateQueries({ queryKey: queryKeys.captureLists(endpointId) });
+    },
+  });
+}
+
+export interface ScheduleUpdate {
+  scheduleId: string;
+  input: ScheduleInput;
+}
+
+function invalidateSchedules(queryClient: QueryClient, endpointId: string): void {
+  void queryClient.invalidateQueries({ queryKey: queryKeys.schedules(endpointId) });
+}
+
+export function useSchedules(endpointId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.schedules(endpointId),
+    queryFn: () => listSchedules(endpointId),
+    retry: shouldRetryRequest,
+    enabled,
+  });
+}
+
+export function useScheduleRuns(endpointId: string, scheduleId: string) {
+  return useQuery({
+    queryKey: queryKeys.scheduleRuns(endpointId, scheduleId),
+    queryFn: () => listScheduleRuns(endpointId, scheduleId),
+    retry: shouldRetryRequest,
+  });
+}
+
+export function useCreateSchedule(endpointId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: ScheduleInput) => createSchedule(endpointId, input),
+    onSuccess: () => invalidateSchedules(queryClient, endpointId),
+  });
+}
+
+export function useUpdateSchedule(endpointId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (variables: ScheduleUpdate) => patchSchedule(endpointId, variables.scheduleId, variables.input),
+    onSuccess: () => invalidateSchedules(queryClient, endpointId),
+  });
+}
+
+export function useDeleteSchedule(endpointId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (scheduleId: string) => deleteSchedule(endpointId, scheduleId),
+    onSuccess: (_result, scheduleId) => {
+      invalidateSchedules(queryClient, endpointId);
+      queryClient.removeQueries({ queryKey: queryKeys.scheduleRuns(endpointId, scheduleId) });
+    },
+  });
+}
+
+export function useRunSchedule(endpointId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (scheduleId: string) => runSchedule(endpointId, scheduleId),
+    onSuccess: (_result, scheduleId) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.scheduleRuns(endpointId, scheduleId) });
     },
   });
 }

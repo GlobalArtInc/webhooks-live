@@ -1,0 +1,157 @@
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.field:disabled {
+  opacity: 0.7;
+}
+
+.legend {
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  font: var(--text-data);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+}
+
+.radio {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 24px;
+  font: var(--text-data);
+  color: var(--color-text);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+
+.control,
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.label {
+  font: var(--text-meta);
+  color: var(--color-text-muted);
+}
+
+.number,
+.time,
+.select,
+.expression {
+  box-sizing: border-box;
+  min-height: 36px;
+  padding: 0 var(--space-2);
+  font: var(--text-data);
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+}
+
+.number {
+  width: 96px;
+}
+
+.time {
+  width: 128px;
+}
+
+.select {
+  min-width: 140px;
+  max-width: 100%;
+}
+
+.expression {
+  width: 100%;
+  font-family: var(--font-mono);
+}
+
+.number[aria-invalid='true'],
+.time[aria-invalid='true'],
+.select[aria-invalid='true'],
+.expression[aria-invalid='true'] {
+  border-color: var(--color-danger);
+}
+
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.preset {
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  font: var(--text-meta);
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+
+.preset[aria-pressed='true'] {
+  color: var(--color-accent-text);
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent);
+}
+
+.error {
+  margin: 0;
+  font: var(--text-meta);
+  color: var(--color-danger);
+}
+
+.next {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.nextHeading {
+  margin: 0;
+  font: var(--text-meta);
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.nextList {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0 0 0 var(--space-4);
+  font: var(--mono-data);
+  color: var(--color-text);
+}
+
+.muted {
+  margin: 0;
+  font: var(--text-meta);
+  color: var(--color-text-muted);
+}
+
+.field :focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}

@@ -16,10 +16,13 @@ export const instanceFixture: Instance = {
     max_forward_rules: 5,
     max_response_body_bytes: 65536,
     max_response_headers: 20,
+    schedules: 5,
+    schedule_min_interval_seconds: 300,
   },
   features: {
     ring_mode_allowed: true,
     forwarding: true,
     private_forward_targets_allowed: false,
+    schedules: false,
   },
 };
