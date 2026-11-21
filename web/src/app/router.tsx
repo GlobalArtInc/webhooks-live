@@ -9,6 +9,7 @@ import {
 } from '@tanstack/react-router';
 import { DevEditorsScreen } from '../routes/dev/DevEditorsScreen';
 import { DevScriptScreen } from '../routes/dev/DevScriptScreen';
+import { DevStepsScreen } from '../routes/dev/DevStepsScreen';
 import { DevTokensScreen } from '../routes/dev/DevTokensScreen';
 import { DiffScreen } from '../routes/diff/DiffScreen';
 import { CaptureScreen } from '../routes/capture/CaptureScreen';
@@ -194,6 +195,8 @@ const devRoutes = import.meta.env.DEV
         getParentRoute: () => rootRoute,
         path: '/dev/script',
         component: DevScriptScreen,
+        path: '/dev/steps',
+        component: DevStepsScreen,
       }),
     ]
   : [];

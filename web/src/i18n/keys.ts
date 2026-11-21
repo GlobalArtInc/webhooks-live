@@ -14,6 +14,7 @@ import sample from './en/sample.json';
 import script from './en/script.json';
 import selection from './en/selection.json';
 import state from './en/state.json';
+import steps from './en/steps.json';
 import workspace from './en/workspace.json';
 
 export type SourceMessages = typeof common &
@@ -32,6 +33,7 @@ export type SourceMessages = typeof common &
   typeof script &
   typeof selection &
   typeof state &
+  typeof steps &
   typeof workspace;
 
 export type SourceKey = keyof SourceMessages;
