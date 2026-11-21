@@ -23,13 +23,16 @@ whl-testkit = { path = "crates/whl-testkit" }
 whl-web = { path = "crates/whl-web" }
 
 axum = "0.8"
+bytes = "1"
 bytesize = "2"
 clap = { version = "4", features = ["derive"] }
 figment = { version = "0.10", features = ["env", "toml"] }
+http = "1"
 ipnet = "2"
 metrics-exporter-prometheus = { version = "0.17", default-features = false }
 mimalloc = "0.1"
 rand = { version = "0.9", default-features = false, features = ["os_rng"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "http2"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
@@ -48,7 +51,6 @@ mime_guess = "2"
 rust-embed = "8"
 sha2 = "0.11"
 tower = { version = "0.5", features = ["util"] }
-bytes = "1"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 
 [profile.dev]

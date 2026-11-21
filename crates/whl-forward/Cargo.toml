@@ -6,3 +6,16 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+bytes.workspace = true
+http.workspace = true
+ipnet.workspace = true
+reqwest.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+url.workspace = true
+
+[features]
+test-support = []
+
+[dev-dependencies]
+whl-forward = { workspace = true, features = ["test-support"] }
