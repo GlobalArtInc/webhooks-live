@@ -1,6 +1,6 @@
 # webhooks.live HTTP API
 
-Status: draft 1, 2026-11-21. Requirements: [product-spec.md](product-spec.md). Design: [architecture.md](architecture.md).
+Status: draft 2, 2026-11-21 (parity routes §9–§24). Requirements: [product-spec.md](product-spec.md). Design: [architecture.md](architecture.md).
 This document is the contract between the Rust backend and the React frontend.
 
 ## 1. Conventions
@@ -472,3 +472,459 @@ data: {"id":"0193a1c2-9d10-7a3e-8b44-1c2d3e4f5a6b","seq":42,"endpoint_id":"7k2m9
 
 In `sso` mode the same calls need the session cookie, and mutating ones an `Origin` header; machine access
 in `sso` mode is not part of the first release.
+
+## 9. Parity additions: conventions
+
+Sections 9–24 add the parity plan (product-spec §13–§28, architecture §16–§36). §1–§8 stay valid except where
+a row below extends them.
+
+| Topic | Rule |
+|---|---|
+| Mode `mixed` | Anonymous callers work as in `open` on anonymous endpoints; owned endpoints follow `sso` rules. Person-only routes answer 403 `sign_in_required` to anonymous callers. |
+| Tokens | `Authorization: Bearer whl_...` on every `/api/v1` route, streams included. With a Bearer header the cookie is ignored and the origin check is skipped. Token, member and ownership routes refuse tokens with 403 `session_required`. |
+| Grants | Anonymous endpoints with a view password need `X-Webhooks-Live-Grant: <grant>` on every read; stream routes also accept `?grant=`. Missing or expired: 401 `grant_required`. |
+| CORS | `/api/v1/*` answers preflights 204 and every response with `Access-Control-Allow-Origin: *`, never with credentials (architecture §19). |
+| Body limits | `POST /api/v1/send`: 1.5 MiB. `POST .../import`: the tier's import size, `application/json` or `application/x-ndjson`. Others: §1. |
+| Templates in JSON | Template fields are plain strings in the §21 syntax of architecture; field errors carry `line` and `column`. |
+
+| Status | `code` | When |
+|---|---|---|
+| 401 | `invalid_token` | Bearer token unknown, expired or revoked |
+| 401 | `grant_required` | View-protected endpoint without a valid grant |
+| 401 | `wrong_password` | Unlock with a wrong password |
+| 403 | `sign_in_required` | Person-only feature, anonymous caller |
+| 403 | `session_required` | Route refuses tokens |
+| 403 | `insufficient_scope` | Token scope or endpoint limit too narrow |
+| 403 | `tier_not_allowed` | Feature not in the caller's tier (`error.limit.name` names it) |
+| 404 | `rule_not_found`, `secret_not_found`, `var_not_found`, `channel_not_found`, `schedule_not_found`, `template_not_found`, `folder_not_found`, `token_not_found`, `alias_not_found`, `part_not_found`, `rule_run_not_found`, `email_address_not_found`, `subscription_not_found`, `sent_request_not_found` | Unknown id in its scope |
+| 409 | `already_owned` | Claim of an owned endpoint |
+| 409 | `alias_taken` | Alias in use or in quarantine |
+| 409 | `name_taken` | Folder, template or secret name already used where unique |
+| 409 | `secret_in_use` | Secret still referenced; `error.references` lists rule, channel, schedule or verifier ids |
+| 422 | `limit_reached` | Count limit hit (rules, aliases, tokens, schedules, folders, never-expire); `error.limit` = `{name, max}` |
+| 422 | `export_too_large` | Selection above the tier export size |
+| 429 | `quota_exceeded` | Durable quota hit; `error.limit` = `{name, window, max, resets_at}`, `Retry-After` set |
+| 503 | `feature_disabled` | Operator switched the feature off (secrets keyring, mail, DNS, push, email) |
+
+| Field code | Raised for |
+|---|---|
+| `template_invalid` | Template does not parse; `line`, `column` added |
+| `script_invalid` | Script does not compile; `line`, `column` added |
+| `regex_invalid`, `json_path_invalid`, `cron_invalid`, `timezone_invalid` | The named syntax does not parse |
+| `secret_unknown` | `secret.<NAME>` or a secret field names a missing secret |
+| `secret_not_allowed` | Secret referenced in a response step or response template |
+| `step_unknown` | `step.<name>` refers to no earlier step |
+| `tier_not_allowed` | Value allowed only in a higher tier (for example an HTTP step before the response) |
+| `reserved` | Reserved alias |
+| `not_verified` | Email channel recipient not verified |
+| `host_not_allowed` | Slack, Discord or push URL outside its fixed host pattern |
+| `interval_too_short` | Schedule fires more often than the tier allows |
+
+```json
+{
+  "error": {
+    "code": "quota_exceeded",
+    "message": "outbound requests per hour exhausted",
+    "limit": { "name": "outbound", "window": "hour", "max": 200, "resets_at": "2026-11-21T11:00:00.000Z" }
+  }
+}
+```
+
+## 10. Identity, tiers, usage
+
+`GET /api/v1/instance` gains:
+
+| Field | Type | Notes |
+|---|---|---|
+| `auth_mode` | `"open"` \| `"sso"` \| `"mixed"` | |
+| `tier` | string | Caller's tier: `anonymous`, `member`, or an operator tier |
+| `limits` | object | Values of the caller's tier; adds `max_captures_settable`, `max_retention_seconds`, `never_expire_endpoints`, `rules_per_endpoint`, `steps_per_rule`, `sync_http_steps`, `aliases`, `tokens`, `schedules`, `schedule_min_interval_seconds`, `export_max_bytes`, `import_max_bytes` |
+| `features.secrets`, `features.rules`, `features.scripts`, `features.schedules`, `features.api_cors` | boolean | |
+| `features.notifications` | string[] | Channel kinds available to the caller |
+| `features.mail_domain` | string \| null | Set when email capture is on |
+| `features.dns_zone` | string \| null | Set when DNS capture is on |
+| `features.subdomain_host` | string \| null | Set when subdomain capture is on |
+| `features.push_public_key` | string \| null | VAPID public key, base64url |
+
+| Method, path | Role | Request | Success |
+|---|---|---|---|
+| `GET /api/v1/usage` | any | – | 200 Usage |
+| `POST /api/v1/endpoints/{id}/claim` | signed in, `mixed` | – | 200 Endpoint; 409 `already_owned` |
+
+Usage: `{tier: string, items: [{name: string, window: "hour" | "day" | "total", used: integer, max: integer, resets_at: timestamp | null}]}`.
+Names: `endpoints`, `storage_bytes`, `outbound`, `notifications`, `email_notifications`, `exports`, `imports`,
+`composer`, `schedules`, `aliases`, `tokens`, `never_expire`.
+
+## 11. API tokens
+
+| Method, path | Role | Request | Success |
+|---|---|---|---|
+| `GET /api/v1/tokens` | session | – | 200 `{items: ApiToken[]}` |
+| `POST /api/v1/tokens` | session | ApiTokenInput | 201 CreatedApiToken |
+| `DELETE /api/v1/tokens/{token_id}` | session | – | 204 (revokes) |
+
+| ApiToken field | Type | Notes |
+|---|---|---|
+| `id` | uuid | |
+| `name` | string | 1–64 chars |
+| `prefix` | string | First 12 characters of the token |
+| `scopes` | string[] | Subset of `read`, `endpoints:write`, `captures:write`, `rules:write`, `send` |
+| `endpoint_ids` | string[] \| null | Limit to these endpoints, at most 50 |
+| `created_at`, `expires_at` | timestamp | |
+| `last_used_at`, `revoked_at` | timestamp \| null | |
+
+ApiTokenInput: `{name, scopes, endpoint_ids?, expires_in_days}` with `expires_in_days` 1–365 (default 90).
+CreatedApiToken = ApiToken plus `token` (the only time it is returned).
+
+## 12. Endpoint additions
+
+Endpoint (§4.1) gains:
+
+| Field | Type | Notes |
+|---|---|---|
+| `tags` | string[] | At most 10, each `^[a-z0-9][a-z0-9-]{0,31}$` |
+| `retention` | `{mode: "sliding" \| "never", seconds: integer \| null}` | `seconds` 3600 to tier max, `null` = instance default; `never` for signed-in owners within the tier count |
+| `max_captures` | integer | Now writable by the owner, 1 to tier max |
+| `capture_ttl_seconds` | integer \| null | At least 60 |
+| `sender_allow_cidrs` | string[] | At most 20 CIDRs |
+| `capture_auth` | CaptureAuth \| null | Output: `{kind: "basic", username}` or `{kind: "header", name}`; secrets never returned |
+| `view_protected` | boolean | Read-only; true when a view password is set |
+| `response.templated` | boolean | Default false |
+| `verifier` | Verifier \| null | |
+| `email` | `{enabled: boolean, address: string \| null}` | `address` = `<id>@<mail domain>` when the instance has one |
+| `dns` | `{enabled: boolean, name: string \| null}` | `name` = `<id>.<zone>` |
+| `aliases` | string[] | Read-only here; §12 alias routes |
+| `subdomain_url` | string \| null | Read-only |
+| `rule_count` | integer | Read-only |
+
+EndpointInput adds `tags`, `retention`, `max_captures`, `capture_ttl_seconds`, `sender_allow_cidrs`, `capture_auth`,
+`view_password` (string 8–128 chars, write-only, `null` removes; anonymous endpoints only, else `not_allowed`),
+`response.templated`, `verifier`, `email.enabled`, `dns.enabled`. On create it also accepts `template_id`.
+
+CaptureAuth input: `{"kind": "basic", "username": string, "password": string}` or
+`{"kind": "header", "name": string, "value": string}`; `null` removes. Values 1–256 bytes, visible ASCII.
+
+Verifier: `{"scheme": "hmac" | "github" | "stripe" | "slack" | "shopify" | "standard_webhooks", "secret_name": string,
+"header": string | null, "algorithm": "sha1" | "sha256" | "sha512" | null, "encoding": "hex" | "base64" | null,
+"prefix": string | null, "timestamp_header": string | null}`. Presets fill the nullable fields; `hmac` requires
+`header`, `algorithm`, `encoding`.
+
+| Method, path | Role | Request | Success |
+|---|---|---|---|
+| `GET /api/v1/endpoints` | signed in | adds `?tag&folder&q` (title, id, alias) | as §5 |
+| `POST /api/v1/endpoints/{id}/unlock` | anyone with the id | `{password}` | 200 `{grant: string, expires_at}`; 401 `wrong_password`; 429 |
+| `POST /api/v1/endpoints/{id}/clone` | viewer on source (`sso`/`mixed`: signed in) | `{title?, include?: ("response" \| "forward_rules" \| "rules" \| "channels" \| "schedules" \| "secrets")[]}` (default all but secrets) | 201 Endpoint |
+| `GET /api/v1/endpoints/{id}/aliases` | viewer | – | 200 `{items: Alias[]}` |
+| `PUT /api/v1/endpoints/{id}/aliases/{alias}` | owner, signed in | – | 200 Alias; 409 `alias_taken`; 422 `reserved` |
+| `DELETE /api/v1/endpoints/{id}/aliases/{alias}` | owner | – | 204 |
+| `GET /api/v1/endpoints/{id}/stats` | viewer | `?bucket=hour\|day` | 200 Stats |
+| `PATCH /api/v1/endpoints/{id}/captures/{capture_id}` | editor | `{note?: string \| null, starred?: boolean}` | 200 CaptureSummary |
+| `GET /api/v1/folders` | signed in | – | 200 `{items: Folder[]}` |
+| `POST /api/v1/folders` | signed in | `{name}` | 201 Folder |
+| `PATCH /api/v1/folders/{folder_id}` | signed in | `{name?, position?}` | 200 Folder |
+| `DELETE /api/v1/folders/{folder_id}` | signed in | – | 204 |
+| `PUT /api/v1/folders/{folder_id}/endpoints/{id}` | signed in, viewer on the endpoint | – | 204 |
+| `DELETE /api/v1/folders/{folder_id}/endpoints/{id}` | signed in | – | 204 |
+| `GET /api/v1/templates` | signed in | – | 200 `{items: Template[]}` |
+| `POST /api/v1/templates` | signed in | `{name, from_endpoint_id}` | 201 Template |
+| `GET /api/v1/templates/{template_id}` | signed in | – | 200 Template |
+| `PATCH /api/v1/templates/{template_id}` | signed in | `{name}` | 200 Template |
+| `DELETE /api/v1/templates/{template_id}` | signed in | – | 204 |
+
+Alias: `{alias, url, created_at}` with `url` = `<public url>/a/<alias>`. Folder: `{id, name, position,
+endpoint_ids: string[], created_at}`. Template: `{id, name, created_at, updated_at, config}` where `config` is the
+configuration document of architecture §24. Stats: `{bucket, from, to, series: [{at: timestamp, total, by_method:
+{<method>: n}, by_kind: {<kind>: n}, by_status: {"2xx": n, ...}}]}`.
+
+## 13. Secrets
+
+| Method, path | Role | Request | Success |
+|---|---|---|---|
+| `GET /api/v1/endpoints/{id}/secrets` | editor | – | 200 `{items: [{name, created_at, updated_at}]}` |
+| `PUT /api/v1/endpoints/{id}/secrets/{name}` | editor | `{value: string}` (1–4096 bytes) | 200 `{name, created_at, updated_at}` |
+| `DELETE /api/v1/endpoints/{id}/secrets/{name}` | editor | – | 204; 409 `secret_in_use` with the referencing rule, channel, schedule or verifier ids |
+
+Values are never returned. Name: `^[A-Z][A-Z0-9_]{0,63}$`. At most 20.
+
+## 14. Persistent variables
+
+| Method, path | Role | Request | Success |
+|---|---|---|---|
+| `GET /api/v1/endpoints/{id}/vars` | viewer | – | 200 `{items: [{name, value, updated_at}]}` |
+| `PUT /api/v1/endpoints/{id}/vars/{name}` | editor | `{value: any JSON}` (at most 4 KiB serialized) | 200 Var |
+| `DELETE /api/v1/endpoints/{id}/vars/{name}` | editor | – | 204 |
+
+Name `^[a-z_][a-z0-9_]{0,63}$`, at most 50. Counters are variables holding an integer.
+
+## 15. Rules
+
+| Method, path | Role | Request | Success |
+|---|---|---|---|
+| `GET /api/v1/endpoints/{id}/rules` | viewer | – | 200 `{items: Rule[], version: integer}` |
+| `POST /api/v1/endpoints/{id}/rules` | editor | RuleInput | 201 Rule (appended last) |
+| `GET /api/v1/endpoints/{id}/rules/{rule_id}` | viewer | – | 200 Rule |
+| `PATCH /api/v1/endpoints/{id}/rules/{rule_id}` | editor | RuleInput (partial) | 200 Rule |
+| `DELETE /api/v1/endpoints/{id}/rules/{rule_id}` | editor | – | 204 |
+| `PUT /api/v1/endpoints/{id}/rules/order` | editor | `{ids: uuid[]}` (every rule exactly once) | 200 `{items: Rule[], version}` |
+| `POST /api/v1/endpoints/{id}/rules/dry-run` | editor | `{capture_id, rules?: RuleInput[], execute_http?: boolean}` | 200 RuleRun (not stored; `rules` tests unsaved drafts) |
+| `GET /api/v1/endpoints/{id}/captures/{capture_id}/rule-runs` | viewer | – | 200 `{items: RuleRun[]}` newest first |
+| `POST /api/v1/endpoints/{id}/captures/{capture_id}/rule-runs` | editor | – | 202 RuleRun (`trigger: "rerun"`, `state: "queued"`) |
+
+Every change emits `endpoint_updated` and bumps `version`.
+
+| Rule field | Type | Notes |
+|---|---|---|
+| `id` | uuid | Read-only |
+| `name` | string | 1–100 chars |
+| `enabled` | boolean | Default true |
+| `condition` | Condition | Default `{}` (always) |
+| `steps` | Step[] | 1 to the tier's steps per rule |
+| `position` | integer | Read-only |
+| `created_at`, `updated_at` | timestamp | Read-only |
+
+Condition: `{}`, `{"all": Condition[]}`, `{"any": Condition[]}`, `{"not": Condition}`, or a leaf
+`{"value": "<variable path>", "op": "eq" | "ne" | "contains" | "starts_with" | "ends_with" | "matches" | "exists" | "gt" | "lt" | "in" | "in_cidr", "arg": string | number | string[] | null}`.
+`matches` takes a regex, `in` and `in_cidr` a list, `exists` no `arg`. At most 4 levels and 32 leaves.
+
+Every step has `kind`, optional `name` (`^[a-z][a-z0-9_]{0,31}$`, unique per endpoint, required when later steps
+read its result) and `continue_on_error` (default false).
+
+| `kind` | Fields |
+|---|---|
+| `respond` | `status` (template), `content_type` (template \| null), `headers` (`{name, value}[]`, values templated, at most 20), `body` (template, at most 64 KiB) |
+| `set_header` | `name`, `value` (template) |
+| `remove_header` | `name` |
+| `delay` | `ms` (0–10000) |
+| `stop` | – |
+| `extract` | `from` (variable path), one of `json_path` or `regex` (with `group`, default 1), `into` (run variable) |
+| `set_var` | `into`, `value` (template) |
+| `transform` | `into` (run variable or `"payload"`), `template` |
+| `set_store` | `name` (persistent variable), `value` (template) |
+| `increment` | `counter` (persistent variable), `by` (integer, default 1) |
+| `script` | `source` (Rhai, at most 16 KiB) |
+| `http` | `method`, `url` (template), `headers` (`{name, value}[]`, templated), `body` (template \| null), `timeout_ms` (at most 15000, default 10000), `follow_redirects` (default true) |
+| `forward` | `forward_rule_id`, or `target_url` with optional `method`, `content_type`, `header_allowlist`; `body_from`: `"capture"` (default) or `"payload"` |
+| `notify` | `channel_id`, `message` (template \| null: channel default) |
+| `store_s3` | `bucket_url`, `prefix`, `region`, `access_key_secret`, `secret_key_secret`, `content`: `"capture_json"` or `"body"` |
+
+RuleRun:
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | uuid | |
+| `capture_id` | uuid | |
+| `trigger` | `"capture"` \| `"rerun"` \| `"dry_run"` | |
+| `state` | `"sync"` \| `"queued"` \| `"running"` \| `"succeeded"` \| `"failed"` | |
+| `rules_version` | integer | |
+| `response_status` | integer \| null | Status the rules produced |
+| `error` | string \| null | `template`, `budget`, `script`, `http`, `quota_exceeded`, `overloaded`, `hop_limit`, `internal`, then `: ` and detail |
+| `entries` | RunEntry[] | In execution order |
+| `created_at`, `finished_at` | timestamp, timestamp \| null | |
+
+RunEntry: `{rule_id, rule_name, matched: boolean}` for a rule, or `{rule_id, step: integer, name: string | null,
+kind, outcome: "ok" | "failed" | "skipped" | "deferred" | "no_op", duration_ms, detail: string | null, output: any | null}`
+for a step. `output` holds at most 4 KiB: the HTTP result `{status, headers, body: Body, duration_ms}`, extracted
+values, or script output; secrets appear as `[secret:NAME]`.
+
+## 16. Notifications
+
+| Method, path | Role | Request | Success |
+|---|---|---|---|
+| `GET /api/v1/endpoints/{id}/notifications` | viewer | – | 200 `{items: Channel[]}` |
+| `POST /api/v1/endpoints/{id}/notifications` | editor | ChannelInput | 201 Channel |
+| `PATCH /api/v1/endpoints/{id}/notifications/{channel_id}` | editor | ChannelInput (partial) | 200 Channel |
+| `DELETE /api/v1/endpoints/{id}/notifications/{channel_id}` | editor | – | 204 |
+| `POST /api/v1/endpoints/{id}/notifications/{channel_id}/test` | editor | – | 202 Delivery |
+| `POST /api/v1/notifications/disable` | none | `{token}`; also `?token=` for one-click `List-Unsubscribe-Post` | 204 (channel disabled) |
+| `GET /api/v1/email-addresses` | signed in | – | 200 `{items: EmailAddress[]}` |
+| `POST /api/v1/email-addresses` | signed in | `{address}` | 201 EmailAddress (verification sent) |
+| `DELETE /api/v1/email-addresses/{address_id}` | signed in | – | 204 |
+| `POST /api/v1/email-addresses/verify` | none | `{token}` | 200 EmailAddress |
+| `POST /api/v1/push/subscriptions` | signed in | `{endpoint, keys: {p256dh, auth}}` (browser `PushSubscription` JSON) | 201 `{id, created_at}` |
+| `DELETE /api/v1/push/subscriptions/{subscription_id}` | signed in | – | 204 |
+
+| Channel field | Type | Notes |
+|---|---|---|
+| `id` | uuid | |
+| `kind` | `"webhook"` \| `"slack"` \| `"discord"` \| `"telegram"` \| `"email"` \| `"push"` | |
+| `name` | string | 1–64 chars |
+| `enabled` | boolean | |
+| `trigger` | `"capture"` \| `"rule"` | |
+| `condition` | Condition \| null | `capture` trigger only |
+| `config` | object | Per kind, below |
+| `template` | string \| null | Message template; `null` = default |
+| `per_hour` | integer | 1 to the tier maximum |
+| `created_at` | timestamp | |
+
+| `kind` | `config` |
+|---|---|
+| `webhook` | `{url}`, checked like a forward target |
+| `slack` | `{url}` matching the Slack incoming-webhook host pattern; stored as a secret, returned masked (`https://hooks.slack.com/services/...`) |
+| `discord` | `{url}` matching the Discord webhook pattern; stored and returned like Slack |
+| `telegram` | `{token_secret, chat_id}`; `token_secret` names a secret |
+| `email` | `{address_id}`, a verified address of the caller |
+| `push` | `{}`: the creator's subscriptions |
+
+Delivery: `{id, channel_id, kind: "single" | "summary" | "test", state: "pending" | "running" | "succeeded" | "failed" | "suppressed", attempts, status: integer | null, error: string | null, created_at, finished_at}`.
+EmailAddress: `{id, address, verified: boolean, created_at}`.
+
+## 17. Composer
+
+| Method, path | Role | Request | Success |
+|---|---|---|---|
+| `POST /api/v1/send` | any; `send` scope | SendRequest | 200 SendResult |
+| `GET /api/v1/send/history` | signed in, or `?endpoint_id=` with viewer | `?cursor&limit` | 200 `{items: SentRequest[], next_cursor}` |
+| `DELETE /api/v1/send/history/{sent_id}` | owner of the entry | – | 204 |
+
+SendRequest: `{method, url, headers: {name, value}[], body: Body | null, timeout_ms?: integer (≤ 15000), follow_redirects?: boolean (default false), endpoint_id?: string, source_capture_id?: uuid}`.
+`url` gets the forward-target field codes (§5.3). SendResult: `{id, status: integer | null, headers: {name, value}[],
+body: Body | null (first 1 MiB), duration_ms, final_url: string | null, error: string | null, capture_id: uuid | null}`;
+`capture_id` is set when the target was this instance's own capture URL. SentRequest = SendResult plus
+`request` (the SendRequest without `body` data beyond 64 KiB) and `created_at`.
+
+## 18. Schedules
+
+| Method, path | Role | Request | Success |
+|---|---|---|---|
+| `GET /api/v1/endpoints/{id}/schedules` | viewer | – | 200 `{items: Schedule[]}` |
+| `POST /api/v1/endpoints/{id}/schedules` | owner, signed in | ScheduleInput | 201 Schedule |
+| `PATCH /api/v1/endpoints/{id}/schedules/{schedule_id}` | editor | ScheduleInput (partial); `enabled: true` clears a pause | 200 Schedule |
+| `DELETE /api/v1/endpoints/{id}/schedules/{schedule_id}` | editor | – | 204 |
+| `POST /api/v1/endpoints/{id}/schedules/{schedule_id}/run` | editor | – | 202 `{schedule_id, queued_at}` |
+
+| Schedule field | Type | Notes |
+|---|---|---|
+| `id` | uuid | |
+| `name` | string | 1–100 chars |
+| `cron` | string | 5 fields; `cron_invalid`, `interval_too_short` |
+| `timezone` | string | IANA name, default `UTC` |
+| `request` | `{method, url, headers: {name, value}[], body: string \| null}` | Templates; secrets allowed in `url` and header values |
+| `enabled` | boolean | |
+| `paused_reason` | string \| null | Read-only |
+| `next_run_at`, `last_run_at` | timestamp \| null | Read-only |
+| `consecutive_failures` | integer | Read-only |
+| `created_at` | timestamp | Read-only |
+
+## 19. Export and import
+
+| Method, path | Role | Request | Success |
+|---|---|---|---|
+| `GET /api/v1/endpoints/{id}/export` | viewer | `?format=json\|ndjson\|csv\|zip` plus §5.1 filters and `kind` | 200 stream |
+| `POST /api/v1/endpoints/{id}/export` | viewer | `{format, capture_ids: uuid[]}` (at most 500) | 200 stream |
+| `POST /api/v1/endpoints/{id}/import` | owner, signed in | JSON or NDJSON export | 200 `{imported: integer, skipped: integer, reason: "capacity" \| null}` |
+
+| Format | `Content-Type` | File name |
+|---|---|---|
+| `json` | `application/json` | `webhooks-live-<id>-<yyyymmddHHMMSS>.json` |
+| `ndjson` | `application/x-ndjson` | `.ndjson` |
+| `csv` | `text/csv; charset=utf-8` | `.csv` |
+| `zip` | `application/zip` | `.zip` |
+
+Every export answers with `Content-Disposition: attachment`, `X-Content-Type-Options: nosniff`, `Cache-Control:
+no-store`, chunked transfer. The JSON document and NDJSON header carry `format: "webhooks-live-export"`,
+`version: 1`, `exported_at`, `endpoint` (EndpointInput fields plus `id`, without secrets). Import errors answer
+422 `validation_failed` with `field` = `captures.<index>.<path>` or `line.<n>` for NDJSON.
+
+## 20. Combined inbox
+
+| Method, path | Role | Request | Success |
+|---|---|---|---|
+| `GET /api/v1/inbox/captures` | viewer on each endpoint | `?endpoints=<ids, comma>` or `?folder=<id>` (signed in; none = all own and shared, at most 50), §5.1 filters except `after_seq`, `kind`, `cursor`, `limit` | 200 `{items: CaptureSummary[], next_cursor}` newest first |
+| `GET /api/v1/inbox/stream` | viewer on each endpoint | same selection; `Last-Event-ID` or `?last_event_id` | 200 `text/event-stream` |
+
+The inbox stream sends §6 events for every endpoint in the set (payloads carry `endpoint_id`) except
+`endpoint_updated`. Event ids are opaque; resume works as §6 with at most 100 replayed events.
+
+## 21. Capture additions
+
+CaptureSummary (§4.3) gains `kind` (`"http"` \| `"email"` \| `"dns"` \| `"schedule"`), `starred` (boolean),
+`has_note` (boolean), `verification` (`"valid"` \| `"invalid"` \| `"missing"` \| null), `rule_state`
+(`"running"` \| `"succeeded"` \| `"failed"` \| null), `imported` (boolean), and `subject` (string \| null:
+email subject, DNS name, or schedule name, up to 200 chars). The list query (§5.1) gains `kind` (comma list) and
+`starred` (boolean).
+
+Capture (§4.4) gains `note`, `meta` (per kind, below), `rule_runs` (RuleRun[], newest first, at most 10) and
+`notifications` (Delivery[]).
+
+| `kind` | `meta` |
+|---|---|
+| `http` | `{hop: integer}` |
+| `email` | `{envelope_from, envelope_to: string[], helo, tls: boolean, tag: string \| null, subject, from, to: string[], cc: string[], date: timestamp \| null, message_id: string \| null, parts: Part[]}` |
+| `dns` | `{name, type, class, transport: "udp" \| "tcp", dns_id, flags: {rd, cd, do}, edns_udp_size: integer \| null, client_subnet: string \| null}` |
+| `schedule` | `{schedule_id, schedule_name, request: {method, url}, duration_ms, final_url, error, truncated}` |
+
+Part: `{index, content_type, filename: string | null, size, disposition: "inline" | "attachment" | null, is_text: boolean}`.
+
+| Method, path | Role | Request | Success |
+|---|---|---|---|
+| `GET /api/v1/endpoints/{id}/captures/{capture_id}/parts/{index}` | viewer | `?view=text&download=1` | 200 decoded part with the §5.2 headers; `filename` from the part, sanitised |
+
+Capture path (§3) additions:
+
+| Case | Status | `X-Webhooks-Live-Error` |
+|---|---|---|
+| Sender outside the allow list | 403 `Forbidden.` | `sender_refused` |
+| Capture auth missing or wrong | 401 `Unauthorized.` (no `WWW-Authenticate`) | `unauthorized` |
+| Owner over storage quota | 507 | `quota_exceeded` |
+| Unknown alias | 410 | `endpoint_gone` |
+
+| Response header | When | Value |
+|---|---|---|
+| `X-Webhooks-Live-Rule-Error` | Rules failed before the response | `template`, `budget`, `script`, `http`, `quota`, `overloaded`, `internal` |
+| Rule-set headers | Rules ran | From `respond` and `set_header`, subject to the §9 header rules of architecture |
+
+`/a/{alias}[/{rest}]` and `https://{id}.<subdomain host>/{rest}` behave exactly as `/{id}[/{rest}]`.
+
+## 22. Stream additions
+
+| Event | `id` | `data` | Client action |
+|---|---|---|---|
+| `capture_updated` | – | `{capture_id, seq, note_changed: boolean, starred, response_status, rule_state, verification}` | Patch the list row |
+| `rule_result` | – | `{capture_id, run: RuleRun}` | Update the rule panel |
+| `notification_result` | – | `{capture_id, delivery: Delivery}` | Update delivery state |
+| `captures_imported` | – | `{imported: integer}` | Re-list from the top |
+
+## 23. OpenAPI
+
+`GET /api/v1/openapi.json`: OpenAPI 3.1 document of every `/api/v1` route, `ETag` = build version, public in all
+modes. The reference page is a UI route (ui-design.md).
+
+## 24. Examples
+
+```sh
+curl -s -X POST https://webhooks.live/api/v1/tokens \
+  -H 'Content-Type: application/json' -H 'Origin: https://webhooks.live' -b '__Host-whl_session=...' \
+  -d '{"name":"laptop cli","scopes":["read"],"expires_in_days":30}'
+
+curl -s -H 'Authorization: Bearer whl_q3k...' https://webhooks.live/api/v1/endpoints/7k2m9q4xw8c1d5f3h6j0n2p4/captures?kind=email
+
+curl -s -X PATCH https://webhooks.live/api/v1/endpoints/7k2m9q4xw8c1d5f3h6j0n2p4 \
+  -H 'Content-Type: application/json' \
+  -d '{"response":{"templated":true,"content_type":"application/json","body":{"encoding":"utf8","data":"{\"order\":{{ json(\"$.order.id\") }},\"request\":\"{{ capture.id }}\"}"}}}'
+```
+
+```json
+{
+  "name": "Refund mock",
+  "condition": {
+    "all": [
+      { "value": "request.method", "op": "eq", "arg": "POST" },
+      { "value": "request.header.x-event-type", "op": "eq", "arg": "refund.created" }
+    ]
+  },
+  "steps": [
+    { "kind": "extract", "from": "request.body", "json_path": "$.refund.id", "into": "refund_id" },
+    { "kind": "increment", "counter": "refunds" },
+    { "kind": "respond", "status": "201", "content_type": "application/json",
+      "headers": [{ "name": "X-Refund", "value": "{{ var.refund_id }}" }],
+      "body": "{\"refund\":{{ var.refund_id | json }},\"seen\":{{ counter.refunds }}}" },
+    { "kind": "http", "name": "crm", "method": "POST", "url": "https://crm.example.com/hooks/refund",
+      "headers": [{ "name": "Authorization", "value": "Bearer {{ secret.CRM_TOKEN }}" }],
+      "body": "{{ request.body }}" },
+    { "kind": "notify", "channel_id": "0193a1c2-1111-7a3e-8b44-1c2d3e4f5a6b",
+      "message": "Refund {{ var.refund_id }} answered, CRM said {{ step.crm.status }}" }
+  ]
+}
+```
+
+The first three steps run before the response; `http` and `notify` run after it (architecture §22).
