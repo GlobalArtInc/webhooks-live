@@ -4,6 +4,7 @@ import {
   createRootRouteWithContext,
   createRouter,
   notFound,
+  redirect,
   type RouterHistory,
 } from '@tanstack/react-router';
 import { DevTokensScreen } from '../routes/dev/DevTokensScreen';
@@ -11,14 +12,16 @@ import { DiffScreen } from '../routes/diff/DiffScreen';
 import { CaptureScreen } from '../routes/capture/CaptureScreen';
 import { EndpointScreen } from '../routes/endpoint/EndpointScreen';
 import { EndpointsScreen } from '../routes/endpoints/EndpointsScreen';
-import { ForwardingScreen } from '../routes/forwarding/ForwardingScreen';
 import { HomeScreen } from '../routes/home/HomeScreen';
 import { NotFoundScreen } from '../routes/states/NotFoundScreen';
 import { SettingsScreen } from '../routes/settings/SettingsScreen';
 import { EndpointSettingsScreen } from '../routes/settings/EndpointSettingsScreen';
+import { SettingsIndexScreen } from '../routes/settings/SettingsIndexScreen';
+import { SettingsSectionScreen } from '../routes/settings/SettingsSectionScreen';
 import { SignInScreen } from '../routes/signin/SignInScreen';
 import { isCaptureId, isEndpointId } from './ids';
 import { ensureEndpoint } from './endpointQuery';
+import { isWorkspaceSectionId } from '../features/workspace/sections';
 import { RouteError } from './RouteError';
 import { ShellLayout } from './shell/ShellLayout';
 import { safeReturnPath } from './signIn';
@@ -55,6 +58,12 @@ function assertEndpointId(id: string): void {
 
 function assertCaptureId(captureId: string): void {
   if (!isCaptureId(captureId)) {
+    throw notFound();
+  }
+}
+
+function assertWorkspaceSection(section: string): void {
+  if (!isWorkspaceSectionId(section)) {
     throw notFound();
   }
 }
@@ -115,10 +124,25 @@ const endpointSettingsRoute = createRoute({
   component: EndpointSettingsScreen,
 });
 
-const forwardingRoute = createRoute({
+const settingsIndexRoute = createRoute({
+  getParentRoute: () => endpointSettingsRoute,
+  path: '/',
+  component: SettingsIndexScreen,
+});
+
+const settingsSectionRoute = createRoute({
+  getParentRoute: () => endpointSettingsRoute,
+  path: '$section',
+  beforeLoad: ({ params }) => assertWorkspaceSection(params.section),
+  component: SettingsSectionScreen,
+});
+
+const forwardingRedirectRoute = createRoute({
   getParentRoute: () => endpointRoute,
   path: 'forwarding',
-  component: ForwardingScreen,
+  beforeLoad: ({ params }) => {
+    throw redirect({ to: '/e/$id/settings/$section', params: { id: params.id, section: 'forwarding' } });
+  },
 });
 
 const diffRoute = createRoute({
@@ -158,7 +182,11 @@ const routeTree = rootRoute.addChildren([
     endpointsRoute,
     signInRoute,
     settingsRoute,
-    endpointRoute.addChildren([captureRoute, endpointSettingsRoute, forwardingRoute]),
+    endpointRoute.addChildren([
+      captureRoute,
+      endpointSettingsRoute.addChildren([settingsIndexRoute, settingsSectionRoute]),
+      forwardingRedirectRoute,
+    ]),
     diffRoute,
     notFoundRoute,
   ]),

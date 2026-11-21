@@ -28,7 +28,6 @@ import type {
   Endpoint,
   EndpointInput,
   ForwardRequest,
-  ForwardRuleInput,
 } from './types';
 
 export type CaptureListData = InfiniteData<CapturePage, string | null>;
@@ -215,14 +214,6 @@ export function useUpdateEndpoint(endpointId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: EndpointInput) => patchEndpoint(endpointId, input),
-    onSuccess: (endpoint) => storeEndpoint(queryClient, endpoint),
-  });
-}
-
-export function useReplaceForwardRules(endpointId: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (rules: ForwardRuleInput[]) => patchEndpoint(endpointId, { forward_rules: rules }),
     onSuccess: (endpoint) => storeEndpoint(queryClient, endpoint),
   });
 }

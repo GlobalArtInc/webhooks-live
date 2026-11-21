@@ -17,5 +17,5 @@ export function renderAppAt(path: string) {
       </I18nProvider>
     </QueryClientProvider>,
   );
-  return { ...view, router };
+  return { ...view, router, queryClient };
 }

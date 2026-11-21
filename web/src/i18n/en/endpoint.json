@@ -50,9 +50,5 @@
   "wl.endpoint.clear.body": "All {{count}} captures of this endpoint will be deleted. This cannot be undone.",
   "wl.endpoint.clear.confirm": "Delete all",
   "wl.endpoint.clear.cancel": "Cancel",
-  "wl.endpoint.clear.failed": "The captures could not be deleted.",
-  "wl.endpoint.sheet.close": "Close",
-  "wl.endpoint.sheet.settings.title": "Endpoint settings",
-  "wl.endpoint.sheet.forwarding.title": "Forwarding",
-  "wl.endpoint.sheet.placeholder": "This panel arrives in a later release."
+  "wl.endpoint.clear.failed": "The captures could not be deleted."
 }

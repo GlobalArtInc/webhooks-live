@@ -10,6 +10,8 @@ import type {
   FieldError,
   ForwardJob,
   ForwardRequest,
+  ForwardRule,
+  ForwardRuleInput,
   Instance,
   Member,
   MemberInput,
@@ -259,4 +261,23 @@ export function clearCaptures(endpointId: string): Promise<void> {
 
 export function resendCapture(endpointId: string, captureId: string, input: ForwardRequest): Promise<ForwardJob> {
   return requestJson<ForwardJob>(`${capturePath(endpointId, captureId)}/forward`, { method: 'POST', body: input });
+}
+
+export function createForwardRule(endpointId: string, input: ForwardRuleInput): Promise<ForwardRule> {
+  return requestJson<ForwardRule>(`${endpointPath(endpointId)}/forward-rules`, { method: 'POST', body: input });
+}
+
+export function patchForwardRule(
+  endpointId: string,
+  ruleId: string,
+  input: Partial<ForwardRuleInput>,
+): Promise<ForwardRule> {
+  return requestJson<ForwardRule>(`${endpointPath(endpointId)}/forward-rules/${encodeURIComponent(ruleId)}`, {
+    method: 'PATCH',
+    body: input,
+  });
+}
+
+export function deleteForwardRule(endpointId: string, ruleId: string): Promise<void> {
+  return requestEmpty(`${endpointPath(endpointId)}/forward-rules/${encodeURIComponent(ruleId)}`, { method: 'DELETE' });
 }

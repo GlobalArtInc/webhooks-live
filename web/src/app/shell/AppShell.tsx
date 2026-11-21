@@ -12,6 +12,7 @@ export interface AppShellProps {
   header?: ReactNode;
   rail?: ReactNode;
   resetKey: string;
+  collapseRail?: boolean;
   children: ReactNode;
 }
 
@@ -19,14 +20,20 @@ function classNames(...names: (string | false | undefined)[]): string {
   return names.filter((name): name is string => typeof name === 'string').join(' ');
 }
 
-export function AppShell({ header, rail, resetKey, children }: AppShellProps) {
+export function AppShell({ header, rail, resetKey, collapseRail = false, children }: AppShellProps) {
   const { t } = useTranslation();
   const mainRef = useRef<HTMLElement>(null);
   const menuRef = useRef<HTMLButtonElement>(null);
   const railRef = useRef<HTMLElement>(null);
   const railId = useId();
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(collapseRail);
+  const [appliedCollapseRail, setAppliedCollapseRail] = useState(collapseRail);
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  if (appliedCollapseRail !== collapseRail) {
+    setAppliedCollapseRail(collapseRail);
+    setCollapsed(collapseRail);
+  }
 
   const railState = useMemo<RailState>(
     () => ({

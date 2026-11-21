@@ -6,11 +6,11 @@ import { DevTokensScreen } from '../routes/dev/DevTokensScreen';
 import { DiffScreen } from '../routes/diff/DiffScreen';
 import { EndpointScreen } from '../routes/endpoint/EndpointScreen';
 import { EndpointsScreen } from '../routes/endpoints/EndpointsScreen';
-import { ForwardingScreen } from '../routes/forwarding/ForwardingScreen';
 import { HomeScreen } from '../routes/home/HomeScreen';
 import { NotFoundScreen } from '../routes/states/NotFoundScreen';
 import { SettingsScreen } from '../routes/settings/SettingsScreen';
-import { EndpointSettingsScreen } from '../routes/settings/EndpointSettingsScreen';
+import { SettingsIndexScreen } from '../routes/settings/SettingsIndexScreen';
+import { SettingsSectionScreen } from '../routes/settings/SettingsSectionScreen';
 import { SignInScreen } from '../routes/signin/SignInScreen';
 import { createAppRouter } from './router';
 
@@ -35,8 +35,12 @@ const ROUTE_CASES: RouteCase[] = [
     screen: CaptureScreen,
     params: { id: ENDPOINT_ID, captureId: CAPTURE_ID },
   },
-  { path: `/e/${ENDPOINT_ID}/settings`, screen: EndpointSettingsScreen, params: { id: ENDPOINT_ID } },
-  { path: `/e/${ENDPOINT_ID}/forwarding`, screen: ForwardingScreen, params: { id: ENDPOINT_ID } },
+  { path: `/e/${ENDPOINT_ID}/settings`, screen: SettingsIndexScreen, params: { id: ENDPOINT_ID } },
+  {
+    path: `/e/${ENDPOINT_ID}/settings/response`,
+    screen: SettingsSectionScreen,
+    params: { id: ENDPOINT_ID, section: 'response' },
+  },
   {
     path: `/e/${ENDPOINT_ID}/diff/${CAPTURE_ID}/${OTHER_CAPTURE_ID}`,
     screen: DiffScreen,

@@ -6,7 +6,7 @@ import { useShortcutHandlers } from '../../features/shortcuts';
 import { StatePage } from '../../components/StatePage/StatePage';
 import { requiresSignIn, signInHref } from '../signIn';
 import { AppShell } from './AppShell';
-import { showsEndpointRail } from './rail';
+import { collapsesRail, showsEndpointRail } from './rail';
 
 export function ShellLayout() {
   const instance = useInstance();
@@ -38,7 +38,7 @@ export function ShellLayout() {
   }
 
   return (
-    <AppShell resetKey={location.href} rail={rail}>
+    <AppShell resetKey={location.href} rail={rail} collapseRail={collapsesRail(location.pathname)}>
       {content}
     </AppShell>
   );

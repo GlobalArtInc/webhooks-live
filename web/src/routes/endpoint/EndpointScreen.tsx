@@ -1,4 +1,4 @@
-import { Outlet, useNavigate, useParams } from '@tanstack/react-router';
+import { Outlet, useMatchRoute, useNavigate, useParams } from '@tanstack/react-router';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useClearCaptures, useEndpoint } from '../../api/queries';
@@ -87,6 +87,8 @@ export function EndpointScreen() {
       }
     },
   });
+  const matchRoute = useMatchRoute();
+  const workspaceOpen = matchRoute({ to: '/e/$id/settings', params: { id: endpointId }, fuzzy: true }) !== false;
   const deletion = useDeleteWithUndo(endpointId);
   const clear = useClearCaptures(endpointId);
   const marked = useMarkedCapture(endpointId);
@@ -134,7 +136,7 @@ export function EndpointScreen() {
       void navigate({ to: '/e/$id/settings', params: { id: endpointId } });
     },
     forwarding: () => {
-      void navigate({ to: '/e/$id/forwarding', params: { id: endpointId } });
+      void navigate({ to: '/e/$id/settings/$section', params: { id: endpointId, section: 'forwarding' } });
     },
     compare: () => {
       if (paneTarget !== null) {
@@ -281,7 +283,11 @@ export function EndpointScreen() {
           {t('wl.endpoint.delete.failed')}
         </p>
       ) : null}
-      {showEmpty ? (
+      {workspaceOpen ? (
+        <div className={styles.workspace}>
+          <Outlet />
+        </div>
+      ) : showEmpty ? (
         <div className={styles.empty}>
           <EmptyState captureUrl={endpoint.url} curl={curl} />
         </div>
@@ -377,7 +383,7 @@ export function EndpointScreen() {
         </p>
       ) : null}
       <Announcer announcement={live.announcement} muted={!livePrefs.announce} />
-      <Outlet />
+      {workspaceOpen ? null : <Outlet />}
     </section>
   );
 }
