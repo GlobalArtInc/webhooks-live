@@ -21,6 +21,7 @@ import inbox from './en/inbox.json';
 import live from './en/live.json';
 import notifications from './en/notifications.json';
 import rules from './en/rules.json';
+import runlogs from './en/runlogs.json';
 import rail from './en/rail.json';
 import sample from './en/sample.json';
 import script from './en/script.json';
@@ -56,6 +57,7 @@ export type SourceMessages = typeof access &
   typeof live &
   typeof notifications &
   typeof rules &
+  typeof runlogs &
   typeof rail &
   typeof sample &
   typeof script &

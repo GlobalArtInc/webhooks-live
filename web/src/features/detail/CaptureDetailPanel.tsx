@@ -40,7 +40,9 @@ export function CaptureDetailPanel({ endpointId, captureId, ...rest }: CaptureDe
   const { t } = useTranslation();
   const query = useCapture(endpointId, captureId);
   const queryClient = useQueryClient();
-  const dnsName = queryClient.getQueryData<Endpoint>(queryKeys.endpoint(endpointId))?.dns?.name ?? null;
+  const endpoint = queryClient.getQueryData<Endpoint>(queryKeys.endpoint(endpointId));
+  const dnsName = endpoint?.dns?.name ?? null;
+  const canRerun = endpoint !== undefined && endpoint.my_role !== 'viewer';
   const [downloadFailed, setDownloadFailed] = useState(false);
 
   const loadBody = useCallback(
@@ -66,6 +68,8 @@ export function CaptureDetailPanel({ endpointId, captureId, ...rest }: CaptureDe
       <CaptureDetail
         {...rest}
         dnsName={dnsName}
+        canRerun={canRerun}
+        endpointId={endpointId}
         state={stateOf(query.data, query.error)}
         capture={query.data ?? null}
         loadBody={loadBody}

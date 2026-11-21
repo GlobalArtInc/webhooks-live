@@ -7,6 +7,7 @@ import type {
   ResyncPayload,
   StreamReadyPayload,
 } from '../../api/types';
+import type { RuleResultPayload } from '../../api/ruleRunTypes';
 
 export type ConnectionState = 'connecting' | 'open' | 'reconnecting' | 'offline' | 'ended';
 
@@ -24,6 +25,7 @@ export interface LivePayloads {
   endpoint_updated: Endpoint;
   endpoint_deleted: EmptyPayload;
   forward_result: ForwardResultPayload;
+  rule_result: RuleResultPayload;
   resync: ResyncPayload;
   bye: EmptyPayload;
 }
@@ -63,6 +65,7 @@ export const LIVE_EVENT_NAMES: readonly LiveEventName[] = [
   'endpoint_updated',
   'endpoint_deleted',
   'forward_result',
+  'rule_result',
   'resync',
   'bye',
 ];

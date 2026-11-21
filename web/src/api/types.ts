@@ -1,3 +1,5 @@
+import type { RuleResultPayload, RuleRun } from './ruleRunTypes';
+
 export type Timestamp = string;
 export type Uuid = string;
 export type EndpointId = string;
@@ -324,6 +326,7 @@ export interface Capture extends CaptureSummary {
   body: Body;
   forwards: ForwardJob[];
   meta?: CaptureMeta | null;
+  rule_runs?: RuleRun[];
 }
 
 export interface CaptureListFilters {
@@ -444,6 +447,7 @@ export interface LiveEventPayloads {
   endpoint_updated: Endpoint;
   endpoint_deleted: EmptyPayload;
   forward_result: ForwardResultPayload;
+  rule_result: RuleResultPayload;
   resync: ResyncPayload;
   bye: EmptyPayload;
 }

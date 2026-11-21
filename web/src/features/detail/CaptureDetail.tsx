@@ -7,6 +7,7 @@ import { ForwardResultPanel } from '../../components/ForwardResultPanel/ForwardR
 import { KeyValueTable } from '../../components/KeyValueTable/KeyValueTable';
 import { SectionNav, type SectionNavItem } from '../../components/SectionNav/SectionNav';
 import type { BodyLoader, BodyViewMode } from '../body';
+import { CaptureRulesSection, ResponseSentSection } from '../rules/runlogs';
 import { DnsDetail } from '../kinds/dns/DnsDetail';
 import { EmailDetail, readEmailView } from '../email';
 import { BodySection } from './BodySection';
@@ -36,6 +37,8 @@ export interface CaptureDetailProps {
   onDownloadRaw: () => void;
   onDownloadFormFile: (file: FormFileView) => void;
   onCopied: (kind: CopyAsKind) => void;
+  canRerun?: boolean;
+  endpointId?: string;
 }
 
 interface ReadyDetailProps extends Omit<CaptureDetailProps, 'state' | 'capture'> {
@@ -92,6 +95,8 @@ function ReadyDetail({
   onDownloadRaw,
   onDownloadFormFile,
   onCopied,
+  canRerun = false,
+  endpointId,
 }: ReadyDetailProps) {
   const { t, i18n } = useTranslation();
   const locale = i18n.language;
@@ -103,6 +108,8 @@ function ReadyDetail({
   const titles: Record<DetailSectionId, string> = {
     summary: t('wl.detail.section.summary'),
     forward: t('wl.detail.section.forward'),
+    response: t('wl.runlogs.section.response'),
+    rules: t('wl.runlogs.section.rules'),
     query: t('wl.detail.section.query'),
     form: t('wl.detail.section.form'),
     body: t('wl.detail.section.body'),
@@ -138,6 +145,17 @@ function ReadyDetail({
         return <SummarySection capture={capture} />;
       case 'forward':
         return <ForwardResultPanel results={capture.forwards} onResend={onResend} />;
+      case 'response':
+        return <ResponseSentSection status={capture.response_status} runs={capture.rule_runs ?? []} />;
+      case 'rules':
+        return (
+          <CaptureRulesSection
+            endpointId={endpointId ?? capture.endpoint_id}
+            captureId={capture.id}
+            runs={capture.rule_runs ?? []}
+            canRerun={canRerun}
+          />
+        );
       case 'query':
         return (
           <KeyValueTable label={titles.query} rows={capture.query} rawRows={parseRawQuery(capture.query_string)} />
