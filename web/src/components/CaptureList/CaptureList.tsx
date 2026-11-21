@@ -1,8 +1,10 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useEffect, useId, useRef, type KeyboardEvent } from 'react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type UIEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { CaptureSummary } from '../../api/types';
 import { compareLabelOf } from '../../features/list/compare';
+import { countAbove, isAtTop } from '../../features/live/scrollAnchor';
+import { NewPill } from '../NewPill/NewPill';
 import { CaptureRow, CaptureRowActions, type CaptureRowVariant } from '../CaptureRow/CaptureRow';
 import styles from './CaptureList.module.css';
 
@@ -28,6 +30,9 @@ export interface CaptureListProps {
   markedId: string | null;
   variant: CaptureRowVariant;
   now: number;
+  unreadIds: ReadonlySet<string>;
+  arrivingIds: ReadonlySet<string>;
+  following: boolean;
   total: number | null;
   pending: boolean;
   failed: boolean;
@@ -40,6 +45,8 @@ export interface CaptureListProps {
   onCompare: (captureId: string) => void;
   onLoadMore: () => void;
   onRetry: () => void;
+  onAtTopChange: (atTop: boolean) => void;
+  onPillActivate: () => void;
 }
 
 export function CaptureList({
@@ -48,6 +55,9 @@ export function CaptureList({
   markedId,
   variant,
   now,
+  unreadIds,
+  arrivingIds,
+  following,
   total,
   pending,
   failed,
@@ -60,11 +70,14 @@ export function CaptureList({
   onCompare,
   onLoadMore,
   onRetry,
+  onAtTopChange,
+  onPillActivate,
 }: CaptureListProps) {
   const { t } = useTranslation();
   const idPrefix = useId();
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrolledFor = useRef<string | null>(null);
+  const [awayFrom, setAwayFrom] = useState<string | null>(null);
   const rowHeight = variant === 'two-line' ? ROW_HEIGHT_TWO_LINE : ROW_HEIGHT_ONE_LINE;
   const selectedIndex = selectedId === null ? -1 : items.findIndex((item) => item.id === selectedId);
   const setSize = total ?? items.length;
@@ -74,6 +87,7 @@ export function CaptureList({
     getScrollElement: () => scrollRef.current,
     estimateSize: () => rowHeight,
     overscan: OVERSCAN_ROWS,
+    anchorTo: awayFrom === null ? 'start' : 'end',
     getItemKey: (index) => items[index]?.id ?? index,
   });
 
@@ -91,8 +105,33 @@ export function CaptureList({
       return;
     }
     scrolledFor.current = selectedId;
+    if (following && selectedIndex === 0) {
+      return;
+    }
     virtualizer.scrollToIndex(selectedIndex, { align: 'auto' });
-  }, [selectedId, selectedIndex, virtualizer]);
+  }, [selectedId, selectedIndex, following, virtualizer]);
+
+  const atTop = awayFrom === null;
+  useEffect(() => {
+    onAtTopChange(atTop);
+  }, [atTop, onAtTopChange]);
+
+  const arrivedCount = countAbove(items, awayFrom);
+
+  function handleScroll(event: UIEvent<HTMLDivElement>) {
+    const top = isAtTop(event.currentTarget.scrollTop);
+    setAwayFrom((current) => (top ? null : (current ?? items[0]?.id ?? null)));
+  }
+
+  function activatePill() {
+    const scroller = scrollRef.current;
+    if (scroller !== null) {
+      scroller.scrollTop = 0;
+    }
+    setAwayFrom(null);
+    scroller?.querySelector<HTMLElement>('[role="listbox"]')?.focus({ preventScroll: true });
+    onPillActivate();
+  }
 
   const renderedIndexes = virtualRows.map((row) => row.index);
   if (selectedIndex !== -1 && !renderedIndexes.includes(selectedIndex)) {
@@ -121,7 +160,8 @@ export function CaptureList({
 
   return (
     <div className={styles.root}>
-      <div ref={scrollRef} className={styles.scroller}>
+      <NewPill count={arrivedCount} onActivate={activatePill} />
+      <div ref={scrollRef} className={styles.scroller} onScroll={handleScroll}>
         {pending ? (
           <div className={styles.skeleton} role="status">
             <span className={styles.visuallyHidden}>{t('wl.endpoint.list.loading')}</span>
@@ -150,6 +190,8 @@ export function CaptureList({
                   positionInSet={index + 1}
                   setSize={setSize}
                   now={now}
+                  unread={unreadIds.has(item.id)}
+                  arriving={arrivingIds.has(item.id)}
                   style={{ height: rowHeight, transform: `translateY(${index * rowHeight}px)` }}
                   onSelect={onSelect}
                 />

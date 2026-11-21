@@ -4,7 +4,19 @@ import type { CapturePage, CaptureSummary } from '../../api/types';
 export const NOT_FOUND = -1;
 
 export function flattenCaptures(data: CaptureListData | undefined): CaptureSummary[] {
-  return data === undefined ? [] : data.pages.flatMap((page) => page.items);
+  if (data === undefined) {
+    return [];
+  }
+  const seen = new Set<string>();
+  return data.pages.flatMap((page) =>
+    page.items.filter((item) => {
+      if (seen.has(item.id)) {
+        return false;
+      }
+      seen.add(item.id);
+      return true;
+    }),
+  );
 }
 
 export function totalOf(data: CaptureListData | undefined): number | null {

@@ -9,6 +9,7 @@ const CAPTURE_BODY_TEXT = '{"order":42}';
 export interface CaptureApiState {
   captures: Capture[];
   deleted: string[];
+  listRequests: string[];
 }
 
 interface ListPage {
@@ -17,15 +18,21 @@ interface ListPage {
   total: number;
 }
 
-function pageOf(state: CaptureApiState, url: URL): ListPage {
+function pageOf(state: CaptureApiState, url: URL, endpointId: string): ListPage {
   const limit = Number(url.searchParams.get('limit') ?? DEFAULT_LIMIT);
-  const offset = Number(url.searchParams.get('cursor') ?? 0);
-  const ordered = [...state.captures].sort((left, right) => right.seq - left.seq);
-  const end = offset + limit;
+  const ascending = url.searchParams.get('order') === 'asc';
+  const afterSeq = Number(url.searchParams.get('after_seq') ?? 0);
+  const cursor = url.searchParams.get('cursor');
+  const direction = ascending ? 1 : -1;
+  const ordered = [...state.captures]
+    .filter((capture) => capture.seq > afterSeq)
+    .sort((left, right) => direction * (left.seq - right.seq));
+  const rest = cursor === null ? ordered : ordered.filter((capture) => direction * (capture.seq - Number(cursor)) > 0);
+  const items = rest.slice(0, limit);
   return {
-    items: ordered.slice(offset, end).map(summaryOf),
-    next_cursor: end < ordered.length ? String(end) : null,
-    total: ordered.length,
+    items: items.map((capture) => ({ ...summaryOf(capture), endpoint_id: endpointId })),
+    next_cursor: rest.length > limit ? String(items.at(-1)?.seq ?? 0) : null,
+    total: state.captures.length,
   };
 }
 
@@ -42,7 +49,12 @@ async function answer(route: Route, state: CaptureApiState, endpointId: string):
   const url = new URL(request.url());
   const listPath = `/api/v1/endpoints/${endpointId}/captures`;
   if (url.pathname === listPath && request.method() === 'GET') {
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(pageOf(state, url)) });
+    state.listRequests.push(url.search);
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(pageOf(state, url, endpointId)),
+    });
     return;
   }
   if (url.pathname === listPath && request.method() === 'DELETE') {
@@ -80,7 +92,7 @@ async function answer(route: Route, state: CaptureApiState, endpointId: string):
 }
 
 export async function mockCaptureApi(page: Page, endpointId: string, captures: Capture[]): Promise<CaptureApiState> {
-  const state: CaptureApiState = { captures: [...captures], deleted: [] };
+  const state: CaptureApiState = { captures: [...captures], deleted: [], listRequests: [] };
   await page.route(
     (url) => url.pathname.startsWith(`/api/v1/endpoints/${endpointId}/captures`),
     (route) => answer(route, state, endpointId),

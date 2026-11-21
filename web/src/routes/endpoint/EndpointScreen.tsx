@@ -4,10 +4,13 @@ import { useTranslation } from 'react-i18next';
 import { useClearCaptures, useEndpoint } from '../../api/queries';
 import { CaptureList, type ListNavigation } from '../../components/CaptureList/CaptureList';
 import { ConfirmDialog } from '../../components/ConfirmDialog/ConfirmDialog';
+import { Announcer } from '../../components/Announcer/Announcer';
+import { ConnectionIndicator } from '../../components/ConnectionIndicator/ConnectionIndicator';
 import { EmptyState } from '../../components/EmptyState/EmptyState';
 import { EndpointHeader } from '../../components/EndpointHeader/EndpointHeader';
 import { ListPager, type ListPagerProps } from '../../components/ListPager/ListPager';
 import { SplitHandle } from '../../components/SplitHandle/SplitHandle';
+import { StatePage } from '../../components/StatePage/StatePage';
 import { UndoToast } from '../../components/UndoToast/UndoToast';
 import { useMarkedCapture } from '../../features/diff';
 import { RESIZE_STEP_PX } from '../../features/endpoint/constants';
@@ -15,6 +18,18 @@ import { sampleCurl } from '../../features/endpoint/sampleCurl';
 import { useEndpointSelection } from '../../features/endpoint/useSelection';
 import { useViewportLayout } from '../../features/endpoint/useViewport';
 import { markEndpointOpened } from '../../features/endpoints';
+import {
+  isFollowing,
+  LiveToolbar,
+  reduceFollow,
+  saveLivePrefs,
+  type FollowAction,
+  useFollowControls,
+  useLastSeen,
+  useLiveEndpoint,
+  useLivePrefs,
+  useTabBadge,
+} from '../../features/live';
 import {
   activateCompare,
   LIST_WIDTH_MAX,
@@ -54,7 +69,22 @@ export function EndpointScreen() {
   const layout = useViewportLayout();
   const narrow = layout === 'narrow';
   const wide = layout === 'wide';
-  const selection = useEndpointSelection(endpointId, list, !narrow);
+  const follow = useFollowControls();
+  const livePrefs = useLivePrefs();
+  const [listAtTop, setListAtTop] = useState(true);
+  const newestId = list.items[0]?.id ?? null;
+  const selection = useEndpointSelection(endpointId, list, !narrow, follow.following, (captureId) => {
+    follow.dispatch({ kind: 'select', captureId, newestId });
+  });
+  const live = useLiveEndpoint(endpointId, {
+    following: follow.following,
+    selectedId: selection.paneId,
+    onFollowNewest: (captureId) => {
+      if (selection.captureId !== null) {
+        selection.replace(captureId);
+      }
+    },
+  });
   const deletion = useDeleteWithUndo(endpointId);
   const clear = useClearCaptures(endpointId);
   const marked = useMarkedCapture(endpointId);
@@ -65,6 +95,9 @@ export function EndpointScreen() {
   const [clearFailed, setClearFailed] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const backRequested = useRef(false);
+
+  useTabBadge(live.awayCount);
+  useLastSeen(endpointId, newestId, listAtTop);
 
   useEffect(() => {
     if (loaded) {
@@ -83,6 +116,10 @@ export function EndpointScreen() {
     return null;
   }
 
+  if (live.endReason !== null) {
+    return <StatePage kind={live.endReason === 'missing' ? 'not-found' : 'gone'} />;
+  }
+
   const paneId = selection.paneId;
   const paneHidden = layout === 'medium' && closedFor !== null && closedFor === paneId;
   const paneTarget = narrow ? selection.captureId : paneHidden ? null : paneId;
@@ -97,6 +134,14 @@ export function EndpointScreen() {
     onNext: selection.next,
     onLast: selection.last,
   };
+
+  function applyFollow(action: FollowAction): void {
+    const next = reduceFollow(follow.state, action);
+    follow.dispatch(action);
+    if (isFollowing(next) && newestId !== null && selection.captureId !== null && selection.captureId !== newestId) {
+      selection.replace(newestId);
+    }
+  }
 
   function navigateList(navigation: ListNavigation): void {
     switch (navigation) {
@@ -179,6 +224,7 @@ export function EndpointScreen() {
         expiresAt={endpoint.expires_at}
         now={now}
         narrow={narrow}
+        status={<ConnectionIndicator state={live.connection} lastEventAt={live.lastEventAt} now={now} />}
         onDeleteAll={() => {
           setClearOpen(true);
         }}
@@ -195,12 +241,25 @@ export function EndpointScreen() {
       ) : (
         <div className={styles.body} data-pane={paneHidden ? 'hidden' : 'shown'}>
           <div ref={listRef} className={styles.list} style={wide ? { width: listWidth } : undefined}>
+            <LiveToolbar
+              follow={follow.state}
+              announce={livePrefs.announce}
+              onToggleFollow={() => {
+                applyFollow({ kind: 'toggle' });
+              }}
+              onToggleAnnounce={() => {
+                saveLivePrefs({ announce: !livePrefs.announce });
+              }}
+            />
             <CaptureList
               items={list.items}
               selectedId={paneId}
               markedId={marked}
               variant={narrow ? 'two-line' : 'one-line'}
               now={now}
+              unreadIds={live.unreadIds}
+              arrivingIds={live.arrivingIds}
+              following={follow.following}
               total={list.total}
               pending={list.isPending}
               failed={list.error !== null && !list.hasData}
@@ -213,6 +272,10 @@ export function EndpointScreen() {
               onCompare={compare}
               onLoadMore={list.fetchNextPage}
               onRetry={list.retry}
+              onAtTopChange={setListAtTop}
+              onPillActivate={() => {
+                applyFollow({ kind: 'resume' });
+              }}
             />
             {narrow ? null : <ListPager {...pagerProps} />}
           </div>
@@ -266,6 +329,7 @@ export function EndpointScreen() {
           {t('wl.endpoint.clear.failed')}
         </p>
       ) : null}
+      <Announcer announcement={live.announcement} muted={!livePrefs.announce} />
       <Outlet />
     </section>
   );

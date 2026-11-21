@@ -17,6 +17,8 @@ export interface CaptureRowProps {
   positionInSet: number;
   setSize: number;
   now: number;
+  unread?: boolean;
+  arriving?: boolean;
   style: CSSProperties;
   onSelect: (captureId: string) => void;
 }
@@ -42,6 +44,8 @@ export function CaptureRow({
   positionInSet,
   setSize,
   now,
+  unread = false,
+  arriving = false,
   style,
   onSelect,
 }: CaptureRowProps) {
@@ -70,11 +74,19 @@ export function CaptureRow({
       style={style}
       data-variant={variant}
       data-selected={selected ? 'true' : undefined}
+      data-unread={unread ? 'true' : undefined}
+      data-arriving={arriving ? 'true' : undefined}
       onClick={() => {
         onSelect(summary.id);
       }}
     >
       <span className={styles.line}>
+        {unread ? (
+          <span className={styles.unread}>
+            <span className={styles.unreadDot} aria-hidden="true" />
+            <span className={styles.visuallyHidden}>{t('wl.live.row.unread')}</span>
+          </span>
+        ) : null}
         <MethodBadge method={summary.method} />
         <span className={styles.path} title={path}>
           {path}

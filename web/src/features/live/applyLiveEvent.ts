@@ -1,0 +1,339 @@
+import type { QueryClient, QueryKey } from '@tanstack/react-query';
+import {
+  addCaptureToEndpoint,
+  clearCapturePages,
+  clearEndpointCaptures,
+  mergeCaptureIntoPages,
+  queryKeys,
+  removeCaptureFromPages,
+  type CaptureListData,
+} from '../../api/queries';
+import type {
+  Capture,
+  CaptureOrder,
+  CapturePage,
+  CaptureSummary,
+  Endpoint,
+  ForwardJob,
+  ForwardState,
+} from '../../api/types';
+import { withCaptureCount } from '../list/cache';
+import { flattenCaptures, restoreCaptureInPages } from '../list/listModel';
+import type { LiveEvent, LiveReadyPayload } from './types';
+
+export type CatchUpReason = 'ready' | 'resync' | 'invalid';
+
+export type LiveEffect =
+  | { kind: 'inserted'; capture: CaptureSummary }
+  | { kind: 'hidden'; capture: CaptureSummary }
+  | { kind: 'removed'; captureId: string }
+  | { kind: 'cleared' }
+  | { kind: 'catchUp'; reason: CatchUpReason; ready: LiveReadyPayload | null };
+
+export interface LiveCacheState {
+  pages: CaptureListData | undefined;
+  order: CaptureOrder;
+  endpoint: Endpoint | undefined;
+  detail: Capture | undefined;
+}
+
+export interface LiveOutcome extends LiveCacheState {
+  effects: LiveEffect[];
+}
+
+export type ActiveFilter = (summary: CaptureSummary) => boolean;
+
+export const matchesActiveFilter: ActiveFilter = () => true;
+
+type Placement = 'inserted' | 'counted' | 'duplicate';
+
+interface Placed {
+  data: CaptureListData;
+  placement: Placement;
+}
+
+interface Removal {
+  data: CaptureListData;
+  counted: boolean;
+  found: CaptureSummary | null;
+}
+
+const FORWARD_RANK: Readonly<Record<ForwardState, number>> = { succeeded: 1, pending: 2, failed: 3 };
+
+function containsCapture(data: CaptureListData, captureId: string): boolean {
+  return data.pages.some((page) => page.items.some((item) => item.id === captureId));
+}
+
+function lowestSeq(data: CaptureListData): number | null {
+  const items = data.pages.at(-1)?.items ?? [];
+  return items.at(-1)?.seq ?? null;
+}
+
+function hasOlderPages(data: CaptureListData): boolean {
+  return (data.pages.at(-1)?.next_cursor ?? null) !== null;
+}
+
+function bumpTotals(data: CaptureListData, delta: number): CaptureListData {
+  return { ...data, pages: data.pages.map((page) => ({ ...page, total: Math.max(0, page.total + delta) })) };
+}
+
+function trimTail(pages: readonly CapturePage[], drop: number): CapturePage[] {
+  let remaining = drop;
+  const trimmed = [...pages];
+  for (let index = trimmed.length - 1; index >= 0 && remaining > 0; index -= 1) {
+    const page = trimmed[index];
+    if (page === undefined) {
+      continue;
+    }
+    const removed = Math.min(remaining, page.items.length);
+    trimmed[index] = { ...page, items: page.items.slice(0, page.items.length - removed) };
+    remaining -= removed;
+  }
+  return trimmed;
+}
+
+function clampToCapacity(data: CaptureListData, capacity: number | undefined): CaptureListData {
+  const total = data.pages[0]?.total ?? 0;
+  if (capacity === undefined || total <= capacity) {
+    return data;
+  }
+  const clamped = data.pages.map((page) => ({ ...page, total: capacity }));
+  if (hasOlderPages(data)) {
+    return { ...data, pages: clamped };
+  }
+  const held = clamped.reduce((sum, page) => sum + page.items.length, 0);
+  return { ...data, pages: held > capacity ? trimTail(clamped, held - capacity) : clamped };
+}
+
+function placeCapture(
+  data: CaptureListData,
+  capture: CaptureSummary,
+  order: CaptureOrder,
+  capacity: number | undefined,
+): Placed {
+  if (containsCapture(data, capture.id)) {
+    return { data, placement: 'duplicate' };
+  }
+  if (order === 'asc') {
+    return { data: mergeCaptureIntoPages(data, capture, order), placement: 'inserted' };
+  }
+  const lowest = lowestSeq(data);
+  if (lowest !== null && capture.seq < lowest && hasOlderPages(data)) {
+    return { data: clampToCapacity(bumpTotals(data, 1), capacity), placement: 'counted' };
+  }
+  return { data: clampToCapacity(restoreCaptureInPages(data, capture), capacity), placement: 'inserted' };
+}
+
+function removeCapture(data: CaptureListData, captureId: string, seq: number): Removal {
+  const found = flattenCaptures(data).find((item) => item.id === captureId) ?? null;
+  if (found !== null) {
+    return { data: removeCaptureFromPages(data, captureId), counted: true, found };
+  }
+  const lowest = lowestSeq(data);
+  if (lowest !== null && seq < lowest && hasOlderPages(data)) {
+    return { data: bumpTotals(data, -1), counted: true, found: null };
+  }
+  return { data, counted: false, found: null };
+}
+
+function forwardStateOfJob(job: ForwardJob): ForwardState {
+  return job.state === 'running' ? 'pending' : job.state;
+}
+
+export function worstForwardState(states: readonly ForwardState[]): ForwardState | null {
+  return states.reduce<ForwardState | null>(
+    (worst, state) => (worst === null || FORWARD_RANK[state] > FORWARD_RANK[worst] ? state : worst),
+    null,
+  );
+}
+
+function mergeForwardState(existing: ForwardState | null, job: ForwardJob): ForwardState {
+  const mapped = forwardStateOfJob(job);
+  if (existing === null || (existing === 'pending' && mapped !== 'pending')) {
+    return mapped;
+  }
+  return FORWARD_RANK[mapped] > FORWARD_RANK[existing] ? mapped : existing;
+}
+
+function upsertJob(jobs: readonly ForwardJob[], job: ForwardJob): ForwardJob[] {
+  return jobs.some((existing) => existing.id === job.id)
+    ? jobs.map((existing) => (existing.id === job.id ? job : existing))
+    : [job, ...jobs];
+}
+
+function withForwardState(data: CaptureListData, captureId: string, state: ForwardState | null): CaptureListData {
+  if (!containsCapture(data, captureId)) {
+    return data;
+  }
+  return {
+    ...data,
+    pages: data.pages.map((page) => ({
+      ...page,
+      items: page.items.map((item) => (item.id === captureId ? { ...item, forward_state: state } : item)),
+    })),
+  };
+}
+
+function countedBytes(before: Endpoint, after: Endpoint, capture: CaptureSummary): Endpoint {
+  return after.last_seq === before.last_seq ? after : { ...after, bytes_used: after.bytes_used + capture.body_size };
+}
+
+function applyCapture(state: LiveCacheState, capture: CaptureSummary): LiveOutcome {
+  const { pages, endpoint, order } = state;
+  const capacity = endpoint?.max_captures;
+  let nextPages = pages;
+  let isNew: boolean;
+  if (!matchesActiveFilter(capture)) {
+    isNew = endpoint === undefined || capture.seq > endpoint.last_seq;
+  } else if (pages === undefined) {
+    isNew = endpoint === undefined || capture.seq > endpoint.last_seq;
+  } else {
+    const placed = placeCapture(pages, capture, order, capacity);
+    nextPages = placed.data;
+    isNew = placed.placement === 'inserted';
+  }
+  const nextEndpoint =
+    endpoint === undefined ? undefined : countedBytes(endpoint, addCaptureToEndpoint(endpoint, capture), capture);
+  const effects: LiveEffect[] = [];
+  if (isNew) {
+    effects.push(matchesActiveFilter(capture) ? { kind: 'inserted', capture } : { kind: 'hidden', capture });
+  }
+  return { ...state, pages: nextPages, endpoint: nextEndpoint, effects };
+}
+
+function applyDeleted(state: LiveCacheState, captureId: string, seq: number): LiveOutcome {
+  const { pages, endpoint } = state;
+  if (pages === undefined) {
+    const nextEndpoint = endpoint === undefined ? undefined : withCaptureCount(endpoint, -1);
+    return { ...state, endpoint: nextEndpoint, effects: [{ kind: 'removed', captureId }] };
+  }
+  const removal = removeCapture(pages, captureId, seq);
+  if (!removal.counted) {
+    return { ...state, effects: [] };
+  }
+  const counted = endpoint === undefined ? undefined : withCaptureCount(endpoint, -1);
+  const nextEndpoint =
+    counted !== undefined && removal.found !== null
+      ? { ...counted, bytes_used: Math.max(0, counted.bytes_used - removal.found.body_size) }
+      : counted;
+  return { ...state, pages: removal.data, endpoint: nextEndpoint, effects: [{ kind: 'removed', captureId }] };
+}
+
+function applyForwardResult(state: LiveCacheState, captureId: string, job: ForwardJob): LiveOutcome {
+  const detail = state.detail?.id === captureId ? state.detail : undefined;
+  const forwards = detail === undefined ? null : upsertJob(detail.forwards, job);
+  const aggregate = forwards === null ? null : worstForwardState(forwards.map(forwardStateOfJob));
+  const existing =
+    state.pages === undefined ? null : flattenCaptures(state.pages).find((item) => item.id === captureId);
+  const listState = forwards === null ? mergeForwardState(existing?.forward_state ?? null, job) : aggregate;
+  return {
+    ...state,
+    pages: state.pages === undefined ? undefined : withForwardState(state.pages, captureId, listState),
+    detail:
+      detail === undefined || forwards === null ? state.detail : { ...detail, forwards, forward_state: aggregate },
+    effects: [],
+  };
+}
+
+export function applyLiveEvent(state: LiveCacheState, event: LiveEvent): LiveOutcome {
+  switch (event.name) {
+    case 'capture':
+      return applyCapture(state, event.data);
+    case 'capture_deleted':
+      return applyDeleted(state, event.data.capture_id, event.data.seq);
+    case 'captures_cleared':
+      return {
+        ...state,
+        pages: state.pages === undefined ? undefined : clearCapturePages(),
+        endpoint: state.endpoint === undefined ? undefined : clearEndpointCaptures(state.endpoint),
+        effects: [{ kind: 'cleared' }],
+      };
+    case 'endpoint_updated':
+      return { ...state, endpoint: event.data, effects: [] };
+    case 'forward_result':
+      return applyForwardResult(state, event.data.capture_id, event.data.job);
+    case 'ready':
+      return { ...state, effects: [{ kind: 'catchUp', reason: 'ready', ready: event.data }] };
+    case 'resync':
+      return { ...state, effects: [{ kind: 'catchUp', reason: 'resync', ready: null }] };
+    case 'endpoint_deleted':
+    case 'bye':
+      return { ...state, effects: [] };
+  }
+}
+
+function orderOfKey(queryKey: QueryKey): CaptureOrder {
+  const filters = queryKey[3];
+  return typeof filters === 'object' && filters !== null && 'order' in filters && filters.order === 'asc'
+    ? 'asc'
+    : 'desc';
+}
+
+function belongsToEndpoint(event: LiveEvent, endpointId: string): boolean {
+  switch (event.name) {
+    case 'capture':
+      return event.data.endpoint_id === endpointId;
+    case 'endpoint_updated':
+      return event.data.id === endpointId;
+    case 'ready':
+      return event.data.endpoint_id === endpointId;
+    default:
+      return true;
+  }
+}
+
+function dropDetails(queryClient: QueryClient, endpointId: string, captureId: string | null): void {
+  const queryKey = captureId === null ? queryKeys.captureDetails(endpointId) : queryKeys.capture(endpointId, captureId);
+  queryClient.removeQueries({ queryKey, type: 'inactive' });
+  void queryClient.invalidateQueries({ queryKey, refetchType: 'active' });
+}
+
+export function applyLiveEventToCache(queryClient: QueryClient, endpointId: string, event: LiveEvent): LiveEffect[] {
+  if (!belongsToEndpoint(event, endpointId)) {
+    return [];
+  }
+  const endpoint = queryClient.getQueryData<Endpoint>(queryKeys.endpoint(endpointId));
+  const detail =
+    event.name === 'forward_result'
+      ? queryClient.getQueryData<Capture>(queryKeys.capture(endpointId, event.data.capture_id))
+      : undefined;
+  const lists = queryClient.getQueryCache().findAll({ queryKey: queryKeys.captureLists(endpointId) });
+  let effects: LiveEffect[] = [];
+  let nextEndpoint = endpoint;
+  let nextDetail = detail;
+  if (lists.length === 0) {
+    const outcome = applyLiveEvent({ pages: undefined, order: 'desc', endpoint, detail }, event);
+    effects = outcome.effects;
+    nextEndpoint = outcome.endpoint;
+    nextDetail = outcome.detail;
+  }
+  for (const [position, query] of lists.entries()) {
+    const pages = queryClient.getQueryData<CaptureListData>(query.queryKey);
+    const outcome = applyLiveEvent({ pages, order: orderOfKey(query.queryKey), endpoint, detail }, event);
+    if (outcome.pages !== undefined && outcome.pages !== pages) {
+      queryClient.setQueryData(query.queryKey, outcome.pages);
+    }
+    if (position === 0) {
+      effects = outcome.effects;
+      nextEndpoint = outcome.endpoint;
+      nextDetail = outcome.detail;
+    }
+  }
+  if (nextEndpoint !== undefined && nextEndpoint !== endpoint) {
+    queryClient.setQueryData(queryKeys.endpoint(endpointId), nextEndpoint);
+  }
+  if (nextDetail !== undefined && nextDetail !== detail && event.name === 'forward_result') {
+    queryClient.setQueryData(queryKeys.capture(endpointId, event.data.capture_id), nextDetail);
+  }
+  if (event.name === 'endpoint_updated' || event.name === 'endpoint_deleted') {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.endpointLists() });
+  }
+  for (const effect of effects) {
+    if (effect.kind === 'removed') {
+      dropDetails(queryClient, endpointId, effect.captureId);
+    } else if (effect.kind === 'cleared') {
+      dropDetails(queryClient, endpointId, null);
+    }
+  }
+  return effects;
+}

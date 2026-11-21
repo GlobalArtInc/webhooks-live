@@ -1,6 +1,7 @@
 import { useMatch, useNavigate } from '@tanstack/react-router';
 import { useEffect, useMemo, useState } from 'react';
 import { indexOfCapture, NOT_FOUND, resolveSeek, type CaptureListModel, type SeekTarget } from '../list';
+import { resolveImplicitId } from './implicitSelection';
 import { rememberSelection } from './selectionMemory';
 
 export const CAPTURE_ROUTE_ID = '/shell/e/$id/c/$captureId';
@@ -22,15 +23,20 @@ export interface EndpointSelection {
   last: () => void;
 }
 
+const IGNORE_OPEN = (): void => undefined;
+
 export function useEndpointSelection(
   endpointId: string,
   list: CaptureListModel,
   implicitNewest: boolean,
+  following = false,
+  onOpen: (captureId: string) => void = IGNORE_OPEN,
 ): EndpointSelection {
   const navigate = useNavigate();
   const match = useMatch({ from: CAPTURE_ROUTE_ID, shouldThrow: false });
   const captureId = match?.params.captureId ?? null;
   const [request, setRequest] = useState<SeekRequest | null>(null);
+  const [pinnedId, setPinnedId] = useState<string | null>(null);
   const { items, hasNextPage, isFetchingNextPage, error, fetchNextPage } = list;
 
   const activeSeek = useMemo<SeekTarget | null>(() => {
@@ -62,10 +68,15 @@ export function useEndpointSelection(
     }
   }, [activeSeek, items, hasNextPage, isFetchingNextPage, error, fetchNextPage, endpointId, navigate]);
 
-  const paneId = captureId ?? (implicitNewest ? (items[0]?.id ?? null) : null);
+  const implicitId = implicitNewest && captureId === null ? resolveImplicitId(items, pinnedId, following) : null;
+  if (implicitId !== null && implicitId !== pinnedId) {
+    setPinnedId(implicitId);
+  }
+  const paneId = captureId ?? implicitId;
   const index = paneId === null ? NOT_FOUND : indexOfCapture(items, paneId);
 
   function open(id: string): void {
+    onOpen(id);
     void navigate({ to: '/e/$id/c/$captureId', params: { id: endpointId, captureId: id } });
   }
 

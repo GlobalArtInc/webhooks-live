@@ -6,6 +6,7 @@ import diff from './en/diff.json';
 import endpoint from './en/endpoint.json';
 import exportMessages from './en/export.json';
 import home from './en/home.json';
+import live from './en/live.json';
 import sample from './en/sample.json';
 import state from './en/state.json';
 
@@ -20,7 +21,17 @@ export function createI18nInstance(): I18nInstance {
     keySeparator: false,
     resources: {
       [SOURCE_LANGUAGE]: {
-        translation: { ...common, ...detail, ...diff, ...endpoint, ...exportMessages, ...home, ...sample, ...state },
+        translation: {
+          ...common,
+          ...detail,
+          ...diff,
+          ...endpoint,
+          ...exportMessages,
+          ...home,
+          ...live,
+          ...sample,
+          ...state,
+        },
       },
     },
     interpolation: { escapeValue: false },

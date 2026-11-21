@@ -1,4 +1,5 @@
 import { Link } from '@tanstack/react-router';
+import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { formatRelativeTime } from '../format/format';
 import { CopyButton } from '../CopyButton/CopyButton';
@@ -16,6 +17,7 @@ export interface EndpointHeaderProps {
   expiresAt: string;
   now: number;
   narrow: boolean;
+  status?: ReactNode;
   onDeleteAll: () => void;
 }
 
@@ -37,6 +39,7 @@ export function EndpointHeader({
   expiresAt,
   now,
   narrow,
+  status,
   onDeleteAll,
 }: EndpointHeaderProps) {
   const { t, i18n } = useTranslation();
@@ -61,6 +64,7 @@ export function EndpointHeader({
           </span>
         )}
         <span className={styles.expiry}>{t('wl.endpoint.header.expires', { when: expiry })}</span>
+        {status}
       </div>
       <div className={styles.actions}>
         {narrow ? (
