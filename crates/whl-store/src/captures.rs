@@ -799,6 +799,17 @@ async fn execute_capture(
                 .await
                 .map_err(CaptureStoreError::classify)
         );
+        attempt!(
+            tx,
+            crate::notify::insert_capture_deliveries(
+                &mut tx,
+                &capture.endpoint_id,
+                id,
+                &capture.headers
+            )
+            .await
+            .map_err(CaptureStoreError::classify)
+        );
     }
 
     let payload = attempt!(tx, event_payload(capture, seq, stored_status, shape.kind));

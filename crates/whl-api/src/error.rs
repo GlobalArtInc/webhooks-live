@@ -11,6 +11,7 @@ use whl_secrets::{MAX_SECRETS_PER_ENDPOINT, SealError};
 use whl_store::MAX_FOLDERS_PER_USER;
 use whl_store::composer::ComposerStoreError;
 use whl_store::forward::ForwardStoreError;
+use whl_store::notify::{MAX_CHANNELS_PER_ENDPOINT, NotifyStoreError};
 use whl_store::rules::RuleStoreError;
 use whl_store::schedules::ScheduleStoreError;
 use whl_store::secrets::SecretStoreError;
@@ -250,6 +251,14 @@ pub enum ApiError {
     ScheduleOwnerRequired,
     #[error("schedule storage failed: {0}")]
     ScheduleStorage(ScheduleStoreError),
+    #[error("the notification channel is not found in this endpoint")]
+    ChannelNotFound,
+    #[error("the endpoint already has the maximum number of notification channels")]
+    ChannelLimit,
+    #[error("notification storage failed: {0}")]
+    NotifyStorage(NotifyStoreError),
+    #[error("{0}")]
+    InternalFault(&'static str),
 }
 
 impl From<ApiTokenStoreError> for ApiError {
@@ -278,6 +287,16 @@ impl From<ScheduleStoreError> for ApiError {
             Self::StoreUnavailable
         } else {
             Self::ScheduleStorage(error)
+        }
+    }
+}
+
+impl From<NotifyStoreError> for ApiError {
+    fn from(error: NotifyStoreError) -> Self {
+        if error.is_unavailable() {
+            Self::StoreUnavailable
+        } else {
+            Self::NotifyStorage(error)
         }
     }
 }
@@ -453,6 +472,10 @@ impl IntoResponse for ApiError {
             Self::VarLimit => Some(LimitDetail::count("vars", MAX_VARS_PER_ENDPOINT)),
             Self::ComposerQuota { name, max, .. } => Some(LimitDetail::count(name, *max)),
             Self::ScheduleLimit(max) => Some(LimitDetail::count("schedules", *max)),
+            Self::ChannelLimit => Some(LimitDetail::count(
+                "notification_channels",
+                MAX_CHANNELS_PER_ENDPOINT,
+            )),
             _ => None,
         };
         let references = match &self {
@@ -848,6 +871,36 @@ impl IntoResponse for ApiError {
             }
             Self::SecretSeal(error) => {
                 tracing::error!(%error, "a secret could not be sealed");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal_error",
+                    "the request could not be completed".to_owned(),
+                    None,
+                )
+            }
+            Self::ChannelNotFound => (
+                StatusCode::NOT_FOUND,
+                "channel_not_found",
+                self.to_string(),
+                None,
+            ),
+            Self::ChannelLimit => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "limit_reached",
+                self.to_string(),
+                None,
+            ),
+            Self::NotifyStorage(error) => {
+                tracing::error!(%error, "notification storage failed");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal_error",
+                    "the request could not be completed".to_owned(),
+                    None,
+                )
+            }
+            Self::InternalFault(detail) => {
+                tracing::error!(detail, "an unexpected server fault");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "internal_error",

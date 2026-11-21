@@ -15,6 +15,7 @@ mod lifecycle;
 mod limit;
 mod listing;
 mod members;
+mod notify;
 mod policy;
 mod resolve;
 mod rules;
@@ -41,6 +42,7 @@ pub use cors::api_cors;
 pub use forward::ForwardSettings;
 pub use inbox::inbox_selector;
 pub use limit::{ApiLimits, enforce_rate_limit};
+pub use notify::NotifyApiSettings;
 pub use policy::guard_routes;
 pub use schedules::ScheduleSettings;
 pub use settings::ApiSettings;
@@ -69,6 +71,7 @@ pub fn router(state: ApiState) -> Router {
         .merge(forward::routes())
         .merge(rules::routes())
         .merge(schedules::routes())
+        .merge(notify::routes())
         .merge(secrets::routes())
         .merge(composer::routes())
         .merge(tokens::routes())

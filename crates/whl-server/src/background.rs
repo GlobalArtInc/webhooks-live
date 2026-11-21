@@ -7,6 +7,7 @@ use whl_capture::StorageFull;
 use whl_core::config::Config;
 use whl_core::limiter::Limiters;
 use whl_dns::DnsHandle;
+use whl_notify::{NotifyHandle, NotifyWorker};
 use whl_schedule::{RunnerHandle, ScheduleRunner};
 use whl_store::Store;
 use whl_store::maintenance::{
@@ -41,12 +42,19 @@ impl BackgroundSettings {
     }
 }
 
+pub(crate) struct Workers {
+    pub(crate) dns: Option<DnsHandle>,
+    pub(crate) schedules: Option<ScheduleRunner>,
+    pub(crate) notify: Option<NotifyWorker>,
+}
+
 pub(crate) struct Background {
     refresher: JoinHandle<()>,
     cleanup: JoinHandle<()>,
     maintenance: MaintenanceHandle,
     dns: Option<DnsHandle>,
     schedules: Option<RunnerHandle>,
+    notify: Option<NotifyHandle>,
 }
 
 impl Background {
@@ -55,8 +63,7 @@ impl Background {
         settings: &BackgroundSettings,
         storage_full: StorageFull,
         limiters: Limiters,
-        dns: Option<DnsHandle>,
-        schedules: Option<ScheduleRunner>,
+        workers: Workers,
         stop: &watch::Receiver<bool>,
     ) -> Self {
         let refresher = tokio::spawn(refresh_storage(
@@ -76,13 +83,20 @@ impl Background {
             settings.maintenance.clone(),
             until_stopped(stop.clone()),
         );
+        let Workers {
+            dns,
+            schedules,
+            notify,
+        } = workers;
         let schedules = schedules.map(|runner| runner.spawn(until_stopped(stop.clone())));
+        let notify = notify.map(|worker| worker.spawn(until_stopped(stop.clone())));
         Self {
             refresher,
             cleanup,
             maintenance,
             dns,
             schedules,
+            notify,
         }
     }
 
@@ -101,6 +115,9 @@ impl Background {
         }
         if let Some(mut schedules) = self.schedules {
             schedules.join().await;
+        }
+        if let Some(mut notify) = self.notify {
+            notify.join().await;
         }
     }
 }

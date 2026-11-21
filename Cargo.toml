@@ -18,6 +18,7 @@ whl-dns = { path = "crates/whl-dns" }
 whl-export = { path = "crates/whl-export" }
 whl-forward = { path = "crates/whl-forward" }
 whl-live = { path = "crates/whl-live" }
+whl-notify = { path = "crates/whl-notify" }
 whl-rules = { path = "crates/whl-rules" }
 whl-script = { path = "crates/whl-script" }
 whl-schedule = { path = "crates/whl-schedule" }

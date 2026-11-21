@@ -111,6 +111,7 @@ fn endpoint_role(method: &Method, tail: &str) -> EndpointRole {
         | "/forward-rules"
         | "/rules"
         | "/rules/{rule_id}"
+        | "/notifications"
         | "/captures/{capture_id}"
         | "/captures/{capture_id}/body"
             if read =>
@@ -118,11 +119,17 @@ fn endpoint_role(method: &Method, tail: &str) -> EndpointRole {
             EndpointRole::Viewer
         }
         "/export" if read || *method == Method::POST => EndpointRole::Viewer,
-        "/forward-rules" | "/rules" if *method == Method::POST => EndpointRole::Editor,
+        "/forward-rules" | "/rules" | "/notifications" if *method == Method::POST => {
+            EndpointRole::Editor
+        }
         "/rules/order" if *method == Method::PUT => EndpointRole::Editor,
         "/rules/{rule_id}" if matches!(*method, Method::PATCH | Method::DELETE) => {
             EndpointRole::Editor
         }
+        "/notifications/{channel_id}" if matches!(*method, Method::PATCH | Method::DELETE) => {
+            EndpointRole::Editor
+        }
+        "/notifications/{channel_id}/test" if *method == Method::POST => EndpointRole::Editor,
         "/forward-rules/{rule_id}" if matches!(*method, Method::PATCH | Method::DELETE) => {
             EndpointRole::Editor
         }
@@ -193,7 +200,7 @@ mod tests {
     #[test]
     fn every_documented_route_needs_the_role_of_the_api_table() {
         use EndpointRole::{Editor, Owner, Viewer};
-        let table: [(&Method, &str, Requirement); 43] = [
+        let table: [(&Method, &str, Requirement); 47] = [
             (&GET, "/vars", Requirement::Role(Viewer)),
             (&Method::HEAD, "/vars", Requirement::Role(Viewer)),
             (&PUT, "/vars/{name}", Requirement::Role(Editor)),
@@ -215,6 +222,18 @@ mod tests {
             (&PATCH, "/rules/{rule_id}", Requirement::Role(Editor)),
             (&DELETE, "/rules/{rule_id}", Requirement::Role(Editor)),
             (&PUT, "/rules/order", Requirement::Role(Editor)),
+            (&GET, "/notifications", Requirement::Role(Viewer)),
+            (&POST, "/notifications", Requirement::Role(Editor)),
+            (
+                &PATCH,
+                "/notifications/{channel_id}",
+                Requirement::Role(Editor),
+            ),
+            (
+                &POST,
+                "/notifications/{channel_id}/test",
+                Requirement::Role(Editor),
+            ),
             (&GET, "/forward-rules", Requirement::Role(Viewer)),
             (&POST, "/forward-rules", Requirement::Role(Editor)),
             (
