@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState, type MouseEvent, type Reac
 import { useTranslation } from 'react-i18next';
 import { OfflineBanner } from '../../components/OfflineBanner/OfflineBanner';
 import { ThemeControl } from '../../components/ThemeControl/ThemeControl';
+import { ShortcutsButton } from '../../features/shortcuts';
 import { LanguageControl } from '../../i18n/LanguageControl';
 import { ErrorBoundary } from './ErrorBoundary';
 import { RailContext, type RailState } from './railState';
@@ -81,6 +82,7 @@ export function AppShell({ header, rail, resetKey, children }: AppShellProps) {
         </a>
         {header}
         <div className={styles.controls}>
+          <ShortcutsButton />
           <LanguageControl />
           <ThemeControl />
         </div>

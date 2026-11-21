@@ -3,10 +3,12 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ApiError } from '../../api/client';
 import { useCapture } from '../../api/queries';
+import { prepareCopyAs } from '../../components/CopyAsMenu/prepareCopyAs';
 import { ListPager, type ListPagerProps } from '../../components/ListPager/ListPager';
 import type { BodyViewMode } from '../body';
 import { CaptureDetailPanel, type DetailSectionId } from '../detail';
 import { compareLabelOf } from '../list/compare';
+import { useShortcutHandlers } from '../shortcuts';
 import styles from './CapturePane.module.css';
 
 const NOT_FOUND = 404;
@@ -48,6 +50,7 @@ export function CapturePane({
   const navigate = useNavigate();
   const headingRef = useRef<HTMLHeadingElement>(null);
   const query = useCapture(endpointId, captureId);
+  const capture = query.data;
   const [bodyMode, setBodyMode] = useState<BodyViewMode>('pretty');
   const [wrap, setWrap] = useState(false);
   const [collapsed, setCollapsed] = useState<readonly DetailSectionId[]>([]);
@@ -59,6 +62,24 @@ export function CapturePane({
       headingRef.current?.focus({ preventScroll: true });
     }
   }, [captureId, narrow]);
+
+  useShortcutHandlers({
+    copyCurl: () => {
+      if (capture === undefined) {
+        return;
+      }
+      const curl = prepareCopyAs(capture, undefined).curl;
+      if (curl.ok) {
+        void curl.run();
+      }
+    },
+    prettyRaw: () => {
+      setBodyMode((current) => (current === 'pretty' ? 'raw' : 'pretty'));
+    },
+    wrap: () => {
+      setWrap((current) => !current);
+    },
+  });
 
   const compareText =
     compareLabel === 'mark'
