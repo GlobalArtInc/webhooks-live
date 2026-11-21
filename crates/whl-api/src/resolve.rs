@@ -13,6 +13,7 @@ pub fn defaults() -> EndpointSettings {
         response: ResponseConfig::default(),
         cors: false,
         overflow: Overflow::Refuse,
+        tags: Vec::new(),
     }
 }
 
@@ -32,12 +33,14 @@ pub fn resolve(
     let title = patch.title.clone().unwrap_or_else(|| base.title.clone());
     let cors = patch.cors.unwrap_or(base.cors);
     let overflow = patch.overflow.unwrap_or(base.overflow);
+    let tags = patch.tags.clone().unwrap_or_else(|| base.tags.clone());
     match validate_response(&base.response, &patch.response) {
         Ok(response) if violations.is_empty() => Ok(EndpointSettings {
             title,
             response,
             cors,
             overflow,
+            tags,
         }),
         Ok(_) => Err(violations),
         Err(error) => {

@@ -22,6 +22,8 @@ pub struct SummaryDto {
     response_status: i16,
     forward_state: Option<&'static str>,
     kind: &'static str,
+    starred: bool,
+    has_note: bool,
 }
 
 impl From<&CaptureSummary> for SummaryDto {
@@ -41,6 +43,8 @@ impl From<&CaptureSummary> for SummaryDto {
             response_status: summary.response_status,
             forward_state: summary.forward_state.map(|state| state.as_str()),
             kind: summary.kind.as_str(),
+            starred: summary.starred,
+            has_note: summary.has_note,
         }
     }
 }
@@ -61,6 +65,7 @@ pub struct CaptureDto {
     headers: Vec<NameValue>,
     query: Vec<NameValue>,
     form: Option<CaptureForm>,
+    note: Option<String>,
     body: BodyDto,
     forwards: Vec<JobDto>,
     meta: serde_json::Value,
@@ -75,6 +80,7 @@ impl CaptureDto {
             headers: detail.headers,
             query: detail.query,
             form: detail.form,
+            note: detail.note,
             body: BodyDto::from_prefix(&detail.body.prefix, detail.body.truncated),
             forwards: forwards.iter().map(JobDto::from).collect(),
             meta: detail.meta,

@@ -304,6 +304,7 @@ fn resolve_defaults() -> whl_store::EndpointSettings {
         response: whl_core::response::ResponseConfig::default(),
         cors: false,
         overflow: whl_store::Overflow::Refuse,
+        tags: Vec::new(),
     }
 }
 

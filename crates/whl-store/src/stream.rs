@@ -56,7 +56,9 @@ pub(crate) fn summary_columns(path_limit: Option<i32>) -> String {
   c.status_override,
   c.response_status,
   {FORWARD_STATE} AS forward_state,
-  c.kind"#
+  c.kind,
+  c.starred,
+  (c.note IS NOT NULL) AS has_note"#
     )
 }
 
@@ -267,6 +269,8 @@ pub struct CaptureSummary {
     pub response_status: i16,
     pub forward_state: Option<ForwardState>,
     pub kind: CaptureKind,
+    pub starred: bool,
+    pub has_note: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -498,6 +502,8 @@ pub(crate) fn summary_from_row(row: &PgRow) -> Result<CaptureSummary, StreamErro
             .map(ForwardState::parse)
             .transpose()?,
         kind: CaptureKind::parse(&kind).ok_or(StreamError::UnknownCaptureKind { kind })?,
+        starred: row.try_get("starred")?,
+        has_note: row.try_get("has_note")?,
     })
 }
 

@@ -18,6 +18,11 @@ pub fn requirement(mode: AccessMode, method: &Method, pattern: &str) -> Requirem
         "/instance" => Requirement::Anyone,
         "/endpoints" if mode == AccessMode::Mixed && *method == Method::POST => Requirement::Anyone,
         "/endpoints" => Requirement::SignedIn,
+        "/folders" | "/folders/{folder_id}" => Requirement::SignedIn,
+        "/folders/{folder_id}/endpoints/{id}" if *method == Method::PUT => {
+            Requirement::Role(EndpointRole::Viewer)
+        }
+        "/folders/{folder_id}/endpoints/{id}" => Requirement::SignedIn,
         _ => match rest.strip_prefix(ENDPOINT_PREFIX) {
             Some(CLAIM_TAIL) if *method == Method::POST => Requirement::SignedIn,
             Some(tail) if is_members_route(tail) => Requirement::OwnedRole(EndpointRole::Owner),
@@ -38,6 +43,7 @@ fn endpoint_role(method: &Method, tail: &str) -> EndpointRole {
         "" if read => EndpointRole::Viewer,
         "" if *method == Method::PATCH => EndpointRole::Editor,
         "/stream"
+        | "/stats"
         | "/captures"
         | "/captures/latest"
         | "/forward-rules"
@@ -52,6 +58,7 @@ fn endpoint_role(method: &Method, tail: &str) -> EndpointRole {
             EndpointRole::Editor
         }
         "/captures" | "/captures/{capture_id}" if *method == Method::DELETE => EndpointRole::Editor,
+        "/captures/{capture_id}" if *method == Method::PATCH => EndpointRole::Editor,
         "/secrets" if read => EndpointRole::Editor,
         "/secrets/{name}" if matches!(*method, Method::PUT | Method::DELETE) => {
             EndpointRole::Editor
@@ -107,7 +114,7 @@ mod tests {
     #[test]
     fn every_documented_route_needs_the_role_of_the_api_table() {
         use EndpointRole::{Editor, Owner, Viewer};
-        let table: [(&Method, &str, Requirement); 27] = [
+        let table: [(&Method, &str, Requirement); 29] = [
             (&GET, "/secrets", Requirement::Role(Editor)),
             (&Method::HEAD, "/secrets", Requirement::Role(Editor)),
             (&PUT, "/secrets/{name}", Requirement::Role(Editor)),
@@ -151,6 +158,8 @@ mod tests {
                 Requirement::Role(Editor),
             ),
             (&GET, "/stream", Requirement::Role(Viewer)),
+            (&GET, "/stats", Requirement::Role(Viewer)),
+            (&PATCH, "/captures/{capture_id}", Requirement::Role(Editor)),
             (&Method::HEAD, "", Requirement::Role(Viewer)),
             (&Method::HEAD, "/captures", Requirement::Role(Viewer)),
             (&Method::HEAD, "/stream", Requirement::Role(Viewer)),
@@ -182,7 +191,7 @@ mod tests {
         assert_eq!(role(&PUT, "/captures"), owner);
         assert_eq!(role(&POST, "/captures"), owner);
         assert_eq!(role(&GET, "/forward-rules/{rule_id}"), owner);
-        assert_eq!(role(&PATCH, "/captures/{capture_id}"), owner);
+        assert_eq!(role(&PUT, "/captures/{capture_id}"), owner);
         assert_eq!(role(&PATCH, "/stream"), owner);
         assert_eq!(role(&GET, "/claim"), owner);
         assert_eq!(role(&POST, "/secrets"), owner);
@@ -225,6 +234,36 @@ mod tests {
         for mode in [AccessMode::Open, AccessMode::Sso] {
             assert_eq!(
                 requirement(mode, &POST, "/api/v1/endpoints"),
+                Requirement::SignedIn
+            );
+        }
+    }
+
+    #[test]
+    fn folder_routes_need_sign_in_and_the_viewer_role_only_to_join_an_endpoint() {
+        for mode in MODES {
+            assert_eq!(
+                requirement(mode, &GET, "/api/v1/folders"),
+                Requirement::SignedIn
+            );
+            assert_eq!(
+                requirement(mode, &POST, "/api/v1/folders"),
+                Requirement::SignedIn
+            );
+            assert_eq!(
+                requirement(mode, &PATCH, "/api/v1/folders/{folder_id}"),
+                Requirement::SignedIn
+            );
+            assert_eq!(
+                requirement(mode, &DELETE, "/api/v1/folders/{folder_id}"),
+                Requirement::SignedIn
+            );
+            assert_eq!(
+                requirement(mode, &PUT, "/api/v1/folders/{folder_id}/endpoints/{id}"),
+                Requirement::Role(EndpointRole::Viewer)
+            );
+            assert_eq!(
+                requirement(mode, &DELETE, "/api/v1/folders/{folder_id}/endpoints/{id}"),
                 Requirement::SignedIn
             );
         }

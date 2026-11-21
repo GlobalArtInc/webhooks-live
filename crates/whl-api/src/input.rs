@@ -2,12 +2,13 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use serde_json::{Map, Value};
 use whl_core::header::HeaderInput;
+use whl_core::tag::{MAX_TAGS, Tag};
 use whl_store::Overflow;
 
 use crate::error::{ApiError, FieldCode, FieldViolation};
 
 const TITLE_MAX_CHARS: usize = 100;
-const ENDPOINT_KEYS: &[&str] = &["title", "response", "cors", "overflow"];
+const ENDPOINT_KEYS: &[&str] = &["title", "response", "cors", "overflow", "tags"];
 const RESPONSE_KEYS: &[&str] = &["status", "content_type", "headers", "body", "delay_ms"];
 const HEADER_KEYS: &[&str] = &["name", "value"];
 const BODY_KEYS: &[&str] = &["encoding", "data", "truncated"];
@@ -18,6 +19,7 @@ pub struct EndpointPatch {
     pub response: ResponsePatch,
     pub cors: Option<bool>,
     pub overflow: Option<Overflow>,
+    pub tags: Option<Vec<Tag>>,
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -97,7 +99,44 @@ impl Walk {
         if let Some(value) = object.get("overflow") {
             patch.overflow = self.overflow(value);
         }
+        if let Some(value) = object.get("tags") {
+            patch.tags = self.tags(value);
+        }
         patch
+    }
+
+    fn tags(&mut self, value: &Value) -> Option<Vec<Tag>> {
+        let Value::Array(items) = value else {
+            self.push(
+                "tags",
+                FieldCode::InvalidFormat,
+                "must be an array of strings",
+            );
+            return None;
+        };
+        if items.len() > MAX_TAGS {
+            self.push(
+                "tags",
+                FieldCode::TooMany,
+                format!("must have at most {MAX_TAGS} entries"),
+            );
+            return None;
+        }
+        let mut tags: Vec<Tag> = Vec::with_capacity(items.len());
+        for item in items {
+            let Some(tag) = item.as_str().and_then(|text| Tag::parse(text).ok()) else {
+                self.push(
+                    "tags",
+                    FieldCode::InvalidFormat,
+                    "each tag must be 1 to 32 characters of a to z, 0 to 9 and hyphen, not starting with a hyphen",
+                );
+                return None;
+            };
+            if !tags.contains(&tag) {
+                tags.push(tag);
+            }
+        }
+        Some(tags)
     }
 
     fn title(&mut self, value: &Value) -> Option<Option<String>> {

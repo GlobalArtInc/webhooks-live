@@ -110,6 +110,7 @@ pub struct EndpointDto {
     response: ResponseDto,
     cors: bool,
     overflow: &'static str,
+    tags: Vec<String>,
     forward_rules: Vec<RuleDto>,
     max_captures: u32,
     capture_count: i32,
@@ -193,6 +194,11 @@ impl EndpointDto {
             },
             cors: stored.cors,
             overflow: stored.overflow.as_str(),
+            tags: stored
+                .tags
+                .iter()
+                .map(|tag| tag.unpack().to_owned())
+                .collect(),
             forward_rules: rules.iter().map(RuleDto::from).collect(),
             max_captures: settings.max_captures,
             capture_count: record.capture_count,

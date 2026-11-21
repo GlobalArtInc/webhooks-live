@@ -18,6 +18,7 @@ pub struct ListParams {
     method: Option<String>,
     status: Option<String>,
     kind: Option<String>,
+    starred: Option<String>,
     q: Option<String>,
     after_seq: Option<String>,
     since: Option<String>,
@@ -32,6 +33,7 @@ pub fn list_query(params: &ListParams) -> Result<CaptureQuery, ApiError> {
         methods: parse_methods(params.method.as_deref(), &mut violations),
         statuses: parse_statuses(params.status.as_deref(), &mut violations),
         kinds: parse_kinds(params.kind.as_deref(), &mut violations),
+        starred: parse_starred(params.starred.as_deref(), &mut violations),
         search: parse_search(params.q.as_deref(), &mut violations),
         after_seq: parse_after_seq(params.after_seq.as_deref(), &mut violations),
         since: parse_timestamp("since", params.since.as_deref(), &mut violations),
@@ -181,6 +183,21 @@ fn parse_kinds(text: Option<&str>, violations: &mut Vec<FieldViolation>) -> Vec<
     kinds.sort_by_key(|kind| kind.as_str());
     kinds.dedup();
     kinds
+}
+
+fn parse_starred(text: Option<&str>, violations: &mut Vec<FieldViolation>) -> Option<bool> {
+    match text? {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => {
+            violations.push(violation(
+                "starred",
+                FieldCode::InvalidFormat,
+                "must be true or false",
+            ));
+            None
+        }
+    }
 }
 
 fn class_of(token: &str) -> Option<u8> {

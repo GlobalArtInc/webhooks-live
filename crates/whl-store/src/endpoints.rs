@@ -11,13 +11,14 @@ use whl_core::endpoint_id::EndpointId;
 use whl_core::entropy::IdGenerationError;
 use whl_core::header::HeaderInput;
 use whl_core::response::{ResponseConfig, ResponseConfigInput};
+use whl_core::tag::Tag;
 
 use crate::captures::EVENT_CHANNEL;
 use crate::store::Store;
 
 pub(crate) const COLUMNS: &str = "id, title, response_status, response_content_type, \
     response_headers::text AS response_headers, response_body, response_delay_ms, cors, overflow, \
-    capture_count, bytes_used, last_seq, created_at, last_active_at";
+    capture_count, bytes_used, last_seq, created_at, last_active_at, tags";
 
 const GET_SQL: &str = "WITH live AS ( \
         SELECT id FROM endpoints \
@@ -29,7 +30,7 @@ const GET_SQL: &str = "WITH live AS ( \
     ) \
     SELECT e.id, e.title, e.response_status, e.response_content_type, \
         e.response_headers::text AS response_headers, e.response_body, e.response_delay_ms, e.cors, \
-        e.overflow, e.capture_count, e.bytes_used, e.last_seq, e.created_at, \
+        e.overflow, e.capture_count, e.bytes_used, e.last_seq, e.created_at, e.tags, \
         COALESCE(b.last_active_at, e.last_active_at) AS last_active_at \
     FROM endpoints e LEFT JOIN bumped b ON b.id = e.id \
     WHERE e.id IN (SELECT id FROM live)";
@@ -66,6 +67,7 @@ pub struct EndpointSettings {
     pub response: ResponseConfig,
     pub cors: bool,
     pub overflow: Overflow,
+    pub tags: Vec<Tag>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -140,9 +142,9 @@ impl Store {
         let id = EndpointId::generate()?;
         let sql = format!(
             "INSERT INTO endpoints (id, title, response_status, response_content_type, \
-             response_headers, response_body, response_delay_ms, cors, overflow, owner_id, \
+             response_headers, response_body, response_delay_ms, cors, overflow, tags, owner_id, \
              creator_net) \
-             VALUES ($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9, $10, $11::text::cidr) \
+             VALUES ($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9, $10, $11, $12::text::cidr) \
              RETURNING {COLUMNS}"
         );
         let row = bind_settings(sqlx::query(&sql).bind(id.unpack()), settings)?
@@ -204,7 +206,7 @@ impl Store {
         let update_sql = format!(
             "UPDATE endpoints SET title = $2, response_status = $3, response_content_type = $4, \
              response_headers = $5::text::jsonb, response_body = $6, response_delay_ms = $7, \
-             cors = $8, overflow = $9, last_active_at = now() \
+             cors = $8, overflow = $9, tags = $10, last_active_at = now() \
              WHERE id = $1 RETURNING {COLUMNS}"
         );
         let row = bind_settings(sqlx::query(&update_sql).bind(id.unpack()), &settings)
@@ -256,6 +258,11 @@ fn bind_settings<'q>(
         })
         .collect();
     let headers = serde_json::to_string(&headers).map_err(EndpointError::Encode)?;
+    let tags: Vec<String> = settings
+        .tags
+        .iter()
+        .map(|tag| tag.unpack().to_owned())
+        .collect();
     let status = i16::try_from(settings.response.status().unpack()).unwrap_or(i16::MAX);
     let delay = i32::try_from(settings.response.delay().as_millis()).unwrap_or(i32::MAX);
     Ok(query
@@ -266,7 +273,8 @@ fn bind_settings<'q>(
         .bind(settings.response.body())
         .bind(delay)
         .bind(settings.cors)
-        .bind(settings.overflow.as_str()))
+        .bind(settings.overflow.as_str())
+        .bind(tags))
 }
 
 pub(crate) fn record_from_row(
@@ -296,6 +304,7 @@ pub(crate) fn record_from_row(
         .map_err(EndpointError::Query)?;
     let cors: bool = row.try_get("cors").map_err(EndpointError::Query)?;
     let overflow_text: String = row.try_get("overflow").map_err(EndpointError::Query)?;
+    let tags_text: Vec<String> = row.try_get("tags").map_err(EndpointError::Query)?;
     let capture_count: i32 = row.try_get("capture_count").map_err(EndpointError::Query)?;
     let bytes_used: i64 = row.try_get("bytes_used").map_err(EndpointError::Query)?;
     let last_seq: i64 = row.try_get("last_seq").map_err(EndpointError::Query)?;
@@ -322,6 +331,10 @@ pub(crate) fn record_from_row(
     .map_err(|error| invalid(error.to_string()))?;
     let overflow = Overflow::parse(&overflow_text)
         .ok_or_else(|| invalid(format!("unknown overflow mode {overflow_text}")))?;
+    let tags = tags_text
+        .iter()
+        .map(|text| Tag::parse(text).map_err(|error| invalid(error.to_string())))
+        .collect::<Result<Vec<Tag>, _>>()?;
     let expires_at = expiry(last_active_at, retention)?;
 
     Ok(EndpointRecord {
@@ -331,6 +344,7 @@ pub(crate) fn record_from_row(
             response,
             cors,
             overflow,
+            tags,
         },
         capture_count,
         bytes_used,

@@ -21,7 +21,7 @@ const CHANNEL: &str = "whl_events";
 fn detail_columns() -> String {
     format!(
         "c.url, c.host, c.headers::text AS headers, c.query::text AS query, \
-         c.form::text AS form, c.meta::text AS meta, \
+         c.form::text AS form, c.meta::text AS meta, c.note, \
          substring(b.data FROM 1 FOR {DETAIL_BODY_PREFIX_BYTES}) AS body"
     )
 }
@@ -109,6 +109,7 @@ pub struct CaptureFilter {
     pub methods: Vec<String>,
     pub statuses: Vec<StatusFilter>,
     pub kinds: Vec<CaptureKind>,
+    pub starred: Option<bool>,
     pub search: Option<String>,
     pub after_seq: Option<i64>,
     pub since: Option<OffsetDateTime>,
@@ -124,6 +125,7 @@ impl CaptureFilter {
             "after_seq": self.after_seq,
             "since": self.since.map(|since| since.unix_timestamp_nanos()),
             "until": self.until.map(|until| until.unix_timestamp_nanos()),
+            "starred": self.starred,
         });
         if !self.kinds.is_empty() {
             fingerprint["kinds"] = serde_json::Value::from(
@@ -167,12 +169,26 @@ pub struct CaptureDetail {
     pub query: Vec<NameValue>,
     pub form: Option<CaptureForm>,
     pub meta: serde_json::Value,
+    pub note: Option<String>,
     pub body: CaptureBody,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeleteOutcome {
     Deleted,
+    CaptureNotFound,
+    EndpointGone,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct CaptureAnnotation {
+    pub note: Option<Option<String>>,
+    pub starred: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum AnnotateOutcome {
+    Updated(Box<CaptureSummary>),
     CaptureNotFound,
     EndpointGone,
 }
@@ -316,6 +332,48 @@ impl Store {
         Ok(DeleteOutcome::Deleted)
     }
 
+    pub async fn annotate_capture(
+        &self,
+        endpoint: &EndpointId,
+        capture: &CaptureId,
+        annotation: &CaptureAnnotation,
+        retention: Duration,
+    ) -> Result<AnnotateOutcome, CaptureError> {
+        let mut tx = self.pool().begin().await.map_err(classify)?;
+        if !lock_live_endpoint(&mut tx, endpoint, retention).await? {
+            return Ok(AnnotateOutcome::EndpointGone);
+        }
+        let updated = sqlx::query(
+            "UPDATE captures SET note = CASE WHEN $3 THEN $4::text ELSE note END, \
+             starred = COALESCE($5::boolean, starred) \
+             WHERE endpoint_id = $1 AND id = $2 RETURNING seq",
+        )
+        .bind(endpoint.unpack())
+        .bind(capture.unpack())
+        .bind(annotation.note.is_some())
+        .bind(annotation.note.clone().flatten())
+        .bind(annotation.starred)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(classify)?;
+        if updated.is_none() {
+            return Ok(AnnotateOutcome::CaptureNotFound);
+        }
+        let sql = format!(
+            "SELECT {} FROM captures c WHERE c.endpoint_id = $1 AND c.id = $2",
+            summary_columns(None)
+        );
+        let row = sqlx::query(&sql)
+            .bind(endpoint.unpack())
+            .bind(capture.unpack())
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(classify)?;
+        let summary = summary_from_row(&row).map_err(CaptureError::from)?;
+        tx.commit().await.map_err(classify)?;
+        Ok(AnnotateOutcome::Updated(Box::new(summary)))
+    }
+
     pub async fn clear_captures(
         &self,
         endpoint: &EndpointId,
@@ -378,6 +436,9 @@ fn push_filters(
             .collect();
         query.push(" AND c.kind = ANY(").push_bind(kinds).push(")");
     }
+    if let Some(starred) = filter.starred {
+        query.push(" AND c.starred = ").push_bind(starred);
+    }
     if let Some(term) = &filter.search {
         query
             .push(" AND strpos(b.search_text, lower(")
@@ -410,6 +471,7 @@ fn detail_from_row(row: &PgRow) -> Result<CaptureDetail, CaptureError> {
             .map(|text| decode(&context, "form", &text))
             .transpose()?,
         meta: decode(&context, "meta", &meta)?,
+        note: row.try_get("note").map_err(CaptureError::Query)?,
         body: CaptureBody { prefix, truncated },
         summary,
     })
@@ -448,7 +510,7 @@ async fn notify(
     Ok(())
 }
 
-fn classify(error: sqlx::Error) -> CaptureError {
+pub(crate) fn classify(error: sqlx::Error) -> CaptureError {
     if matches!(
         error,
         sqlx::Error::PoolTimedOut | sqlx::Error::PoolClosed | sqlx::Error::Io(_)
