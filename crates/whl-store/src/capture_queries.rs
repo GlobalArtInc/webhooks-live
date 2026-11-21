@@ -27,7 +27,8 @@ fn detail_columns() -> String {
 }
 
 const LIVE_ENDPOINT: &str = "SELECT id FROM endpoints \
-    WHERE id = $1 AND deleted_at IS NULL AND last_active_at > now() - make_interval(secs => $2) \
+    WHERE id = $1 AND deleted_at IS NULL \
+    AND (never_expires OR last_active_at > now() - make_interval(secs => COALESCE(retention_seconds::float8, $2))) \
     FOR UPDATE";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -57,7 +57,7 @@ const ENDPOINT_ROLE_SQL: &str = "SELECT CASE WHEN e.owner_id = $2 THEN 'owner' E
     FROM endpoints e \
     LEFT JOIN endpoint_members m ON m.endpoint_id = e.id AND m.user_id = $2 \
     WHERE e.id = $1 AND e.deleted_at IS NULL \
-        AND e.last_active_at > now() - make_interval(secs => $3) \
+        AND (e.never_expires OR e.last_active_at > now() - make_interval(secs => COALESCE(e.retention_seconds::float8, $3))) \
         AND (e.owner_id = $2 OR m.user_id IS NOT NULL)";
 
 const ENDPOINT_STANDING_SQL: &str = "SELECT e.owner_id IS NOT NULL AS owned, \
@@ -65,7 +65,7 @@ const ENDPOINT_STANDING_SQL: &str = "SELECT e.owner_id IS NOT NULL AS owned, \
     FROM endpoints e \
     LEFT JOIN endpoint_members m ON m.endpoint_id = e.id AND m.user_id = $2 \
     WHERE e.id = $1 AND e.deleted_at IS NULL \
-        AND e.last_active_at > now() - make_interval(secs => $3)";
+        AND (e.never_expires OR e.last_active_at > now() - make_interval(secs => COALESCE(e.retention_seconds::float8, $3)))";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EndpointStanding {

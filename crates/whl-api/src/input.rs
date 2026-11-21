@@ -8,7 +8,17 @@ use whl_store::Overflow;
 use crate::error::{ApiError, FieldCode, FieldViolation};
 
 const TITLE_MAX_CHARS: usize = 100;
-const ENDPOINT_KEYS: &[&str] = &["title", "response", "cors", "overflow", "tags"];
+const ENDPOINT_KEYS: &[&str] = &[
+    "title",
+    "response",
+    "cors",
+    "overflow",
+    "tags",
+    "retention",
+    "max_captures",
+    "capture_ttl_seconds",
+];
+const RETENTION_KEYS: &[&str] = &["mode", "seconds"];
 const RESPONSE_KEYS: &[&str] = &["status", "content_type", "headers", "body", "delay_ms"];
 const HEADER_KEYS: &[&str] = &["name", "value"];
 const BODY_KEYS: &[&str] = &["encoding", "data", "truncated"];
@@ -20,6 +30,28 @@ pub struct EndpointPatch {
     pub cors: Option<bool>,
     pub overflow: Option<Overflow>,
     pub tags: Option<Vec<Tag>>,
+    pub lifecycle: LifecyclePatch,
+}
+
+#[derive(Debug, Default, PartialEq)]
+pub struct LifecyclePatch {
+    pub retention: Option<RetentionPatch>,
+    pub max_captures: Option<Option<i64>>,
+    pub capture_ttl_seconds: Option<Option<i64>>,
+}
+
+impl LifecyclePatch {
+    pub fn is_empty(&self) -> bool {
+        self.retention.is_none()
+            && self.max_captures.is_none()
+            && self.capture_ttl_seconds.is_none()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RetentionPatch {
+    Sliding { seconds: Option<i64> },
+    Never,
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -102,6 +134,16 @@ impl Walk {
         if let Some(value) = object.get("tags") {
             patch.tags = self.tags(value);
         }
+        if let Some(value) = object.get("retention") {
+            patch.lifecycle.retention = self.retention(value);
+        }
+        if let Some(value) = object.get("max_captures") {
+            patch.lifecycle.max_captures = self.nullable_integer(value, "max_captures");
+        }
+        if let Some(value) = object.get("capture_ttl_seconds") {
+            patch.lifecycle.capture_ttl_seconds =
+                self.nullable_integer(value, "capture_ttl_seconds");
+        }
         patch
     }
 
@@ -137,6 +179,42 @@ impl Walk {
             }
         }
         Some(tags)
+    }
+
+    fn retention(&mut self, value: &Value) -> Option<RetentionPatch> {
+        let object = self.object(value, "retention")?;
+        self.unknown_keys(object, "retention", RETENTION_KEYS);
+        let seconds = match object.get("seconds") {
+            None | Some(Value::Null) => None,
+            Some(other) => Some(self.integer(other, "retention.seconds")?),
+        };
+        match object.get("mode").and_then(Value::as_str) {
+            Some("sliding") => Some(RetentionPatch::Sliding { seconds }),
+            Some("never") if seconds.is_none() => Some(RetentionPatch::Never),
+            Some("never") => {
+                self.push(
+                    "retention.seconds",
+                    FieldCode::NotAllowed,
+                    "must be null when the mode is never",
+                );
+                None
+            }
+            _ => {
+                self.push(
+                    "retention.mode",
+                    FieldCode::InvalidFormat,
+                    "must be sliding or never",
+                );
+                None
+            }
+        }
+    }
+
+    fn nullable_integer(&mut self, value: &Value, field: &str) -> Option<Option<i64>> {
+        if value.is_null() {
+            return Some(None);
+        }
+        self.integer(value, field).map(Some)
     }
 
     fn title(&mut self, value: &Value) -> Option<Option<String>> {

@@ -201,7 +201,7 @@ async fn refuse_mode_stops_at_the_count_limit_and_stores_nothing_more() {
     assert_eq!(refused.header("x-endpoint-id"), Some(id.unpack()));
     assert_eq!(
         refused.body,
-        "This endpoint holds the maximum of 3 captures. Delete captures to receive more."
+        "This endpoint holds the maximum number of captures. Delete captures to receive more."
     );
     assert_eq!(refused.header("connection"), Some("close"));
 

@@ -13,7 +13,7 @@ const LOCK_SQL: &str = "SELECT e.owner_id, e.creator_net::text AS creator_net, \
         EXISTS (SELECT 1 FROM endpoint_members m WHERE m.endpoint_id = e.id AND m.user_id = $2) AS is_member \
     FROM endpoints e \
     WHERE e.id = $1 AND e.deleted_at IS NULL \
-        AND e.last_active_at > now() - make_interval(secs => $4) \
+        AND (e.never_expires OR e.last_active_at > now() - make_interval(secs => COALESCE(e.retention_seconds::float8, $4))) \
     FOR UPDATE OF e";
 
 const DROP_MEMBERS_SQL: &str = "DELETE FROM endpoint_members WHERE endpoint_id = $1";
