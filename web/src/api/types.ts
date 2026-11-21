@@ -232,16 +232,24 @@ export interface CaptureBodyOptions {
   download?: boolean;
 }
 
+export interface InstanceAuth {
+  provider_name: string | null;
+}
+
 export interface InstanceLimits {
   max_captures: number;
   max_body_bytes: number;
   retention_seconds: number;
   max_delay_ms: number;
   max_forward_rules: number;
+  max_response_body_bytes: number;
+  max_response_headers: number;
 }
 
 export interface InstanceFeatures {
+  ring_mode_allowed: boolean;
   forwarding: boolean;
+  private_forward_targets_allowed: boolean;
 }
 
 export interface Instance {
@@ -249,6 +257,7 @@ export interface Instance {
   auth_mode: AuthMode;
   user: User | null;
   public_url: string;
+  auth: InstanceAuth;
   limits: InstanceLimits;
   features: InstanceFeatures;
 }

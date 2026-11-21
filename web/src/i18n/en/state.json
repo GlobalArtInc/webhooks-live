@@ -1,3 +1,18 @@
 {
-  "wl.state.gone.title": "This endpoint is gone"
+  "wl.state.gone.title": "This endpoint is gone",
+  "wl.state.gone.body": "It never existed, has expired, or was deleted. Create a new endpoint to get a fresh capture URL.",
+  "wl.state.notFound.title": "Page not found",
+  "wl.state.notFound.body": "This address does not match any page.",
+  "wl.state.notFound.home": "Go home",
+  "wl.state.notShared.title": "This endpoint is not shared with you",
+  "wl.state.notShared.body": "Ask the owner to share it with your account.",
+  "wl.state.notShared.identity": "Signed in as {{identity}}",
+  "wl.state.notShared.signOut": "Sign out",
+  "wl.state.error.title": "This page could not be loaded",
+  "wl.state.error.body": "Check your connection, then try again.",
+  "wl.state.error.status": "Server answered with status {{status}}",
+  "wl.state.error.retry": "Retry",
+  "wl.state.signIn.title": "Sign in to continue",
+  "wl.state.signIn.button": "Sign in with {{provider}}",
+  "wl.state.signIn.buttonFallback": "Sign in"
 }

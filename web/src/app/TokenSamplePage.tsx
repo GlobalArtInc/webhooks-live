@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { MethodBadge } from '../components/MethodBadge/MethodBadge';
 import { LanguageControl } from '../i18n/LanguageControl';
-import { ThemeControl } from './ThemeControl';
+import { ThemeControl } from '../components/ThemeControl/ThemeControl';
 import styles from './TokenSamplePage.module.css';
 
 interface ColourSample {

@@ -1,4 +1,18 @@
 {
   "wl.common.createEndpoint": "Create endpoint",
-  "wl.common.language": "Language"
+  "wl.common.language": "Language",
+  "wl.shell.skipToMain": "Skip to main content",
+  "wl.offline.message": "You are offline. Shown data may be out of date.",
+  "wl.theme.label": "Theme",
+  "wl.theme.system": "System",
+  "wl.theme.light": "Light",
+  "wl.theme.dark": "Dark",
+  "wl.screen.home": "Home",
+  "wl.screen.endpoints": "My endpoints",
+  "wl.screen.settings": "Settings",
+  "wl.screen.endpoint": "Endpoint",
+  "wl.screen.capture": "Capture",
+  "wl.screen.endpointSettings": "Endpoint settings",
+  "wl.screen.forwarding": "Forwarding",
+  "wl.screen.diff": "Diff"
 }

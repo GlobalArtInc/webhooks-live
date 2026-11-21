@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 test('switches the theme on the token sample page and captures both themes', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/dev/tokens');
 
   await expect(page.getByRole('heading', { level: 1, name: 'Design tokens' })).toBeVisible();
 

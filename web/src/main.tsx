@@ -1,7 +1,8 @@
+import { createBrowserHistory } from '@tanstack/react-router';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { TokenSamplePage } from './app/TokenSamplePage';
-import { I18nProvider } from './i18n/provider';
+import { AppProviders, createAppQueryClient } from './app/providers';
+import { createAppRouter } from './app/router';
 import './styles/fonts.css';
 import './styles/tokens.css';
 import './styles/base.css';
@@ -12,10 +13,11 @@ if (!container) {
   throw new Error('Root element #root is missing from index.html');
 }
 
+const queryClient = createAppQueryClient();
+const router = createAppRouter({ history: createBrowserHistory(), queryClient });
+
 createRoot(container).render(
   <StrictMode>
-    <I18nProvider>
-      <TokenSamplePage />
-    </I18nProvider>
+    <AppProviders queryClient={queryClient} router={router} />
   </StrictMode>,
 );
