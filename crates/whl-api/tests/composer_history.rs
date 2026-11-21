@@ -261,10 +261,8 @@ async fn a_signed_in_user_is_counted_per_user_not_per_network() {
     let refused = send_as(&harness, Some(&alice), &body).await;
 
     assert_eq!(refused.status, StatusCode::TOO_MANY_REQUESTS);
-    assert_eq!(
-        refused.json()["error"]["limit"]["name"],
-        "composer_user_hour"
-    );
+    assert_eq!(refused.json()["error"]["limit"]["name"], "outbound");
+    assert_eq!(refused.json()["error"]["limit"]["window"], "hour");
 }
 
 #[tokio::test]

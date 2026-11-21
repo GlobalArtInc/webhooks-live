@@ -1,4 +1,5 @@
 use whl_auth::AuthRejection;
+use whl_core::tier::Tier;
 use whl_store::lifecycle::{MIN_CAPTURE_TTL_SECONDS, MIN_RETENTION_SECONDS};
 use whl_store::{AccessSettings, EndpointChange, EndpointRole, EndpointSettings, Lifecycle};
 
@@ -22,6 +23,7 @@ impl Standing {
 
 pub fn resolve(
     settings: &ApiSettings,
+    tier: Tier<'_>,
     standing: Standing,
     base: &Lifecycle,
     patch: &LifecyclePatch,
@@ -32,7 +34,7 @@ pub fn resolve(
     if !standing.may_change() {
         return Err(ApiError::OwnerRequired);
     }
-    let limits = settings.lifecycle_limits(standing.owned);
+    let limits = settings.lifecycle_limits(tier);
     let mut violations = Vec::new();
     let mut lifecycle = *base;
     match patch.retention {

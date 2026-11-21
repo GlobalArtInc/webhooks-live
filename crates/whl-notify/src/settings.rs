@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+use whl_core::tier::Tiers;
+
 pub const DEFAULT_LEASE: Duration = Duration::from_secs(60);
 pub const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(2);
 pub const DEFAULT_HOUSEKEEPING_INTERVAL: Duration = Duration::from_secs(60);
@@ -11,8 +13,6 @@ pub const DEFAULT_EMAIL_PER_ADDRESS_PER_DAY: i32 = 100;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NotifyLimits {
-    pub endpoint_per_hour: i32,
-    pub owner_per_hour: i32,
     pub network_per_hour: i32,
     pub global_per_hour: i32,
 }
@@ -55,6 +55,7 @@ pub struct NotifySettings {
     pub housekeeping_interval: Duration,
     pub limits: NotifyLimits,
     pub email: EmailLimits,
+    pub tiers: Tiers,
     pub public_url: String,
 }
 
@@ -73,8 +74,14 @@ impl NotifySettings {
             housekeeping_interval: DEFAULT_HOUSEKEEPING_INTERVAL,
             limits,
             email: EmailLimits::default(),
+            tiers: Tiers::default(),
             public_url,
         }
+    }
+
+    pub fn with_tiers(mut self, tiers: Tiers) -> Self {
+        self.tiers = tiers;
+        self
     }
 
     pub fn validate(&self) -> Result<(), SettingsError> {
@@ -88,11 +95,7 @@ impl NotifySettings {
             return Err(SettingsError::PollInterval);
         }
         let limits = self.limits;
-        if limits.endpoint_per_hour < 1
-            || limits.owner_per_hour < 1
-            || limits.network_per_hour < 1
-            || limits.global_per_hour < 1
-        {
+        if limits.network_per_hour < 1 || limits.global_per_hour < 1 {
             return Err(SettingsError::Limits);
         }
         if self.email.per_user_per_day < 1 || self.email.per_address_per_day < 1 {

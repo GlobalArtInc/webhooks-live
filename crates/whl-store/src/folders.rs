@@ -7,8 +7,6 @@ use whl_core::endpoint_id::EndpointId;
 
 use crate::store::Store;
 
-pub const MAX_FOLDERS_PER_USER: usize = 50;
-
 const UNIQUE_VIOLATION: &str = "23505";
 
 const FOLDER_ROWS: &str = "SELECT f.id, f.name, f.position, f.created_at, ARRAY( \
@@ -75,6 +73,7 @@ impl Store {
         &self,
         user: Uuid,
         name: &str,
+        max: usize,
     ) -> Result<CreateFolderOutcome, FolderError> {
         let mut tx = self.pool().begin().await.map_err(classify)?;
         sqlx::query("SELECT id FROM users WHERE id = $1 FOR UPDATE")
@@ -87,7 +86,7 @@ impl Store {
             .fetch_one(&mut *tx)
             .await
             .map_err(classify)?;
-        if count >= i64::try_from(MAX_FOLDERS_PER_USER).unwrap_or(i64::MAX) {
+        if count >= i64::try_from(max).unwrap_or(i64::MAX) {
             return Ok(CreateFolderOutcome::LimitReached);
         }
         let position: i32 = sqlx::query_scalar(

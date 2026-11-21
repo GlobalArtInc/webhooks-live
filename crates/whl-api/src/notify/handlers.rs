@@ -5,6 +5,7 @@ use axum::response::{IntoResponse, Response};
 use serde_json::json;
 use whl_auth::{AuthRejection, Caller};
 use whl_core::endpoint_id::EndpointId;
+use whl_core::tier::Tier;
 use whl_forward::vet_target;
 use whl_notify::{channel_secret_name, mask_url, targets_instance};
 use whl_secrets::{Keyring, Secret};
@@ -47,7 +48,8 @@ pub async fn create(
     keyring(&state)?;
     let endpoint = endpoint_id(&raw_id)?;
     live_endpoint(&state, &endpoint).await?;
-    let channel = build_channel(&state, &caller, &endpoint, Uuid::now_v7(), &body).await?;
+    let tier = state.endpoint_tier(&endpoint).await?;
+    let channel = build_channel(&state, &caller, &endpoint, Uuid::now_v7(), tier, &body).await?;
     let kind = channel.kind;
     match state
         .store
@@ -68,10 +70,18 @@ pub(crate) async fn build_channel(
     caller: &Caller,
     endpoint: &EndpointId,
     id: Uuid,
+    tier: Tier<'_>,
     body: &[u8],
 ) -> Result<NewChannel, ApiError> {
     let keyring = keyring(state)?;
     let mut parsed = parse_channel(body, true, None)?;
+    if let Some(kind) = parsed.kind
+        && !tier.limits().allows_notification_kind(kind.as_str())
+    {
+        return Err(ApiError::TierNotAllowed {
+            name: kind.as_str(),
+        });
+    }
     if parsed.kind == Some(ChannelKind::Push) {
         ensure_push_ready(state, caller)?;
     }

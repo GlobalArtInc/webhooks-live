@@ -17,6 +17,7 @@ pub enum Refusal {
     Malformed,
     Gone(Option<EndpointId>),
     Full(Option<EndpointId>),
+    QuotaExceeded(Option<EndpointId>),
     SenderRefused,
     Unauthorized,
     TooLarge,
@@ -131,6 +132,14 @@ fn describe(refusal: Refusal, state: &CaptureState) -> Parts {
         Refusal::Unauthorized => Parts {
             error: Some("unauthorized"),
             ..plain(StatusCode::UNAUTHORIZED, "Unauthorized.")
+        },
+        Refusal::QuotaExceeded(id) => Parts {
+            error: Some("quota_exceeded"),
+            endpoint: id,
+            ..plain(
+                StatusCode::INSUFFICIENT_STORAGE,
+                "The owner of this endpoint has used all of their storage. Delete captures to receive more.",
+            )
         },
         Refusal::TooLarge => Parts {
             error: Some("too_large"),

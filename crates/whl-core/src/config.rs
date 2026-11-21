@@ -1,4 +1,5 @@
 mod de;
+mod tiers;
 
 use std::fmt;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -16,12 +17,12 @@ use zeroize::Zeroizing;
 
 use crate::alias::POSITIVE_CACHE_TTL;
 use crate::rate::RateSpec;
+use crate::tier::Tiers;
 
 const FILE_ENV: &str = "WEBHOOKS_LIVE_CONFIG";
 const ENV_PREFIX: &str = "WEBHOOKS_LIVE_";
 
 pub const MIN_DB_POOL_SIZE: u32 = 2;
-pub const MIN_SCHEDULE_INTERVAL: Duration = Duration::from_secs(60);
 
 const DEFAULTS: &str = r#"
 listen_addr = "0.0.0.0:8080"
@@ -76,24 +77,17 @@ rate_capture_endpoint = "60/m:60"
 concurrency = 2
 [schedules]
 enabled = true
-max_per_user = 5
-min_interval = "5m"
 runs_per_hour = 120
 workers = 8
 
 [composer]
 enabled = true
-endpoint_per_hour = 200
-network_per_day = 1000
-user_per_hour = 2000
 max_in_flight = 32
 
 [notify]
 enabled = true
 concurrency = 8
 max_attempts = 3
-endpoint_per_hour = 30
-owner_per_hour = 300
 network_per_hour = 60
 global_per_hour = 600
 email_per_day = 50
@@ -108,6 +102,50 @@ push_extra_hosts = []
 drain = "5s"
 grace = "25s"
 "#;
+
+struct RemovedKey {
+    env: &'static str,
+    path: &'static str,
+    replacement: &'static str,
+}
+
+const REMOVED_KEYS: &[RemovedKey] = &[
+    RemovedKey {
+        env: "COMPOSER_ENDPOINT_PER_HOUR",
+        path: "composer.endpoint_per_hour",
+        replacement: "[tiers.anonymous] outbound_per_endpoint_hour",
+    },
+    RemovedKey {
+        env: "COMPOSER_NETWORK_PER_DAY",
+        path: "composer.network_per_day",
+        replacement: "[tiers.anonymous] outbound_per_network_day",
+    },
+    RemovedKey {
+        env: "COMPOSER_USER_PER_HOUR",
+        path: "composer.user_per_hour",
+        replacement: "[tiers.member] outbound_per_user_hour",
+    },
+    RemovedKey {
+        env: "SCHEDULES_MAX_PER_USER",
+        path: "schedules.max_per_user",
+        replacement: "[tiers.member] schedules",
+    },
+    RemovedKey {
+        env: "SCHEDULES_MIN_INTERVAL",
+        path: "schedules.min_interval",
+        replacement: "[tiers.member] schedule_min_interval",
+    },
+    RemovedKey {
+        env: "NOTIFY_ENDPOINT_PER_HOUR",
+        path: "notify.endpoint_per_hour",
+        replacement: "[tiers.anonymous] notify_per_endpoint_hour",
+    },
+    RemovedKey {
+        env: "NOTIFY_OWNER_PER_HOUR",
+        path: "notify.owner_per_hour",
+        replacement: "[tiers.member] notify_per_user_hour",
+    },
+];
 
 const ENV_KEYS: &[(&str, &str)] = &[
     ("PUBLIC_URL", "public_url"),
@@ -143,13 +181,8 @@ const ENV_KEYS: &[(&str, &str)] = &[
     ("FORWARD_ALLOW_CIDRS", "forward.allow_cidrs"),
     ("EXPORT_CONCURRENCY", "export.concurrency"),
     ("COMPOSER_ENABLED", "composer.enabled"),
-    ("COMPOSER_ENDPOINT_PER_HOUR", "composer.endpoint_per_hour"),
-    ("COMPOSER_NETWORK_PER_DAY", "composer.network_per_day"),
-    ("COMPOSER_USER_PER_HOUR", "composer.user_per_hour"),
     ("COMPOSER_MAX_IN_FLIGHT", "composer.max_in_flight"),
     ("SCHEDULES_ENABLED", "schedules.enabled"),
-    ("SCHEDULES_MAX_PER_USER", "schedules.max_per_user"),
-    ("SCHEDULES_MIN_INTERVAL", "schedules.min_interval"),
     ("SCHEDULES_RUNS_PER_HOUR", "schedules.runs_per_hour"),
     ("SCHEDULES_WORKERS", "schedules.workers"),
     ("SHUTDOWN_DRAIN", "shutdown.drain"),
@@ -157,8 +190,6 @@ const ENV_KEYS: &[(&str, &str)] = &[
     ("NOTIFY_ENABLED", "notify.enabled"),
     ("NOTIFY_CONCURRENCY", "notify.concurrency"),
     ("NOTIFY_MAX_ATTEMPTS", "notify.max_attempts"),
-    ("NOTIFY_ENDPOINT_PER_HOUR", "notify.endpoint_per_hour"),
-    ("NOTIFY_OWNER_PER_HOUR", "notify.owner_per_hour"),
     ("NOTIFY_NETWORK_PER_HOUR", "notify.network_per_hour"),
     ("NOTIFY_GLOBAL_PER_HOUR", "notify.global_per_hour"),
     ("NOTIFY_EMAIL_PER_DAY", "notify.email_per_day"),
@@ -226,6 +257,8 @@ pub struct Config {
     pub schedules: SchedulesConfig,
     pub notify: NotifyConfig,
     pub alias: AliasConfig,
+    #[serde(default, deserialize_with = "tiers::table")]
+    pub tiers: Tiers,
     #[serde(default)]
     pub secrets: SecretsConfig,
     pub dns: DnsConfig,
@@ -327,18 +360,12 @@ pub struct ExportConfig {
 #[derive(Debug, Deserialize)]
 pub struct ComposerConfig {
     pub enabled: bool,
-    pub endpoint_per_hour: u32,
-    pub network_per_day: u32,
-    pub user_per_hour: u32,
     pub max_in_flight: u32,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct SchedulesConfig {
     pub enabled: bool,
-    pub max_per_user: u32,
-    #[serde(deserialize_with = "de::duration")]
-    pub min_interval: Duration,
     pub runs_per_hour: u32,
     pub workers: u32,
 }
@@ -348,8 +375,6 @@ pub struct NotifyConfig {
     pub enabled: bool,
     pub concurrency: u32,
     pub max_attempts: u32,
-    pub endpoint_per_hour: u32,
-    pub owner_per_hour: u32,
     pub network_per_hour: u32,
     pub global_per_hour: u32,
     pub email_per_day: u32,
@@ -559,12 +584,16 @@ pub enum Problem {
     MissingForMixed(&'static str),
     MissingForDns(&'static str),
     PoolSizeTooSmall,
-    ScheduleIntervalTooShort,
     ScheduleRunsPerHourZero,
     MailNeedsDomain,
     MailInvalidDomain,
     MailTlsIncomplete,
     AliasQuarantineTooShort,
+    RemovedKey {
+        key: &'static str,
+        replacement: &'static str,
+    },
+    TiersFromEnvironment,
 }
 
 impl fmt::Display for Problem {
@@ -583,11 +612,6 @@ impl fmt::Display for Problem {
             Self::MissingForDns(key) => write!(
                 f,
                 "{ENV_PREFIX}{key} is required when DNS capture is configured"
-            ),
-            Self::ScheduleIntervalTooShort => write!(
-                f,
-                "{ENV_PREFIX}SCHEDULES_MIN_INTERVAL must be at least {}s",
-                MIN_SCHEDULE_INTERVAL.as_secs()
             ),
             Self::ScheduleRunsPerHourZero => {
                 write!(f, "{ENV_PREFIX}SCHEDULES_RUNS_PER_HOUR must be at least 1")
@@ -611,6 +635,14 @@ impl fmt::Display for Problem {
                 f,
                 "{ENV_PREFIX}ALIAS_QUARANTINE must be at least {} seconds",
                 POSITIVE_CACHE_TTL.as_secs()
+            ),
+            Self::RemovedKey { key, replacement } => write!(
+                f,
+                "{key} is no longer supported, set {replacement} in the config file instead"
+            ),
+            Self::TiersFromEnvironment => write!(
+                f,
+                "tiers are configured in the [tiers.<name>] tables of the config file only, not through {ENV_PREFIX}TIERS* variables"
             ),
         }
     }
@@ -658,6 +690,34 @@ fn figment_problems(figment: &Figment) -> Vec<Problem> {
 
     if let Ok(pool_size) = figment.extract_inner::<u32>("database.pool_size") {
         problems.extend(pool_size_problem(pool_size));
+    }
+    problems.extend(removed_key_problems(figment));
+    problems
+}
+
+fn removed_key_problems(figment: &Figment) -> Vec<Problem> {
+    let mut problems = Vec::new();
+    for removed in REMOVED_KEYS {
+        if std::env::var_os(format!("{ENV_PREFIX}{}", removed.env)).is_some() {
+            problems.push(Problem::RemovedKey {
+                key: removed.env,
+                replacement: removed.replacement,
+            });
+        }
+        if figment.contains(removed.path) {
+            problems.push(Problem::RemovedKey {
+                key: removed.path,
+                replacement: removed.replacement,
+            });
+        }
+    }
+    let tiers_prefix = format!("{ENV_PREFIX}TIERS");
+    let tiers_in_environment = std::env::vars_os().any(|(name, _)| {
+        name.to_str()
+            .is_some_and(|name| name.starts_with(&tiers_prefix))
+    });
+    if tiers_in_environment {
+        problems.push(Problem::TiersFromEnvironment);
     }
     problems
 }
@@ -759,9 +819,6 @@ impl Config {
         ));
         problems.extend(pool_size_problem(self.database.pool_size));
         problems.extend(self.dns.problems());
-        if self.schedules.min_interval < MIN_SCHEDULE_INTERVAL {
-            problems.push(Problem::ScheduleIntervalTooShort);
-        }
         if self.schedules.runs_per_hour == 0 {
             problems.push(Problem::ScheduleRunsPerHourZero);
         }

@@ -1,7 +1,6 @@
 mod common;
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use axum::Router;
 use axum::http::{Method, StatusCode, header};
@@ -25,7 +24,7 @@ async fn rig() -> Rig {
     let harness = mixed_harness().await;
     let state = ApiState::new(harness.store.clone(), api_settings())
         .with_access(harness.access.clone())
-        .with_schedules(ScheduleSettings::new(5, Duration::from_secs(300)))
+        .with_schedules(ScheduleSettings::enabled())
         .with_notifications(NotifyApiSettings { enabled: true })
         .with_secrets(Arc::new(Keyring::parse(KEYRING).expect("a valid key set")));
     let app = whl_api::router(state);

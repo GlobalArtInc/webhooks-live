@@ -55,7 +55,7 @@ impl ComposerStoreError {
     }
 }
 
-fn classify(error: sqlx::Error) -> ComposerStoreError {
+pub(crate) fn classify(error: sqlx::Error) -> ComposerStoreError {
     if matches!(
         error,
         sqlx::Error::PoolTimedOut
@@ -78,10 +78,25 @@ pub enum QuotaWindow {
 
 impl QuotaWindow {
     fn truncation(self) -> &'static str {
+        self.as_str()
+    }
+
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Hour => "hour",
             Self::Day => "day",
         }
+    }
+
+    pub fn start(self, now: OffsetDateTime) -> OffsetDateTime {
+        let length = self.length_seconds();
+        let seconds = now.unix_timestamp();
+        let floor = seconds - seconds.rem_euclid(length);
+        OffsetDateTime::from_unix_timestamp(floor).unwrap_or(now)
+    }
+
+    pub fn resets_at(self, now: OffsetDateTime) -> OffsetDateTime {
+        self.start(now) + time::Duration::seconds(self.length_seconds())
     }
 
     fn length_seconds(self) -> i64 {
@@ -111,6 +126,7 @@ pub enum QuotaOutcome {
     Allowed,
     Exceeded {
         name: &'static str,
+        window: QuotaWindow,
         limit: u32,
         retry_after: Duration,
     },
@@ -376,6 +392,7 @@ impl Store {
 fn exceeded(charge: &QuotaCharge) -> QuotaOutcome {
     QuotaOutcome::Exceeded {
         name: charge.name,
+        window: charge.window,
         limit: charge.limit,
         retry_after: charge.window.retry_after(OffsetDateTime::now_utc()),
     }

@@ -6,6 +6,7 @@ use whl_core::creator_net::CreatorNet;
 use whl_core::endpoint_id::EndpointId;
 
 use crate::endpoints::{COLUMNS, EndpointError, EndpointRecord, classify, record_from_row};
+use crate::lifecycle::{LifecycleError, admit_endpoint_count};
 use crate::store::Store;
 use crate::view::{notify_access_changed, revoke_view_grants};
 
@@ -32,6 +33,7 @@ pub enum ClaimOutcome {
     AlreadyOwned,
     Gone,
     Refused(ClaimRefusal),
+    EndpointLimit { max: u32 },
 }
 
 impl Store {
@@ -42,6 +44,19 @@ impl Store {
         caller_net: Option<&CreatorNet>,
         retention: Duration,
         window: Duration,
+    ) -> Result<ClaimOutcome, EndpointError> {
+        self.claim_endpoint_limited(endpoint, user_id, caller_net, retention, window, None)
+            .await
+    }
+
+    pub async fn claim_endpoint_limited(
+        &self,
+        endpoint: &EndpointId,
+        user_id: Uuid,
+        caller_net: Option<&CreatorNet>,
+        retention: Duration,
+        window: Duration,
+        endpoints_max: Option<u32>,
     ) -> Result<ClaimOutcome, EndpointError> {
         let mut tx = self.pool().begin().await.map_err(classify)?;
         let Some(row) = sqlx::query(LOCK_SQL)
@@ -83,6 +98,21 @@ impl Store {
         }
         if !within_window {
             return Ok(ClaimOutcome::Refused(ClaimRefusal::WindowExpired));
+        }
+        if let Some(max) = endpoints_max {
+            match admit_endpoint_count(&mut tx, Some(user_id), None, max, retention).await {
+                Ok(()) => {}
+                Err(LifecycleError::EndpointLimit { max }) => {
+                    return Ok(ClaimOutcome::EndpointLimit { max });
+                }
+                Err(LifecycleError::Endpoint(error)) => return Err(error),
+                Err(other) => {
+                    return Err(EndpointError::Invalid {
+                        id: endpoint.unpack().to_owned(),
+                        reason: other.to_string(),
+                    });
+                }
+            }
         }
         sqlx::query(DROP_MEMBERS_SQL)
             .bind(endpoint.unpack())

@@ -6,9 +6,11 @@ use sqlx::{Connection, Row};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
+use whl_core::tier::Tiers;
 use whl_telemetry::series;
 
 use crate::captures::EVENT_CHANNEL;
+use crate::quota::ENDPOINT_CAP_DIVISOR;
 use crate::store::Store;
 
 pub const LEADER_LOCK_KEY: i64 = 0x7768_6c5f_6d61_696e;
@@ -25,6 +27,7 @@ pub const DEFAULT_TTL_BATCH: u32 = 500;
 pub const DEFAULT_TTL_SCAN: u32 = 50;
 pub const DEFAULT_STATEMENT_TIMEOUT: Duration = Duration::from_secs(30);
 pub const DEFAULT_CYCLE_INTERVAL: Duration = Duration::from_secs(30);
+pub const DEFAULT_OWNER_STORAGE_INTERVAL: Duration = Duration::from_secs(60);
 pub const DEFAULT_RETRY_INTERVAL: Duration = Duration::from_secs(10);
 pub const DEFAULT_LOCK_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 pub const MAX_PURGE_BATCHES_PER_CYCLE: u32 = 200;
@@ -56,10 +59,12 @@ const PURGE_SQL: &str = "WITH victims AS ( \
     SELECT id, was_deleted FROM purged";
 
 const EVICT_SQL: &str = "WITH ranked AS ( \
-        SELECT id, \
-               sum(bytes_used) OVER ( \
-                   ORDER BY (owner_id IS NOT NULL) ASC, last_active_at ASC, id ASC) - bytes_used AS freed_before \
-        FROM endpoints WHERE bytes_used > 0 AND NOT never_expires \
+        SELECT e.id, \
+               sum(e.bytes_used) OVER ( \
+                   ORDER BY COALESCE(u.storage_over_quota, false) DESC, (e.owner_id IS NOT NULL) ASC, \
+                            e.last_active_at ASC, e.id ASC) - e.bytes_used AS freed_before \
+        FROM endpoints e LEFT JOIN users u ON u.id = e.owner_id \
+        WHERE e.bytes_used > 0 AND NOT e.never_expires \
     ), picked AS ( \
         SELECT id FROM ranked WHERE freed_before < $2 ORDER BY freed_before ASC LIMIT $1 \
     ), victims AS ( \
@@ -99,6 +104,30 @@ const PURGE_ALIASES_SQL: &str = "DELETE FROM endpoint_aliases WHERE alias IN ( \
         SELECT alias FROM endpoint_aliases \
         WHERE released_at IS NOT NULL AND released_at < now() - make_interval(secs => $1) \
         ORDER BY released_at LIMIT $2 FOR UPDATE SKIP LOCKED)";
+const OWNER_STORAGE_SQL: &str = "WITH sums AS ( \
+        SELECT owner_id, sum(bytes_used)::bigint AS total FROM endpoints \
+        WHERE owner_id IS NOT NULL AND deleted_at IS NULL GROUP BY owner_id \
+    ), quotas AS ( \
+        SELECT unnest($1::text[]) AS tier, unnest($2::bigint[]) AS quota \
+    ), fresh AS ( \
+        SELECT u.id, COALESCE(s.total, 0) AS total, \
+               CASE WHEN q.tier IS NULL THEN $3::bigint ELSE q.quota END AS quota \
+        FROM users u \
+        LEFT JOIN sums s ON s.owner_id = u.id \
+        LEFT JOIN quotas q ON q.tier = u.tier \
+    ), computed AS ( \
+        SELECT id, total, COALESCE(total > quota, false) AS flagged, \
+               COALESCE(quota / $4::bigint, 9223372036854775807) AS cap \
+        FROM fresh \
+    ) \
+    UPDATE users u SET bytes_used = computed.total, storage_over_quota = computed.flagged, \
+        endpoint_bytes_cap = computed.cap \
+    FROM computed \
+    WHERE computed.id = u.id AND (u.bytes_used <> computed.total \
+        OR u.storage_over_quota <> computed.flagged \
+        OR u.endpoint_bytes_cap IS DISTINCT FROM computed.cap)";
+
+const OWNERS_OVER_SQL: &str = "SELECT count(*) FROM users WHERE storage_over_quota";
 
 const NOTIFY_MANY_SQL: &str = "SELECT pg_notify($1, payload) FROM unnest($2::text[]) AS payload";
 
@@ -132,6 +161,8 @@ pub struct MaintenanceSettings {
     pub cycle_interval: Duration,
     pub retry_interval: Duration,
     pub lock_check_interval: Duration,
+    pub owner_storage_interval: Duration,
+    pub tiers: Tiers,
 }
 
 impl MaintenanceSettings {
@@ -151,6 +182,8 @@ impl MaintenanceSettings {
             cycle_interval: DEFAULT_CYCLE_INTERVAL,
             retry_interval: DEFAULT_RETRY_INTERVAL,
             lock_check_interval: DEFAULT_LOCK_CHECK_INTERVAL,
+            owner_storage_interval: DEFAULT_OWNER_STORAGE_INTERVAL,
+            tiers: Tiers::default(),
         }
     }
 }
@@ -171,6 +204,12 @@ impl PurgeBatch {
 pub struct EvictBatch {
     pub endpoints: u64,
     pub bytes: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct OwnerStorage {
+    pub changed: u64,
+    pub over_quota: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -318,6 +357,47 @@ impl Store {
         Ok(TtlBatch {
             captures: u64::try_from(deleted).map_err(|_| MaintenanceError::OutOfRange)?,
             bytes: u64::try_from(bytes).map_err(|_| MaintenanceError::OutOfRange)?,
+        })
+    }
+
+    pub async fn refresh_owner_storage(
+        &self,
+        settings: &MaintenanceSettings,
+    ) -> Result<OwnerStorage, MaintenanceError> {
+        let mut names = Vec::new();
+        let mut quotas: Vec<Option<i64>> = Vec::new();
+        for tier in settings.tiers.iter() {
+            names.push(tier.name().to_owned());
+            quotas.push(
+                tier.limits()
+                    .storage_bytes
+                    .map(|bytes| i64::try_from(bytes).unwrap_or(i64::MAX)),
+            );
+        }
+        let fallback = settings
+            .tiers
+            .anonymous()
+            .limits()
+            .storage_bytes
+            .or(settings.tiers.member().limits().storage_bytes)
+            .map(|bytes| i64::try_from(bytes).unwrap_or(i64::MAX));
+        let mut transaction = self.pool().begin().await?;
+        apply_statement_timeout(&mut transaction, settings.statement_timeout).await?;
+        let changed = sqlx::query(OWNER_STORAGE_SQL)
+            .bind(names)
+            .bind(quotas)
+            .bind(fallback)
+            .bind(ENDPOINT_CAP_DIVISOR as i64)
+            .execute(&mut *transaction)
+            .await?
+            .rows_affected();
+        let over: i64 = sqlx::query_scalar(OWNERS_OVER_SQL)
+            .fetch_one(&mut *transaction)
+            .await?;
+        transaction.commit().await?;
+        Ok(OwnerStorage {
+            changed,
+            over_quota: u64::try_from(over).map_err(|_| MaintenanceError::OutOfRange)?,
         })
     }
 
@@ -557,9 +637,14 @@ async fn lead(
     lock: &mut LeaderLock,
 ) -> LeadershipLost {
     let mut next_cycle = Instant::now();
+    let mut next_owner_storage = Instant::now();
     loop {
         if let Err(lost) = lock.verify().await {
             return lost;
+        }
+        if Instant::now() >= next_owner_storage {
+            refresh_owner_storage(store, settings).await;
+            next_owner_storage = Instant::now() + settings.owner_storage_interval;
         }
         if Instant::now() >= next_cycle {
             if let Err(lost) = cycle(store, settings, lock).await {
@@ -588,6 +673,22 @@ async fn cycle(
         Err(error) => tracing::warn!(%error, "counting endpoints failed"),
     }
     Ok(())
+}
+
+async fn refresh_owner_storage(store: &Store, settings: &MaintenanceSettings) {
+    match store.refresh_owner_storage(settings).await {
+        Ok(figures) => {
+            metrics::gauge!(series::OWNERS_OVER_STORAGE_QUOTA).set(figures.over_quota as f64);
+            if figures.changed > 0 {
+                tracing::debug!(
+                    changed = figures.changed,
+                    over_quota = figures.over_quota,
+                    "refreshed the per-owner storage figures"
+                );
+            }
+        }
+        Err(error) => tracing::warn!(%error, "refreshing the per-owner storage figures failed"),
+    }
 }
 
 async fn expire_logins(store: &Store, settings: &MaintenanceSettings) {

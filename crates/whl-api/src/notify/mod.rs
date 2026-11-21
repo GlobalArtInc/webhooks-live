@@ -12,7 +12,7 @@ use crate::state::ApiState;
 pub(crate) use dto::DeliveryDto;
 pub use email::{EmailApi, EmailApiLimits};
 pub(crate) use handlers::build_channel;
-pub(crate) use input::object_of;
+pub(crate) use input::{kind_is_available, object_of};
 pub use settings::NotifyApiSettings;
 
 pub fn routes() -> Router<ApiState> {

@@ -96,6 +96,15 @@ async fn run(state: &CaptureState, request: Request) -> Result<Response, Failure
             if known == EndpointState::Full {
                 return Err(early(Refusal::Full(exposed(&id))));
             }
+            if admission.over_quota {
+                metrics::counter!(
+                    series::QUOTA_EXCEEDED_TOTAL,
+                    "metric" => "storage_bytes",
+                    "tier" => admission.owner_tier.clone().unwrap_or_default()
+                )
+                .increment(1);
+                return Err(early(Refusal::QuotaExceeded(exposed(&id))));
+            }
             if let Admission::Limited { retry_after } = state.admit_endpoint(&id) {
                 return Err(early(Refusal::RateLimited { retry_after }));
             }
@@ -212,6 +221,7 @@ async fn run(state: &CaptureState, request: Request) -> Result<Response, Failure
         }
         CaptureOutcome::Gone => Err(late(Refusal::Gone(exposed(&id)))),
         CaptureOutcome::Full => Err(late(Refusal::Full(exposed(&id)))),
+        CaptureOutcome::OverQuota => Err(late(Refusal::QuotaExceeded(exposed(&id)))),
     }
 }
 

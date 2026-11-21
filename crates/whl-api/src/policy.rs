@@ -21,6 +21,7 @@ const STREAM_TAIL: &str = "/stream";
 const FOLDER_ENDPOINT_PATH: &str = "/folders/{folder_id}/endpoints/{id}";
 const TOKENS_PATH: &str = "/tokens";
 const TOKEN_PATH: &str = "/tokens/{token_id}";
+const USAGE_PATH: &str = "/usage";
 const SCHEDULES_TAIL: &str = "/schedules";
 const ALIAS_AVAILABILITY_PATH: &str = "/aliases/{alias}/availability";
 const ALIASES_TAIL: &str = "/aliases";
@@ -32,7 +33,7 @@ pub fn requirement(mode: AccessMode, method: &Method, pattern: &str) -> Requirem
         "/instance" | "/inbox/captures" | "/inbox/stream" => Requirement::Anyone,
         "/email-addresses/verify" | "/notifications/disable" => Requirement::Anyone,
         "/email-addresses" | "/email-addresses/{address_id}" => Requirement::SignedIn,
-        TOKENS_PATH | TOKEN_PATH | ALIAS_AVAILABILITY_PATH => Requirement::SignedIn,
+        TOKENS_PATH | TOKEN_PATH | ALIAS_AVAILABILITY_PATH | USAGE_PATH => Requirement::SignedIn,
         "/send" | "/send/history" | "/send/history/{sent_id}" if mode == AccessMode::Sso => {
             Requirement::SignedIn
         }
@@ -71,7 +72,7 @@ pub fn token_policy(method: &Method, pattern: &str) -> TokenPolicy {
     let rest = pattern.strip_prefix(API_PREFIX).unwrap_or(pattern);
     let read = matches!(*method, Method::GET | Method::HEAD);
     let scope = match rest {
-        "/instance" if read => Some(TokenScope::Read),
+        "/instance" | USAGE_PATH if read => Some(TokenScope::Read),
         "/endpoints" if read => Some(TokenScope::Read),
         "/endpoints" if *method == Method::POST => Some(TokenScope::EndpointsWrite),
         "/send" if *method == Method::POST => Some(TokenScope::Send),

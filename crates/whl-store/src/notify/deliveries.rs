@@ -46,10 +46,11 @@ const CLAIM: &str = "WITH due AS ( \
        c.suppressed_count, \
        ch.kind AS channel_kind, ch.enabled, ch.config::text AS config, ch.secret_key_id, \
        ch.secret_nonce, ch.secret_ciphertext, ch.template, ch.per_hour, ch.endpoint_id, \
-       ch.created_by, e.title, e.owner_id, e.creator_net::text AS creator_net \
+       ch.created_by, e.title, e.owner_id, ou.tier AS owner_tier, e.creator_net::text AS creator_net \
      FROM claimed c \
      JOIN notification_channels ch ON ch.id = c.channel_id \
-     JOIN endpoints e ON e.id = ch.endpoint_id";
+     JOIN endpoints e ON e.id = ch.endpoint_id \
+     LEFT JOIN users ou ON ou.id = e.owner_id";
 
 const LOAD_CAPTURE: &str = "SELECT c.id, c.seq, c.received_at, \
        to_char(c.received_at AT TIME ZONE 'UTC', __TIMESTAMP__) AS received_text, c.method, c.url, c.path, c.host, \
@@ -118,6 +119,7 @@ pub struct DeliveryChannel {
     pub endpoint_id: String,
     pub endpoint_title: Option<String>,
     pub owner_id: Option<Uuid>,
+    pub owner_tier: Option<String>,
     pub creator_net: Option<String>,
     pub created_by: Option<Uuid>,
 }
@@ -390,6 +392,7 @@ fn claimed_from_row(row: &PgRow) -> Result<ClaimedDelivery, NotifyStoreError> {
             endpoint_id: row.try_get("endpoint_id").map_err(classify)?,
             endpoint_title: row.try_get("title").map_err(classify)?,
             owner_id: row.try_get("owner_id").map_err(classify)?,
+            owner_tier: row.try_get("owner_tier").map_err(classify)?,
             creator_net: row.try_get("creator_net").map_err(classify)?,
             created_by: row.try_get("created_by").map_err(classify)?,
         },

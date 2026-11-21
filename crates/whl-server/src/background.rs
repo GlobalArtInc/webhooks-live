@@ -35,6 +35,7 @@ impl BackgroundSettings {
         );
         maintenance.session_idle = config.auth.session_idle;
         maintenance.alias_quarantine = config.alias.quarantine;
+        maintenance.tiers = config.tiers.clone();
         Self {
             storage_refresh: STORAGE_REFRESH_INTERVAL,
             limiter_cleanup: LIMITER_CLEANUP_INTERVAL,

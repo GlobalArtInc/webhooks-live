@@ -12,7 +12,6 @@ use whl_store::{AliasAvailability, AliasClaim, AliasRecord, PutAliasOutcome, Rel
 use crate::dto::timestamp;
 use crate::error::{ApiError, FieldCode, FieldViolation};
 use crate::folders::signed_in;
-use crate::settings::MEMBER_ALIASES;
 use crate::state::ApiState;
 
 #[derive(Serialize)]
@@ -83,6 +82,7 @@ async fn assign(
     let user = signed_in(&state, &caller)?;
     let endpoint = endpoint_id(&raw_id)?;
     let alias = Alias::parse(&raw_alias).map_err(invalid_alias)?;
+    let max_owned = state.tier_of(&caller).limits().aliases;
     let outcome = state
         .store
         .put_alias(AliasClaim {
@@ -91,7 +91,7 @@ async fn assign(
             alias: &alias,
             retention: state.settings.retention,
             quarantine: state.alias_quarantine,
-            max_owned: MEMBER_ALIASES,
+            max_owned,
         })
         .await?;
     match outcome {
@@ -100,7 +100,7 @@ async fn assign(
             Ok(Json(AliasDto::new(&record, &state.settings.public_url)))
         }
         PutAliasOutcome::Taken => Err(ApiError::AliasTaken),
-        PutAliasOutcome::LimitReached => Err(ApiError::AliasLimit),
+        PutAliasOutcome::LimitReached => Err(ApiError::AliasLimit { max: max_owned }),
         PutAliasOutcome::EndpointGone | PutAliasOutcome::NotOwner => Err(ApiError::EndpointGone),
     }
 }

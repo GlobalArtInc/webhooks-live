@@ -191,6 +191,7 @@ impl Work<'_> {
             resolve(&self.state.settings, &defaults(), &patch, found),
             lifecycle::resolve(
                 &self.state.settings,
+                self.state.creation_tier(self.caller, self.creation),
                 standing,
                 &Lifecycle::default(),
                 &patch.lifecycle,
@@ -370,7 +371,15 @@ impl Work<'_> {
             }
             let bytes = encode(&Value::Object(object))?;
             let new = Uuid::now_v7();
-            let built = build_channel(self.state, self.caller, &self.id, new, &bytes).await;
+            let built = build_channel(
+                self.state,
+                self.caller,
+                &self.id,
+                new,
+                self.state.creation_tier(self.caller, self.creation),
+                &bytes,
+            )
+            .await;
             if let Some(mut channel) = self.absorb(built, &prefix)? {
                 channel.created_by = created_by;
                 if let Some(old) = old {
@@ -410,7 +419,10 @@ impl Work<'_> {
             let timezone = timezone.unwrap_or_else(|| DEFAULT_TIMEZONE.to_owned());
             if let Some(cron) = &cron {
                 let _ = check_cron(
-                    self.state.schedules.min_interval,
+                    self.state
+                        .creation_tier(self.caller, self.creation)
+                        .limits()
+                        .schedule_min_interval,
                     cron,
                     &timezone,
                     now,

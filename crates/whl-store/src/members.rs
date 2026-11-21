@@ -24,7 +24,7 @@ const LIVE_ENDPOINT_SQL: &str = "SELECT owner_id FROM endpoints \
         AND (never_expires OR last_active_at > now() - make_interval(secs => COALESCE(retention_seconds::float8, $2))) \
     FOR SHARE";
 
-const FIND_USER_BY_EMAIL_SQL: &str = "SELECT id, email, display_name FROM users \
+const FIND_USER_BY_EMAIL_SQL: &str = "SELECT id, email, display_name, tier FROM users \
     WHERE lower(email) = lower($1) AND email_verified \
     ORDER BY id \
     LIMIT 2";
@@ -36,7 +36,7 @@ const UPSERT_MEMBER_SQL: &str = "INSERT INTO endpoint_members (endpoint_id, user
     ON CONFLICT (endpoint_id, user_id) DO UPDATE SET role = EXCLUDED.role \
     RETURNING created_at";
 
-const LIST_MEMBERS_SQL: &str = "SELECT u.id, u.email, u.display_name, m.role, m.created_at \
+const LIST_MEMBERS_SQL: &str = "SELECT u.id, u.email, u.display_name, u.tier, m.role, m.created_at \
     FROM endpoint_members m JOIN users u ON u.id = m.user_id \
     WHERE m.endpoint_id = $1 \
     ORDER BY m.created_at, u.id";
@@ -47,7 +47,7 @@ const DELETE_MEMBER_SQL: &str =
 const DISABLE_EMAIL_CHANNELS_SQL: &str = "UPDATE notification_channels SET enabled = false \
     WHERE endpoint_id = $1 AND created_by = $2 AND kind = 'email'";
 
-const ENDPOINT_OWNER_SQL: &str = "SELECT u.id, u.email, u.display_name \
+const ENDPOINT_OWNER_SQL: &str = "SELECT u.id, u.email, u.display_name, u.tier \
     FROM endpoints e JOIN users u ON u.id = e.owner_id WHERE e.id = $1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -346,7 +346,8 @@ impl Store {
         let sql = format!(
             "SELECT {QUALIFIED_COLUMNS}, \
                 CASE WHEN e.owner_id = $1 THEN 'owner' ELSE m.role END AS role, \
-                ou.id AS owner_user_id, ou.email AS owner_email, ou.display_name AS owner_name \
+                ou.id AS owner_user_id, ou.email AS owner_email, ou.display_name AS owner_name, \
+                ou.tier AS owner_tier \
              FROM endpoints e \
              LEFT JOIN endpoint_members m ON m.endpoint_id = e.id AND m.user_id = $1 \
              LEFT JOIN users ou ON ou.id = e.owner_id \
@@ -413,6 +414,7 @@ fn user_endpoint_from_row(
             id,
             email: row.try_get("owner_email").map_err(classify)?,
             display_name: row.try_get("owner_name").map_err(classify)?,
+            tier: row.try_get("owner_tier").map_err(classify)?,
         }),
         None => None,
     };

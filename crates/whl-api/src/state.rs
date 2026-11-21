@@ -1,12 +1,15 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use whl_auth::{AccessControl, ViewAccess};
+use whl_auth::{AccessControl, Caller, Creation, ViewAccess};
+use whl_core::endpoint_id::EndpointId;
+use whl_core::tier::{Tier, Tiers};
 use whl_notify::PushService;
 use whl_secrets::Keyring;
 use whl_store::Store;
 
 use crate::composer::ComposerSettings;
+use crate::error::ApiError;
 use crate::export::ExportSlots;
 use crate::forward::ForwardSettings;
 use crate::import::{IMPORT_COOLDOWN, ImportCooldown, import_slots};
@@ -32,6 +35,7 @@ pub struct ApiState {
     pub(crate) alias_quarantine: Duration,
     pub(crate) email: Option<EmailApi>,
     pub(crate) push: Option<PushService>,
+    pub(crate) tiers: Tiers,
 }
 
 impl ApiState {
@@ -55,6 +59,7 @@ impl ApiState {
             alias_quarantine: DEFAULT_ALIAS_QUARANTINE,
             email: None,
             push: None,
+            tiers: Tiers::default(),
         }
     }
 
@@ -71,6 +76,34 @@ impl ApiState {
     pub fn with_push(mut self, push: PushService) -> Self {
         self.push = Some(push);
         self
+    }
+
+    pub fn with_tiers(mut self, tiers: Tiers) -> Self {
+        self.tiers = tiers;
+        self
+    }
+
+    pub(crate) fn tier_of(&self, caller: &Caller) -> Tier<'_> {
+        self.tiers
+            .for_caller(caller.user().map(|user| user.tier.as_str()))
+    }
+
+    pub(crate) fn creation_tier(&self, caller: &Caller, creation: &Creation) -> Tier<'_> {
+        match creation {
+            Creation::Owned(_) => self.tier_of(caller),
+            Creation::Anonymous { .. } => self.tiers.anonymous(),
+        }
+    }
+
+    pub(crate) async fn endpoint_tier(&self, endpoint: &EndpointId) -> Result<Tier<'_>, ApiError> {
+        let owner = if self.access.has_users() {
+            self.store.endpoint_owner(endpoint).await?
+        } else {
+            None
+        };
+        Ok(self
+            .tiers
+            .for_caller(owner.as_ref().map(|user| user.tier.as_str())))
     }
 
     pub fn with_secrets(mut self, keyring: Arc<Keyring>) -> Self {

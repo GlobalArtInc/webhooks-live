@@ -11,6 +11,7 @@ mod router;
 mod schedules;
 mod secrets;
 mod signal;
+mod users;
 
 use std::future::{Future, IntoFuture};
 use std::io;
@@ -27,12 +28,14 @@ use whl_capture::{CaptureSettings, CaptureState};
 use whl_core::client_ip::TrustedProxies;
 use whl_core::config::{AuthMode, Config};
 use whl_core::limiter::{LimiterSettings, Limiters};
+use whl_core::tier::Tiers;
 use whl_dns::{DnsServer, DnsSettings, StorageProbe};
 use whl_forward::WorkerHandle;
 use whl_live::{HUB_CAPACITY, Hub, ListenerHandle, LiveState, StreamSettings};
 use whl_mail::{MailServer, MailSettings};
 use whl_secrets::Keyring;
 use whl_store::Store;
+use whl_store::quota::EndpointByteCaps;
 use whl_telemetry::series;
 
 pub use background::{BackgroundSettings, LIMITER_CLEANUP_INTERVAL, STORAGE_REFRESH_INTERVAL};
@@ -46,6 +49,7 @@ pub use rotate::{
 };
 pub use secrets::{SecretsSetupError, keyring_from_config, rotation_keyring};
 pub use signal::shutdown_signal;
+pub use users::{SetTierError, TierChange, set_user_tier, user_selector};
 
 use background::{Background, Workers};
 use composer::CaptureDelivery;
@@ -64,6 +68,7 @@ pub struct Bound {
     retention: Duration,
     api: ApiSettings,
     alias_quarantine: Duration,
+    tiers: Tiers,
     capture: CaptureSettings,
     forward: ForwardRuntime,
     composer: ComposerSettings,
@@ -120,6 +125,7 @@ impl Bound {
         shutdown: impl Future<Output = ()> + Send + 'static,
     ) -> Result<(), ServerError> {
         credentials::warn_unusable_capture_credentials(&store, self.secrets.as_deref()).await;
+        let store = store.with_endpoint_byte_caps(EndpointByteCaps::from_tiers(&self.tiers));
         let readiness = Arc::new(Readiness::default());
         self.notify.prepare_push(&store).await?;
         let worker = self.forward.worker(&store)?;
@@ -159,7 +165,8 @@ impl Bound {
             .with_forward(ForwardSettings::with_system_lookup(self.forward.guard()))
             .with_composer(self.composer.with_local(Arc::new(delivery)))
             .with_schedules(self.schedules.settings())
-            .with_notifications(self.notify.api_settings());
+            .with_notifications(self.notify.api_settings())
+            .with_tiers(self.tiers.clone());
         let state = match self.notify.email_api() {
             Some(email) => state.with_email(email),
             None => state,
@@ -391,6 +398,7 @@ pub async fn bind(config: &Config) -> Result<Bound, ServerError> {
         retention: config.capture.retention,
         api: ApiSettings::from_config(config),
         alias_quarantine: config.alias.quarantine,
+        tiers: config.tiers.clone(),
         capture: CaptureSettings::from_config(config)?,
         forward,
         composer: ComposerSettings::from_config(config),

@@ -4,6 +4,7 @@ use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use whl_auth::{Access, AuthRejection, Caller, Creation};
 use whl_core::endpoint_id::EndpointId;
+use whl_core::tier::TierLimits;
 use whl_notify::PushService;
 use whl_store::{
     AccessSettings, EndpointChange, EndpointRecord, EndpointRole, Lifecycle, LifecycleLimits,
@@ -13,12 +14,11 @@ use whl_store::{
 use crate::access;
 use crate::body::RawBody;
 use crate::cloning;
-use crate::dto::{EndpointDto, InstanceDto};
+use crate::dto::{Availability, EndpointDto, InstanceDto};
 use crate::error::{ApiError, FieldViolation};
 use crate::input::{EndpointPatch, ParsedInput, parse_endpoint_input};
 use crate::lifecycle::{self, Standing, combine};
 use crate::resolve::{defaults, resolve};
-use crate::settings::ApiSettings;
 use crate::state::ApiState;
 use crate::view_password;
 
@@ -27,7 +27,12 @@ pub async fn instance(State(state): State<ApiState>, caller: Caller) -> Json<Ins
         &state.settings,
         &state.access,
         caller.user(),
-        state.secrets_enabled(),
+        state.tier_of(&caller),
+        Availability {
+            secrets: state.secrets_enabled(),
+            schedules: state.schedules.enabled,
+            notifications: state.notifications.enabled,
+        },
         state.push.as_ref().map(PushService::public_key),
     ))
 }
@@ -104,6 +109,11 @@ async fn store_new_endpoint_with_view(
         role: None,
     };
     let id = EndpointId::generate().map_err(|_| ApiError::EntropyUnavailable)?;
+    let tier = if standing.owned {
+        state.tier_of(caller)
+    } else {
+        state.tiers.anonymous()
+    };
     let change = combine(
         resolve(
             &state.settings,
@@ -113,6 +123,7 @@ async fn store_new_endpoint_with_view(
         ),
         lifecycle::resolve(
             &state.settings,
+            tier,
             standing,
             &Lifecycle::default(),
             &parsed.patch.lifecycle,
@@ -138,7 +149,7 @@ async fn store_new_endpoint_with_view(
         settings: &change.settings,
         lifecycle: change.lifecycle,
         access: &change.access,
-        limits: never_expire_limits(&state.settings),
+        limits: creation_limits(tier.limits()),
     };
     let record = match &view_hash {
         Some(hash) => {
@@ -190,6 +201,7 @@ pub async fn update(
     let sign_in_possible = state.access.has_users();
     let role = access.role();
     require_secrets_for_verifier(&state, &parsed.patch)?;
+    let caller_tier = state.tier_of(access.caller());
     let merge = |current: &EndpointRecord,
                  owner_id: Option<Uuid>,
                  violations: Vec<FieldViolation>|
@@ -200,6 +212,11 @@ pub async fn update(
             sign_in_possible,
             role,
         };
+        let tier = if standing.owned {
+            caller_tier
+        } else {
+            state.tiers.anonymous()
+        };
         let outcome = combine(
             resolve(
                 &state.settings,
@@ -209,6 +226,7 @@ pub async fn update(
             ),
             lifecycle::resolve(
                 &state.settings,
+                tier,
                 standing,
                 &current.lifecycle,
                 &parsed.patch.lifecycle,
@@ -239,7 +257,7 @@ pub async fn update(
         .update_endpoint_with_view_password(
             &id,
             state.settings.retention,
-            never_expire_limits(&state.settings),
+            update_limits(caller_tier.limits()),
             view_change,
             |current, owner_id| merge(current, owner_id, parsed.violations.clone()),
         )
@@ -277,9 +295,18 @@ pub async fn delete(
     }
 }
 
-pub(crate) fn never_expire_limits(settings: &ApiSettings) -> LifecycleLimits {
+pub(crate) fn creation_limits(tier: &TierLimits) -> LifecycleLimits {
     LifecycleLimits {
-        never_expire_max: settings.lifecycle_limits(true).never_expire_endpoints,
+        endpoints_max: Some(tier.endpoints),
+        ..update_limits(tier)
+    }
+}
+
+fn update_limits(tier: &TierLimits) -> LifecycleLimits {
+    LifecycleLimits {
+        never_expire_max: tier.never_expire_endpoints,
+        endpoints_max: None,
+        storage_bytes_max: tier.storage_bytes,
     }
 }
 

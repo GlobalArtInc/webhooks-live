@@ -78,12 +78,13 @@ async fn create(
 ) -> Result<(StatusCode, Json<FolderDto>), ApiError> {
     let user = signed_in(&state, &caller)?;
     let name = parse_create(&body)?;
-    match state.store.create_folder(user, &name).await? {
+    let max = usize::try_from(state.tier_of(&caller).limits().folders).unwrap_or(usize::MAX);
+    match state.store.create_folder(user, &name, max).await? {
         CreateFolderOutcome::Created(record) => {
             Ok((StatusCode::CREATED, Json(FolderDto::from(&record))))
         }
         CreateFolderOutcome::NameTaken => Err(ApiError::FolderNameTaken),
-        CreateFolderOutcome::LimitReached => Err(ApiError::FolderLimit),
+        CreateFolderOutcome::LimitReached => Err(ApiError::FolderLimit { max }),
     }
 }
 

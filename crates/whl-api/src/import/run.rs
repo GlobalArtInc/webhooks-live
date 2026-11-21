@@ -12,7 +12,7 @@ use whl_store::import::{
 use whl_telemetry::series;
 
 use super::upload::{UploadError, guarded};
-use super::{MAX_IMPORT_BYTES, MAX_IMPORT_DURATION, UPLOAD_IDLE_TIMEOUT};
+use super::{MAX_IMPORT_DURATION, UPLOAD_IDLE_TIMEOUT};
 use crate::error::{ApiError, FieldCode, FieldViolation};
 use crate::handlers::store_new_endpoint;
 use crate::input::{ParsedInput, parse_endpoint_input};
@@ -138,7 +138,7 @@ async fn pipeline(
 ) -> Result<EndpointId, ApiError> {
     let now = OffsetDateTime::now_utc();
     let limits = ImportLimits {
-        max_input_bytes: MAX_IMPORT_BYTES,
+        max_input_bytes: state.tier_of(caller).limits().import_max_bytes,
         max_body_bytes: state.settings.max_body_bytes,
         earliest: EARLIEST,
         latest: now + SKEW,

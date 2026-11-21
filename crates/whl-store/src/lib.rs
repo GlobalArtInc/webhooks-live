@@ -22,6 +22,7 @@ pub mod maintenance;
 mod members;
 pub mod merge;
 pub mod notify;
+pub mod quota;
 pub mod rules;
 pub mod schedules;
 pub mod secrets;
@@ -60,9 +61,7 @@ pub use endpoints::{
 };
 pub use error::StoreError;
 pub use export::{ExportSelection, ExportSnapshot};
-pub use folders::{
-    CreateFolderOutcome, FolderError, FolderRecord, MAX_FOLDERS_PER_USER, UpdateFolderOutcome,
-};
+pub use folders::{CreateFolderOutcome, FolderError, FolderRecord, UpdateFolderOutcome};
 pub use kind::CaptureKind;
 pub use lifecycle::{Lifecycle, LifecycleError, LifecycleLimits};
 pub use members::{

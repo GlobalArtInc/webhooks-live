@@ -35,8 +35,6 @@ impl NotifyRuntime {
     ) -> Result<Self, ServerError> {
         let notify = &config.notify;
         let limits = NotifyLimits {
-            endpoint_per_hour: to_limit(notify.endpoint_per_hour),
-            owner_per_hour: to_limit(notify.owner_per_hour),
             network_per_hour: to_limit(notify.network_per_hour),
             global_per_hour: to_limit(notify.global_per_hour),
         };
@@ -45,7 +43,8 @@ impl NotifyRuntime {
             limits,
             usize::try_from(notify.concurrency).unwrap_or(usize::MAX),
             notify.max_attempts,
-        );
+        )
+        .with_tiers(config.tiers.clone());
         settings.email = EmailLimits {
             per_user_per_day: to_limit(notify.email_per_day),
             per_address_per_day: to_limit(notify.email_per_address_per_day),

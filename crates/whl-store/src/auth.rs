@@ -14,7 +14,7 @@ const UPSERT_USER_SQL: &str = "INSERT INTO users (id, issuer, subject, email, em
     ON CONFLICT (issuer, subject) DO UPDATE \
     SET email = EXCLUDED.email, email_verified = EXCLUDED.email_verified, \
         display_name = EXCLUDED.display_name, last_login_at = now() \
-    RETURNING id, email, display_name";
+    RETURNING id, email, display_name, tier";
 
 const CREATE_SESSION_SQL: &str = "INSERT INTO sessions (token_hash, user_id, expires_at) \
     VALUES ($1, $2, now() + make_interval(secs => $3))";
@@ -29,7 +29,7 @@ const SESSION_USER_SQL: &str = "WITH live AS ( \
             AND last_seen_at < now() - make_interval(secs => $3) \
         RETURNING token_hash \
     ) \
-    SELECT u.id, u.email, u.display_name FROM live JOIN users u ON u.id = live.user_id";
+    SELECT u.id, u.email, u.display_name, u.tier FROM live JOIN users u ON u.id = live.user_id";
 
 const DELETE_SESSION_SQL: &str = "DELETE FROM sessions WHERE token_hash = $1";
 
@@ -144,6 +144,7 @@ pub struct UserRecord {
     pub id: Uuid,
     pub email: String,
     pub display_name: Option<String>,
+    pub tier: String,
 }
 
 impl fmt::Debug for UserRecord {
@@ -218,6 +219,7 @@ pub(crate) fn user_from_row(row: &PgRow) -> Result<UserRecord, AuthStoreError> {
         id: row.try_get("id").map_err(classify)?,
         email: row.try_get("email").map_err(classify)?,
         display_name: row.try_get("display_name").map_err(classify)?,
+        tier: row.try_get("tier").map_err(classify)?,
     })
 }
 

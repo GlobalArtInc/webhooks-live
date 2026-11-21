@@ -8,8 +8,9 @@ use whl_auth::Caller;
 use whl_core::endpoint_id::EndpointId;
 use whl_export::ImportFormat;
 use whl_store::EndpointError;
+use whl_store::composer::{QuotaCharge, QuotaWindow};
+use whl_store::quota::{IMPORTS_METRIC, user_subject};
 
-use super::MAX_IMPORT_BYTES;
 use super::run::{self, Placement, Target};
 use crate::error::{ApiError, FieldCode, FieldViolation};
 use crate::folders::signed_in;
@@ -86,7 +87,9 @@ async fn start(
     let keep_times = parse_keep_times(params.keep_times.as_deref())?;
     let (parts, body) = request.into_parts();
     let format = format_of(&parts.headers)?;
-    if declared_length(&parts.headers).is_some_and(|length| length > MAX_IMPORT_BYTES) {
+    let tier = state.tier_of(caller);
+    if declared_length(&parts.headers).is_some_and(|length| length > tier.limits().import_max_bytes)
+    {
         return Err(ApiError::ImportTooLarge);
     }
     state
@@ -98,6 +101,18 @@ async fn start(
     let permit = state.imports.acquire(caller).ok_or(ApiError::RateLimited {
         retry_after_secs: BUSY_RETRY_SECS,
     })?;
+    crate::quota::charge(
+        state,
+        tier,
+        IMPORTS_METRIC,
+        &[QuotaCharge {
+            subject: user_subject(user),
+            window: QuotaWindow::Day,
+            limit: tier.limits().imports_per_day,
+            name: IMPORTS_METRIC,
+        }],
+    )
+    .await?;
     let task_state = state.clone();
     let task_caller = caller.clone();
     let task = tokio::spawn(async move {

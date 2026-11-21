@@ -282,6 +282,11 @@ async fn conclude(
                         "endpoint_full: the capture was not stored".to_owned()
                     });
                 }
+                Ok(CaptureOutcome::OverQuota) => {
+                    error.get_or_insert_with(|| {
+                        "quota_exceeded: the owner has used all of their storage".to_owned()
+                    });
+                }
                 Ok(CaptureOutcome::Gone) => {
                     error.get_or_insert_with(|| {
                         "endpoint_gone: the capture was not stored".to_owned()

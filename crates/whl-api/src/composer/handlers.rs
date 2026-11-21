@@ -11,8 +11,7 @@ use whl_core::endpoint_id::EndpointId;
 use whl_forward::{TargetCheckError, vet_target};
 use whl_store::Uuid;
 use whl_store::composer::{
-    MAX_SENT_PER_OWNER, NewSent, OUTBOUND_METRIC, QuotaCharge, QuotaOutcome, QuotaWindow,
-    SentOutcome, SentOwner,
+    MAX_SENT_PER_OWNER, NewSent, OUTBOUND_METRIC, QuotaCharge, QuotaWindow, SentOutcome, SentOwner,
 };
 
 use super::dto::{HistoryDto, SendResultDto, SentRequestDto, StoredEntry};
@@ -105,24 +104,13 @@ pub async fn send(
     let _subject = composer
         .acquire_subject(identity.subject.clone())
         .ok_or_else(busy)?;
-    match state
-        .store
-        .consume_quota(OUTBOUND_METRIC, &identity.charges)
-        .await?
-    {
-        QuotaOutcome::Allowed => {}
-        QuotaOutcome::Exceeded {
-            name,
-            limit,
-            retry_after,
-        } => {
-            return Err(ApiError::ComposerQuota {
-                name,
-                max: usize::try_from(limit).unwrap_or(usize::MAX),
-                retry_after_secs: retry_after.as_secs().max(1),
-            });
-        }
-    }
+    crate::quota::charge(
+        &state,
+        state.tier_of(&caller),
+        OUTBOUND_METRIC,
+        &identity.charges,
+    )
+    .await?;
     let local = matches!(destination, Destination::Local(_));
     let executed = match destination {
         Destination::External(target) => {
@@ -189,7 +177,8 @@ async fn vet(state: &ApiState, clients: &Clients, target: &str) -> Result<(), Ap
 }
 
 fn identify(state: &ApiState, caller: &Caller, input: &SendInput) -> Result<Identity, ApiError> {
-    let limits = state.composer.limits;
+    let tier = state.tier_of(caller).limits();
+    let forced = state.composer.limits;
     if let Some(user) = caller.user() {
         return Ok(Identity {
             subject: format!("u:{}", user.id.hyphenated()),
@@ -197,8 +186,11 @@ fn identify(state: &ApiState, caller: &Caller, input: &SendInput) -> Result<Iden
             charges: vec![QuotaCharge {
                 subject: format!("u:{}", user.id.hyphenated()),
                 window: QuotaWindow::Hour,
-                limit: limits.user_per_hour,
-                name: "composer_user_hour",
+                limit: forced
+                    .map(|limits| limits.user_per_hour)
+                    .or(tier.outbound_per_user_hour)
+                    .unwrap_or(0),
+                name: OUTBOUND_METRIC,
             }],
         });
     }
@@ -207,15 +199,21 @@ fn identify(state: &ApiState, caller: &Caller, input: &SendInput) -> Result<Iden
     let mut charges = vec![QuotaCharge {
         subject: subject.clone(),
         window: QuotaWindow::Day,
-        limit: limits.network_per_day,
-        name: "composer_network_day",
+        limit: forced
+            .map(|limits| limits.network_per_day)
+            .or(tier.outbound_per_network_day)
+            .unwrap_or(0),
+        name: OUTBOUND_METRIC,
     }];
     let owner = input.endpoint.as_ref().map(|endpoint| {
         charges.push(QuotaCharge {
             subject: format!("e:{}", endpoint.unpack()),
             window: QuotaWindow::Hour,
-            limit: limits.endpoint_per_hour,
-            name: "composer_endpoint_hour",
+            limit: forced
+                .map(|limits| limits.endpoint_per_hour)
+                .or(tier.outbound_per_endpoint_hour)
+                .unwrap_or(0),
+            name: OUTBOUND_METRIC,
         });
         SentOwner::Endpoint(endpoint.clone())
     });

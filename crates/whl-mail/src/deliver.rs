@@ -135,7 +135,7 @@ async fn store_one(
         .await
     {
         Ok(CaptureOutcome::Stored { capture, .. }) => Delivered::Stored(capture.id),
-        Ok(CaptureOutcome::Full) => Delivered::Full,
+        Ok(CaptureOutcome::Full | CaptureOutcome::OverQuota) => Delivered::Full,
         Ok(CaptureOutcome::Gone) => Delivered::Gone,
         Err(error) => {
             if error.is_unavailable() {

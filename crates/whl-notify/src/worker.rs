@@ -343,21 +343,30 @@ fn caps(
 ) -> Vec<QuotaCap> {
     let limits = shared.settings.limits;
     let channel = &delivery.channel;
-    let mut caps = vec![
-        QuotaCap::hourly(
-            format!("c:{}", delivery.channel_id.hyphenated()),
-            channel.per_hour,
-        ),
-        QuotaCap::hourly(
+    let tier = match channel.owner_id {
+        Some(_) => shared
+            .settings
+            .tiers
+            .for_user(channel.owner_tier.as_deref().unwrap_or_default()),
+        None => shared.settings.tiers.anonymous(),
+    };
+    let hourly = |cap: Option<u32>| cap.map(|cap| i32::try_from(cap).unwrap_or(i32::MAX));
+    let mut caps = vec![QuotaCap::hourly(
+        format!("c:{}", delivery.channel_id.hyphenated()),
+        channel.per_hour,
+    )];
+    if let Some(limit) = hourly(tier.limits().notify_per_endpoint_hour) {
+        caps.push(QuotaCap::hourly(
             format!("e:{}", channel.endpoint_id),
-            limits.endpoint_per_hour,
-        ),
-    ];
+            limit,
+        ));
+    }
     match (&channel.owner_id, &channel.creator_net) {
-        (Some(owner), _) => caps.push(QuotaCap::hourly(
-            format!("u:{}", owner.hyphenated()),
-            limits.owner_per_hour,
-        )),
+        (Some(owner), _) => {
+            if let Some(limit) = hourly(tier.limits().notify_per_user_hour) {
+                caps.push(QuotaCap::hourly(format!("u:{}", owner.hyphenated()), limit));
+            }
+        }
         (None, Some(network)) => caps.push(QuotaCap::hourly(
             format!("n:{network}"),
             limits.network_per_hour,
@@ -369,9 +378,11 @@ fn caps(
     }
     if let Some(recipient) = recipient {
         let email = shared.settings.email;
+        let tier_per_day = hourly(Some(tier.limits().email_notifications_per_day))
+            .unwrap_or(i32::MAX);
         caps.push(QuotaCap::daily(
             format!("m:{}", recipient.user_id.hyphenated()),
-            email.per_user_per_day,
+            email.per_user_per_day.min(tier_per_day),
         ));
         caps.push(QuotaCap::daily(
             format!("ma:{}", address_digest(&recipient.address)),

@@ -33,6 +33,7 @@ fn settings(overflow: Overflow) -> EndpointSettings {
 fn limits(max: u32) -> LifecycleLimits {
     LifecycleLimits {
         never_expire_max: max,
+        ..LifecycleLimits::NONE
     }
 }
 

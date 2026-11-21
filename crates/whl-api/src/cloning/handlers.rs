@@ -14,7 +14,7 @@ use super::request::parse_clone_request;
 use crate::body::RawBody;
 use crate::dto::EndpointDto;
 use crate::error::{ApiError, FieldCode, FieldViolation};
-use crate::handlers::never_expire_limits;
+use crate::handlers::creation_limits;
 use crate::state::ApiState;
 
 #[derive(Serialize)]
@@ -77,6 +77,8 @@ pub(crate) async fn create_from_document(
         Creation::Owned(user) => (Some(*user), None),
         Creation::Anonymous { network } => (None, network.as_ref()),
     };
+    let tier = state.creation_tier(caller, creation);
+    let max_schedules = usize::try_from(tier.limits().schedules).unwrap_or(usize::MAX);
     let new = NewClonedEndpoint {
         id: &prepared.id,
         endpoint: NewEndpoint {
@@ -86,10 +88,10 @@ pub(crate) async fn create_from_document(
             settings: &prepared.change.settings,
             lifecycle: prepared.change.lifecycle,
             access: &prepared.change.access,
-            limits: never_expire_limits(&state.settings),
+            limits: creation_limits(tier.limits()),
         },
         parts: &prepared.parts,
-        max_schedules_per_owner: state.schedules.max_per_user,
+        max_schedules_per_owner: max_schedules,
     };
     let record = match state
         .store
@@ -98,7 +100,7 @@ pub(crate) async fn create_from_document(
     {
         CloneOutcome::Created(record) => *record,
         CloneOutcome::ScheduleLimitReached => {
-            return Err(ApiError::ScheduleLimit(state.schedules.max_per_user));
+            return Err(ApiError::ScheduleLimit(max_schedules));
         }
         CloneOutcome::PartLimitExceeded => {
             return Err(ApiError::Validation(vec![FieldViolation::new(

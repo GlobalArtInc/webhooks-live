@@ -17,4 +17,5 @@ pub mod response;
 pub mod sender_allow;
 pub mod status;
 pub mod tag;
+pub mod tier;
 pub mod validation;

@@ -1,5 +1,5 @@
 use serde_json::{Map, Value};
-use whl_rules::{MAX_RULES_PER_ENDPOINT, RuleDiagnostic, RuleErrorCode};
+use whl_rules::{RuleDiagnostic, RuleErrorCode};
 use whl_store::Uuid;
 
 use crate::error::{ApiError, FieldCode, FieldViolation};
@@ -18,7 +18,7 @@ pub fn parse_object(bytes: &[u8]) -> Result<Map<String, Value>, ApiError> {
     }
 }
 
-pub fn parse_order(bytes: &[u8]) -> Result<Vec<Uuid>, ApiError> {
+pub fn parse_order(bytes: &[u8], max_items: usize) -> Result<Vec<Uuid>, ApiError> {
     let object = parse_object(bytes)?;
     let mut violations = Vec::new();
     for key in object.keys().filter(|key| key.as_str() != "ids") {
@@ -45,11 +45,11 @@ pub fn parse_order(bytes: &[u8]) -> Result<Vec<Uuid>, ApiError> {
             )]));
         }
     };
-    if items.len() > MAX_RULES_PER_ENDPOINT {
+    if items.len() > max_items {
         violations.push(FieldViolation::new(
             "ids",
             FieldCode::TooMany,
-            format!("must have at most {MAX_RULES_PER_ENDPOINT} entries"),
+            format!("must have at most {max_items} entries"),
         ));
         return Err(ApiError::Validation(violations));
     }

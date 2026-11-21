@@ -13,7 +13,6 @@ pub use cooldown::ImportCooldown;
 use crate::export::ExportSlots;
 use crate::state::ApiState;
 
-pub const MAX_IMPORT_BYTES: u64 = 100 * 1024 * 1024;
 pub const IMPORT_REPLICA_CONCURRENCY: u32 = 2;
 pub const UPLOAD_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 pub const IMPORT_COOLDOWN: Duration = Duration::from_secs(60);

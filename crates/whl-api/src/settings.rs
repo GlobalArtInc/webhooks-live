@@ -1,11 +1,8 @@
 use std::time::Duration;
 
 use whl_core::config::Config;
+use whl_core::tier::Tier;
 
-pub const MEMBER_MAX_RETENTION: Duration = Duration::from_secs(365 * 24 * 3600);
-pub const MEMBER_MAX_CAPTURES: u32 = 10_000;
-pub const MEMBER_NEVER_EXPIRE_ENDPOINTS: u32 = 10;
-pub const MEMBER_ALIASES: u32 = 5;
 pub const DEFAULT_ALIAS_QUARANTINE: Duration = Duration::from_secs(30 * 24 * 3600);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,22 +40,24 @@ impl ApiSettings {
         }
     }
 
-    pub fn lifecycle_limits(&self, owned: bool) -> LifecycleCeilings {
+    pub fn lifecycle_limits(&self, tier: Tier<'_>) -> LifecycleCeilings {
         let instance_retention = i64::try_from(self.retention.as_secs()).unwrap_or(i64::MAX);
-        if owned {
-            let member_retention =
-                i64::try_from(MEMBER_MAX_RETENTION.as_secs()).unwrap_or(i64::MAX);
-            LifecycleCeilings {
-                max_retention_seconds: member_retention.max(instance_retention),
-                max_captures: MEMBER_MAX_CAPTURES.max(self.max_captures),
-                never_expire_endpoints: MEMBER_NEVER_EXPIRE_ENDPOINTS,
-            }
+        let limits = tier.limits();
+        let (max_retention_seconds, max_captures) = if tier.is_anonymous() {
+            (
+                limits.max_retention_seconds().min(instance_retention),
+                limits.max_captures.min(self.max_captures),
+            )
         } else {
-            LifecycleCeilings {
-                max_retention_seconds: instance_retention,
-                max_captures: self.max_captures,
-                never_expire_endpoints: 0,
-            }
+            (
+                limits.max_retention_seconds().max(instance_retention),
+                limits.max_captures.max(self.max_captures),
+            )
+        };
+        LifecycleCeilings {
+            max_retention_seconds,
+            max_captures,
+            never_expire_endpoints: limits.never_expire_endpoints,
         }
     }
 }
