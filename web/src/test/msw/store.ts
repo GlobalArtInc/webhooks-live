@@ -4,6 +4,7 @@ import type {
   CaptureSummary,
   Endpoint,
   EndpointInput,
+  Folder,
   ForwardRule,
   ForwardRuleInput,
   Instance,
@@ -18,6 +19,7 @@ export interface MockStore {
   captures: Map<string, Capture[]>;
   members: Map<string, Member[]>;
   users: User[];
+  folders: Folder[];
 }
 
 const ENDPOINT_ID_ALPHABET = '0123456789abcdefghjkmnpqrstvwxyz';
@@ -30,6 +32,7 @@ export const mockStore: MockStore = {
   captures: new Map(),
   members: new Map(),
   users: [],
+  folders: [],
 };
 
 export function resetMockStore(): void {
@@ -38,6 +41,7 @@ export function resetMockStore(): void {
   mockStore.captures.clear();
   mockStore.members.clear();
   mockStore.users = [];
+  mockStore.folders = [];
 }
 
 export function storeCaptures(endpointId: string, captures: Capture[]): void {
@@ -115,6 +119,7 @@ export function applyEndpointInput(endpoint: Endpoint, input: EndpointInput): En
   return {
     ...endpoint,
     title: input.title === undefined ? endpoint.title : input.title,
+    tags: input.tags === undefined ? endpoint.tags : [...input.tags],
     response: {
       status: response.status ?? endpoint.response.status,
       content_type: response.content_type ?? endpoint.response.content_type,
@@ -135,6 +140,7 @@ export function newEndpoint(input: EndpointInput): Endpoint {
     id,
     url: `${mockStore.instance.public_url}/${id}`,
     title: null,
+    tags: [],
     response: {
       status: 200,
       content_type: 'text/plain',

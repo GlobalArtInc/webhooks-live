@@ -7,7 +7,7 @@ export const instanceFixture: Instance = {
   auth_mode: 'open',
   user: null,
   public_url: PUBLIC_URL,
-  auth: { provider_name: null },
+  auth: { provider_name: null, sign_in_available: false },
   limits: {
     max_captures: 500,
     max_body_bytes: 10485760,

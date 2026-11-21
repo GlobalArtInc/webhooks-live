@@ -1,22 +1,17 @@
-import { Link } from '@tanstack/react-router';
 import { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useRailState } from '../../app/shell/railState';
+import { FolderRail } from '../folders/FolderRail';
 import { CreateErrorNotice } from './CreateErrorNotice';
-import { endpointName } from './format';
-import { markEndpointOpened, useMyEndpoints } from './store';
-import { byRecentlyOpened } from './storage';
 import { useCreateAndOpen } from './useCreateAndOpen';
 import styles from './EndpointRail.module.css';
 
 export function EndpointRail() {
   const { t } = useTranslation();
-  const endpoints = useMyEndpoints();
   const { create, isPending, error } = useCreateAndOpen();
-  const { collapsed, toggleCollapsed, closeDrawer } = useRailState();
+  const { collapsed, toggleCollapsed } = useRailState();
   const headingId = useId();
   const listId = useId();
-  const sorted = byRecentlyOpened(endpoints);
 
   return (
     <nav aria-labelledby={headingId} className={styles.rail}>
@@ -44,25 +39,7 @@ export function EndpointRail() {
         {isPending ? t('wl.home.create.busy') : t('wl.home.rail.new')}
       </button>
       {error !== null && !isPending && <CreateErrorNotice error={error} onRetry={() => create({})} />}
-      {sorted.length === 0 && <p className={styles.empty}>{t('wl.home.rail.empty')}</p>}
-      <ul id={listId} className={styles.list}>
-        {sorted.map((entry) => (
-          <li key={entry.id}>
-            <Link
-              to="/e/$id"
-              params={{ id: entry.id }}
-              className={styles.link}
-              activeProps={{ className: styles.active }}
-              onClick={() => {
-                markEndpointOpened(entry.id);
-                closeDrawer();
-              }}
-            >
-              {endpointName(entry)}
-            </Link>
-          </li>
-        ))}
-      </ul>
+      <FolderRail listId={listId} />
     </nav>
   );
 }

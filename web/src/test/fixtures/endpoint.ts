@@ -7,6 +7,7 @@ export const endpointFixture: Endpoint = {
   id: ENDPOINT_ID,
   url: `${PUBLIC_URL}/${ENDPOINT_ID}`,
   title: 'stripe test',
+  tags: [],
   response: {
     status: 202,
     content_type: 'application/json',
