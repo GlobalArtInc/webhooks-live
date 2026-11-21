@@ -60,9 +60,11 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Lint
+        if: ${{ !cancelled() }}
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
       - name: Test
+        if: ${{ !cancelled() }}
         run: cargo test --locked --workspace
 
   deny:
