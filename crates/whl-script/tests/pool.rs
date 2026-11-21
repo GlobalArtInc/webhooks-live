@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use common::*;
 use serde_json::json;
-use whl_script::{PoolConfig, PoolError, RunLimits, ScriptError, ScriptJob, ScriptPool};
+use whl_script::{PoolConfig, PoolError, RunLimits, ScriptError, ScriptJob, ScriptPool, TenantKey};
 
 fn spinner(time: Duration) -> ScriptJob {
     job_with(
@@ -14,7 +14,7 @@ fn spinner(time: Duration) -> ScriptJob {
         RunLimits {
             max_operations: u64::MAX / 2,
             time,
-            ..RunLimits::default()
+            ..roomy()
         },
     )
 }
@@ -77,6 +77,7 @@ fn a_late_result_times_out_and_cancels_so_the_worker_is_free_again() {
     let pool = ScriptPool::new(PoolConfig {
         threads: 1,
         result_grace: Duration::from_millis(50),
+        max_queue_wait: Duration::from_millis(50),
         ..PoolConfig::default()
     })
     .expect("pool starts");
@@ -121,7 +122,7 @@ fn many_clients_share_the_bounded_pool() {
             std::thread::spawn(move || {
                 for round in 0..20_i64 {
                     let n = client * 100 + round;
-                    let input = job_with(script.clone(), json!({ "n": n }), RunLimits::default());
+                    let input = job_with(script.clone(), json!({ "n": n }), roomy());
                     let output = pool.run(input).expect("run");
                     assert_eq!(output.vars["n"], json!(n * 2));
                 }
@@ -185,12 +186,239 @@ fn the_pool_configuration_is_validated() {
             threads: 10_000,
             ..PoolConfig::default()
         },
+        PoolConfig {
+            max_queue_wait: Duration::ZERO,
+            ..PoolConfig::default()
+        },
+        PoolConfig {
+            stuck_grace: Duration::ZERO,
+            ..PoolConfig::default()
+        },
+        PoolConfig {
+            shutdown_timeout: Duration::ZERO,
+            ..PoolConfig::default()
+        },
+        PoolConfig {
+            max_abandoned_threads: 100_000,
+            ..PoolConfig::default()
+        },
+        PoolConfig {
+            max_running_per_tenant: 0,
+            ..PoolConfig::default()
+        },
+        PoolConfig {
+            max_queued_per_tenant: 0,
+            ..PoolConfig::default()
+        },
     ] {
         assert!(matches!(ScriptPool::new(broken), Err(PoolError::Config(_))));
     }
     let defaults = PoolConfig::default();
     assert_eq!(defaults.threads, 2);
     assert_eq!(defaults.stack_bytes, 8 * 1024 * 1024);
+    assert_eq!(defaults.result_grace, Duration::from_secs(1));
+    assert_eq!(defaults.max_queue_wait, Duration::from_secs(1));
+    assert_eq!(defaults.stuck_grace, Duration::from_secs(2));
+    assert_eq!(defaults.max_abandoned_threads, 8);
+    assert_eq!(defaults.max_running_per_tenant, 1);
+    assert_eq!(defaults.max_queued_per_tenant, 8);
+}
+
+fn tenant_job(tenant: &str, mut job: ScriptJob) -> ScriptJob {
+    job.tenant = TenantKey::new(tenant);
+    job
+}
+
+fn quick(tenant: &str) -> ScriptJob {
+    tenant_job(tenant, job(compile("#{ vars: #{ ok: true } }")))
+}
+
+fn fair_pool(threads: usize, max_queue_wait: Duration) -> ScriptPool {
+    ScriptPool::new(PoolConfig {
+        threads,
+        max_queue_wait,
+        result_grace: Duration::from_secs(10),
+        ..PoolConfig::default()
+    })
+    .expect("pool starts")
+}
+
+#[test]
+fn the_execution_deadline_starts_when_a_worker_picks_the_job() {
+    let pool = fair_pool(1, Duration::from_secs(10));
+    let slow = pool
+        .submit(tenant_job("slow", spinner(Duration::from_millis(1500))))
+        .expect("first job");
+    wait_until(|| pool.stats().busy == 1);
+    let mut honest = quick("honest");
+    honest.limits.time = Duration::from_millis(500);
+    let queued = pool.submit(honest).expect("second job queues");
+    assert_eq!(slow.wait().expect_err("deadline"), ScriptError::Time);
+    let output = queued.wait().expect("the wait in the queue did not count");
+    assert_eq!(output.vars["ok"], json!(true));
+}
+
+#[test]
+fn a_job_that_waits_longer_than_the_queue_limit_is_rejected_with_queue_timeout() {
+    let pool = fair_pool(1, Duration::from_millis(150));
+    let blocker = pool
+        .submit(tenant_job("blocker", spinner(Duration::from_secs(4))))
+        .expect("first job");
+    wait_until(|| pool.stats().busy == 1);
+    let started = Instant::now();
+    let error = pool
+        .submit(quick("waiter"))
+        .expect("queued")
+        .wait()
+        .expect_err("expired in the queue");
+    assert_eq!(error, ScriptError::QueueTimeout);
+    assert_eq!(error.code(), "queue_timeout");
+    assert_eq!(error.outcome(), "time");
+    assert!(
+        started.elapsed() < Duration::from_millis(3500),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(pool.queued(), 0);
+    blocker.cancel();
+}
+
+#[test]
+fn per_tenant_limits_refuse_the_surplus_and_leave_other_tenants_alone() {
+    let pool = ScriptPool::new(PoolConfig {
+        threads: 2,
+        max_running_per_tenant: 1,
+        max_queued_per_tenant: 2,
+        max_queue_wait: Duration::from_secs(30),
+        result_grace: Duration::from_secs(30),
+        ..PoolConfig::default()
+    })
+    .expect("pool starts");
+    let long = || tenant_job("flood", spinner(Duration::from_secs(20)));
+    let running = pool.submit(long()).expect("running");
+    wait_until(|| pool.stats().busy == 1);
+    let held = [
+        running,
+        pool.submit(long()).expect("queued one"),
+        pool.submit(long()).expect("queued two"),
+    ];
+    let refused = pool.submit(long()).expect_err("queue_full");
+    assert_eq!(refused, ScriptError::QueueFull);
+    assert_eq!(refused.code(), "queue_full");
+    assert_eq!(pool.stats().busy, 1);
+    assert_eq!(pool.queued(), 2);
+    let output = pool
+        .run(quick("other"))
+        .expect("another tenant is served at once");
+    assert_eq!(output.vars["ok"], json!(true));
+    for pending in &held {
+        pending.cancel();
+    }
+}
+
+#[test]
+fn a_flooding_tenant_does_not_starve_an_honest_one() {
+    let pool = Arc::new(fair_pool(2, Duration::from_secs(1)));
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flooder = {
+        let pool = Arc::clone(&pool);
+        let stop = Arc::clone(&stop);
+        std::thread::spawn(move || {
+            let mut kept = Vec::new();
+            let mut refused = 0_u32;
+            while !stop.load(std::sync::atomic::Ordering::SeqCst) {
+                match pool.submit(tenant_job("flood", spinner(Duration::from_millis(100)))) {
+                    Ok(pending) => kept.push(pending),
+                    Err(ScriptError::QueueFull) => refused += 1,
+                    Err(error) => panic!("unexpected {error:?}"),
+                }
+                std::thread::sleep(Duration::from_millis(3));
+            }
+            refused
+        })
+    };
+    wait_until(|| pool.stats().busy >= 1);
+    let mut slowest = Duration::ZERO;
+    for _ in 0..12 {
+        let started = Instant::now();
+        let output = pool.run(quick("honest")).expect("honest runs are served");
+        assert_eq!(output.vars["ok"], json!(true));
+        slowest = slowest.max(started.elapsed());
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    stop.store(true, std::sync::atomic::Ordering::SeqCst);
+    let refused = flooder.join().expect("flooder finishes");
+    assert!(refused > 0, "the flood was never refused");
+    assert!(slowest < Duration::from_secs(2), "{slowest:?}");
+    assert_eq!(pool.stats().stuck_workers, 0);
+}
+
+#[test]
+fn queued_jobs_are_taken_round_robin_across_tenants() {
+    let pool = Arc::new(fair_pool(1, Duration::from_secs(30)));
+    let blocker = pool
+        .submit(tenant_job("blocker", spinner(Duration::from_millis(1500))))
+        .expect("occupies the worker");
+    wait_until(|| pool.stats().busy == 1);
+    let order = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let mut waiters = Vec::new();
+    for (tenant, label) in [("a", "a1"), ("a", "a2"), ("a", "a3"), ("b", "b1")] {
+        let pending = pool
+            .submit(tenant_job(tenant, spinner(Duration::from_millis(150))))
+            .expect("queued");
+        let order = Arc::clone(&order);
+        waiters.push(std::thread::spawn(move || {
+            let result = pending.wait();
+            order.lock().expect("lock").push(label);
+            result
+        }));
+    }
+    assert_eq!(blocker.wait().expect_err("deadline"), ScriptError::Time);
+    for waiter in waiters {
+        assert_eq!(
+            waiter.join().expect("waiter").expect_err("deadline"),
+            ScriptError::Time
+        );
+    }
+    let order = order.lock().expect("lock").clone();
+    assert_eq!(order, vec!["a1", "b1", "a2", "a3"]);
+}
+
+#[test]
+fn two_pools_do_not_share_state() {
+    let first = ScriptPool::new(PoolConfig {
+        threads: 1,
+        max_queued_per_tenant: 1,
+        ..PoolConfig::default()
+    })
+    .expect("first pool");
+    let second = fair_pool(1, Duration::from_secs(1));
+    let hold = first
+        .submit(tenant_job("shared", spinner(Duration::from_secs(20))))
+        .expect("running in the first pool");
+    wait_until(|| first.stats().busy == 1);
+    let queued = first
+        .submit(tenant_job("shared", spinner(Duration::from_secs(20))))
+        .expect("queued in the first pool");
+    assert_eq!(
+        first
+            .submit(tenant_job("shared", spinner(Duration::from_secs(1))))
+            .expect_err("the first pool is full for this tenant"),
+        ScriptError::QueueFull
+    );
+    let output = second
+        .run(quick("shared"))
+        .expect("the second pool does not see the first one's tenant limits");
+    assert_eq!(output.vars["ok"], json!(true));
+    assert_eq!(second.stats().stuck_workers, 0);
+    assert_eq!(second.queued(), 0);
+    first.shutdown();
+    assert_eq!(
+        second.run(quick("shared")).expect("still alive").vars["ok"],
+        json!(true)
+    );
+    hold.cancel();
+    queued.cancel();
 }
 
 #[test]

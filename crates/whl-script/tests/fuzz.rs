@@ -113,7 +113,7 @@ fn limits() -> RunLimits {
         max_operations: 200_000,
         time: DEADLINE,
         memory_bytes: 8 * 1024 * 1024,
-        ..RunLimits::default()
+        ..roomy()
     }
 }
 
@@ -125,7 +125,7 @@ proptest! {
         match compiler().compile(&source) {
             Err(error) => {
                 prop_assert!(!error.diagnostics.is_empty());
-                prop_assert!(error.diagnostics.len() <= whl_script::MAX_DIAGNOSTICS);
+                prop_assert_eq!(error.diagnostics.len(), 1);
                 for diagnostic in &error.diagnostics {
                     prop_assert!(diagnostic.position.line >= 1);
                     prop_assert!(diagnostic.position.column >= 1);

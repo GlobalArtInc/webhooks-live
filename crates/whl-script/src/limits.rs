@@ -3,14 +3,15 @@ use std::time::Duration;
 use thiserror::Error;
 
 pub const MAX_SOURCE_BYTES: usize = 16 * 1024;
-pub const MAX_DIAGNOSTICS: usize = 50;
 pub const BEFORE_RESPONSE_OPERATIONS: u64 = 100_000;
 pub const AFTER_RESPONSE_OPERATIONS: u64 = 1_000_000;
 pub const BEFORE_RESPONSE_TIME: Duration = Duration::from_millis(100);
 pub const AFTER_RESPONSE_TIME: Duration = Duration::from_secs(1);
 pub const DEFAULT_MEMORY_BYTES: usize = 32 * 1024 * 1024;
 pub const DEFAULT_LOG_BYTES: usize = 4 * 1024;
-pub const DEADLINE_CHECK_INTERVAL: u64 = 1024;
+pub const DEADLINE_CHECK_INTERVAL: u64 = 16;
+pub const MAX_MAP_KEY_BYTES: usize = 256;
+pub const MAX_CONTAINER_ITEMS: usize = 4096;
 pub const MAX_CALL_LEVELS_CEILING: usize = 64;
 pub const MAX_EXPRESSION_DEPTH_CEILING: usize = 128;
 pub const MAX_COMPILE_MEMORY_BYTES: usize = 32 * 1024 * 1024;
@@ -38,6 +39,7 @@ pub struct EngineLimits {
     pub max_string_bytes: usize,
     pub max_array_size: usize,
     pub max_map_size: usize,
+    pub max_map_key_bytes: usize,
     pub max_functions: usize,
     pub max_variables: usize,
 }
@@ -50,8 +52,9 @@ impl Default for EngineLimits {
             max_expression_depth: 64,
             max_function_expression_depth: 32,
             max_string_bytes: 16 * 1024,
-            max_array_size: 256,
-            max_map_size: 256,
+            max_array_size: MAX_CONTAINER_ITEMS,
+            max_map_size: MAX_CONTAINER_ITEMS,
+            max_map_key_bytes: MAX_MAP_KEY_BYTES,
             max_functions: 32,
             max_variables: 128,
         }
@@ -100,6 +103,7 @@ impl EngineLimits {
         ceiling("max_string_bytes", widen(self.max_string_bytes), 1 << 20)?;
         ceiling("max_array_size", widen(self.max_array_size), 1 << 16)?;
         ceiling("max_map_size", widen(self.max_map_size), 1 << 16)?;
+        ceiling("max_map_key_bytes", widen(self.max_map_key_bytes), 1 << 12)?;
         ceiling("max_functions", widen(self.max_functions), 1024)?;
         ceiling("max_variables", widen(self.max_variables), 4096)?;
         Ok(())

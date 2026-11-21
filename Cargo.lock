@@ -560,6 +560,7 @@ dependencies = [
  "castaway",
  "cfg-if",
  "itoa",
+ "serde",
  "static_assertions",
  "zmij",
 ]
@@ -3074,6 +3075,8 @@ dependencies = [
  "num-traits",
  "once_cell",
  "rhai_codegen",
+ "serde",
+ "serde_json",
  "smallvec",
  "smartstring",
  "thin-vec",
@@ -4943,6 +4946,7 @@ dependencies = [
  "thiserror 2.0.21",
  "time",
  "uuid",
+ "whl-core",
 ]
 
 [[package]]

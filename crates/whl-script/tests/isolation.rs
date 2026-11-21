@@ -46,7 +46,7 @@ fn different_seeds_or_inputs_give_different_results() {
     seeded(&mut first, b"one");
     let mut second = job(script.clone());
     seeded(&mut second, b"two");
-    let mut third = job_with(script, json!({"method": "PUT"}), RunLimits::default());
+    let mut third = job_with(script, json!({"method": "PUT"}), roomy());
     seeded(&mut third, b"one");
     let first = pool.run(first).expect("run");
     let second = pool.run(second).expect("run");
@@ -141,7 +141,7 @@ fn an_aborted_run_leaves_no_residue_for_the_next_one_on_the_same_worker() {
     let tight = RunLimits {
         memory_bytes: 512 * 1024,
         time: Duration::from_secs(30),
-        ..RunLimits::default()
+        ..roomy()
     };
     let error = run_with(
         &pool,
@@ -155,7 +155,7 @@ fn an_aborted_run_leaves_no_residue_for_the_next_one_on_the_same_worker() {
     let spin = RunLimits {
         max_operations: u64::MAX / 2,
         time: Duration::from_millis(30),
-        ..RunLimits::default()
+        ..roomy()
     };
     assert_eq!(
         run_with(&pool, "loop {}", spin).expect_err("time"),
@@ -189,11 +189,7 @@ fn one_compiled_script_shared_across_threads_never_mixes_inputs() {
             std::thread::spawn(move || {
                 for round in 0..25 {
                     let marker = format!("thread-{worker}-round-{round}");
-                    let input = job_with(
-                        script.clone(),
-                        json!({ "marker": marker }),
-                        RunLimits::default(),
-                    );
+                    let input = job_with(script.clone(), json!({ "marker": marker }), roomy());
                     let output = pool.run(input).expect("run");
                     assert_eq!(output.vars["marker"], json!(marker));
                     assert_eq!(output.vars.len(), 2);
@@ -240,9 +236,46 @@ fn nothing_that_smells_like_io_exists() {
         "read_line",
         "input",
         "print_stderr",
+        "exit",
+        "take",
+        "tag",
+        "set_tag",
+        "parse_json",
+        "get_fn_metadata_list",
+        "elapsed",
+    ];
+    let argument_lists = [
+        "",
+        "1",
+        "0",
+        "-1",
+        "9223372036854775807",
+        "0.001",
+        "1.0e300",
+        "\"/etc/passwd\"",
+        "\"\"",
+        "'c'",
+        "true",
+        "()",
+        "[]",
+        "#{}",
+        "1, 2",
+        "\"a\", \"b\"",
+        "1, \"a\"",
+        "1, 2, 3",
+        "\"a\", 1, 2",
+        "1, 2, 3, 4",
     ];
     for name in names {
-        for call in [format!("{name}()"), format!("{name}(\"/etc/passwd\")")] {
+        let calls = argument_lists.iter().flat_map(|arguments| {
+            let method = if arguments.is_empty() {
+                format!("let target = 1; target.{name}()")
+            } else {
+                format!("let target = 1; target.{name}({arguments})")
+            };
+            [format!("{name}({arguments})"), method]
+        });
+        for call in calls {
             match compiler().compile(&call) {
                 Err(error) => {
                     assert_eq!(
@@ -269,6 +302,31 @@ fn nothing_that_smells_like_io_exists() {
 }
 
 #[test]
+fn a_sleep_cannot_hold_a_worker_and_the_value_tag_is_not_reachable() {
+    let pool = pool(2, 8);
+    let started = std::time::Instant::now();
+    for _ in 0..4 {
+        let error = run(&pool, "sleep(9223372036854775807); #{}").expect_err("no sleep");
+        assert_eq!(error.code(), "undefined_function", "{error}");
+    }
+    for source in [
+        "let x = 1; x.tag",
+        "let x = 1; x.tag = 5; x",
+        "let x = [1]; let y = x.take(); y",
+    ] {
+        let error = run(&pool, source).expect_err(source);
+        assert!(
+            matches!(error.code(), "undefined_function" | "runtime"),
+            "{source}: {error}"
+        );
+    }
+    let output = run(&pool, "#{ vars: #{ alive: true } }").expect("the pool still works");
+    assert_eq!(output.vars["alive"], json!(true));
+    assert!(started.elapsed() < Duration::from_secs(5));
+    assert_eq!(pool.stats().stuck_workers, 0);
+}
+
+#[test]
 fn diagnostics_carry_line_column_and_offset() {
     let compiler = compiler();
     let source = "let a = 1;\nlet b = ;\nlet c = 3;";
@@ -282,7 +340,6 @@ fn diagnostics_carry_line_column_and_offset() {
         source.find("= ;").expect("error site") + 2
     );
     assert_eq!(diagnostic.position.length, 1);
-    assert!(!error.truncated);
     assert_eq!(error.diagnostics.len(), 1);
     assert_eq!(diagnostic.code.field_code(), "script_invalid");
 }
@@ -322,7 +379,7 @@ fn diagnostics_cover_incomplete_and_undefined_input() {
     let error = compiler
         .compile("let s = \"open")
         .expect_err("unterminated");
-    assert!(error.diagnostics.len() <= whl_script::MAX_DIAGNOSTICS);
+    assert_eq!(error.diagnostics.len(), 1);
 }
 
 #[test]
@@ -393,7 +450,7 @@ fn the_cache_bounds_total_weight_skips_failures_and_respects_limit_changes() {
         .get_or_compile(&pool, &compiler, "2")
         .expect("compile");
     assert_eq!(cache.stats().entries, 1);
-    assert!(cache.stats().weight_bytes <= 1500);
+    assert_eq!(cache.stats().weight_bytes, 128 + 1024);
 
     let large = format!("let long_name = 1; {}", " ".repeat(100));
     cache

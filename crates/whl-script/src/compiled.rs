@@ -111,7 +111,6 @@ impl ScriptCompiler {
 fn single(diagnostic: Diagnostic) -> CompileError {
     CompileError {
         diagnostics: vec![diagnostic],
-        truncated: false,
     }
 }
 

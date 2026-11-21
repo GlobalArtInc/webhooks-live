@@ -6,7 +6,8 @@ use common::*;
 use serde_json::{Value, json};
 use time::macros::datetime;
 use whl_script::{
-    MAX_RESPONSE_HEADERS, RandomSeed, RunLimits, ScriptError, ScriptResponse, SeededRandom,
+    MAX_HEADER_NAME_BYTES, MAX_HEADER_VALUE_BYTES, MAX_RESPONSE_HEADERS, RandomSeed, RunLimits,
+    ScriptError, ScriptResponse, SeededRandom,
 };
 
 fn vars(source: &str) -> Value {
@@ -28,22 +29,36 @@ fn request_fields_are_readable_and_missing_ones_are_unit() {
 }
 
 #[test]
-fn the_request_is_read_only() {
-    for source in [
-        "request.method = \"GET\"; ()",
-        "request.headers.extra = 1; ()",
-        "request.headers[\"x-event\"] = \"other\"; ()",
-    ] {
-        let error = failure(source);
-        assert_eq!(error.code(), "runtime", "{source}");
-        let text = error.to_string();
-        assert!(
-            text.contains("read-only request") || text.contains("constant"),
-            "{source}: {text}"
-        );
+fn direct_assignments_to_the_request_are_refused() {
+    for source in ["request.method = \"GET\"; ()", "request = 5;"] {
+        let text = failure(source).to_string();
+        assert!(text.contains("constant"), "{source}: {text}");
     }
-    assert_eq!(failure("request = 5;").code(), "runtime");
-    assert_eq!(failure("request.headers.clear(); ()").code(), "runtime");
+}
+
+#[test]
+fn mutating_or_shadowing_the_request_inside_the_script_never_reaches_the_host() {
+    let pool = pool(1, 4);
+    let original = default_request();
+    let probe = "#{ vars: #{ method: request.method, event: request.headers[\"x-event\"], count: request.headers.len() } }";
+    for source in [
+        "request.headers[\"e\"] = \"1\"; ()",
+        "request.headers.extra = 1; ()",
+        "request.headers.clear(); ()",
+        "request.headers[\"e\"] = \"1\"; let request = #{ method: \"POST\" }; ()",
+        "let request = #{ forged: true }; #{ vars: #{ seen: request } }",
+    ] {
+        let first = pool.run(job_with(compile(source), original.clone(), roomy()));
+        if let Err(error) = &first {
+            assert_eq!(error.code(), "runtime", "{source}");
+        }
+        let fresh = pool
+            .run(job_with(compile(probe), original.clone(), roomy()))
+            .expect("a fresh run sees the pristine request");
+        assert_eq!(fresh.vars["method"], json!("POST"), "{source}");
+        assert_eq!(fresh.vars["event"], json!("push"), "{source}");
+        assert_eq!(fresh.vars["count"], json!(1), "{source}");
+    }
 }
 
 #[test]
@@ -226,7 +241,7 @@ fn the_response_is_extracted_and_validated() {
     );
     let output = run(
         &pool,
-        "#{ response: #{ headers: [#{ name: \"Set-Cookie\", value: \"a=1\" }, #{ name: \"Set-Cookie\", value: \"b=2\" }] } }",
+        r#"#{ response: #{ headers: [#{ name: "X-One", value: "a=1" }, #{ name: "X-Two", value: "b=2" }] } }"#,
     )
     .expect("run");
     let response = output.response.expect("response");
@@ -235,29 +250,170 @@ fn the_response_is_extracted_and_validated() {
 }
 
 #[test]
-fn an_invalid_response_is_refused_with_a_named_error() {
+fn a_structurally_broken_response_is_refused_with_a_named_error() {
     for source in [
-        "#{ response: #{ status: 99 } }",
-        "#{ response: #{ status: 600 } }",
-        "#{ response: #{ status: \"200\" } }",
+        r#"#{ response: #{ status: "200" } }"#,
         "#{ response: #{ body: 5 } }",
         "#{ response: #{ unknown: 1 } }",
         "#{ response: 5 }",
-        "#{ response: #{ headers: #{ \"X-A\": \"a\\nb\" } } }",
-        "#{ response: #{ headers: #{ \"bad name\": \"a\" } } }",
-        "#{ response: #{ headers: #{ \"\": \"a\" } } }",
-        "#{ response: #{ content_type: \"a\\r\\nb\" } }",
+        "#{ response: #{ headers: 5 } }",
         "#{ other: 1 }",
         "5",
-        "\"text\"",
+        r#""text""#,
     ] {
         assert_eq!(failure(source).code(), "invalid_result", "{source}");
     }
+}
+
+fn violations(source: &str) -> Vec<(String, &'static str)> {
+    match failure(source) {
+        ScriptError::InvalidResponse(found) => found
+            .into_iter()
+            .map(|violation| (violation.field, violation.code))
+            .collect(),
+        other => panic!("{source}: expected invalid_response, got {other:?}"),
+    }
+}
+
+#[test]
+fn response_violations_follow_the_core_rules_and_are_reported_together() {
+    let source = r#"#{ response: #{ status: 101, content_type: "nonsense", headers: [
+        #{ name: "Set-Cookie", value: "a=1" },
+        #{ name: "Content-Length", value: "5" },
+        #{ name: "Transfer-Encoding", value: "chunked" },
+        #{ name: "x\"y", value: "v" },
+        #{ name: "A", value: "1" },
+        #{ name: "a", value: "2" },
+        #{ name: "X-Value", value: "line\nbreak" }] } }"#;
+    let found = violations(source);
+    let has = |field: &str, code: &str| {
+        found
+            .iter()
+            .any(|(name, kind)| name == field && *kind == code)
+    };
+    assert!(
+        has("response.content_type", "invalid_media_type"),
+        "{found:?}"
+    );
+    assert!(has("response.headers[0].name", "denied"), "{found:?}");
+    assert!(has("response.headers[1].name", "denied"), "{found:?}");
+    assert!(has("response.headers[2].name", "denied"), "{found:?}");
+    assert!(
+        has("response.headers[3].name", "invalid_token"),
+        "{found:?}"
+    );
+    assert!(has("response.headers[5].name", "duplicate"), "{found:?}");
+    assert!(
+        has("response.headers[6].value", "control_character"),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn duplicate_names_in_a_header_map_are_caught_case_insensitively() {
+    let found = violations(r#"#{ response: #{ headers: #{ "A": "1", "a": "2" } } }"#);
+    assert_eq!(
+        found,
+        vec![("response.headers[1].name".to_owned(), "duplicate")]
+    );
+}
+
+#[test]
+fn informational_and_out_of_range_statuses_follow_the_core_status_rule() {
+    let output = run(&pool(1, 4), "#{ response: #{ status: 101 } }").expect("101 passes");
+    assert_eq!(output.response.expect("response").status, Some(101));
+    for status in [99, 600, 0, -1, 70000] {
+        let found = violations(&format!("#{{ response: #{{ status: {status} }} }}"));
+        assert_eq!(found, vec![("response.status".to_owned(), "out_of_range")]);
+    }
+}
+
+const DENIED_HEADER_NAMES: &[&str] = &[
+    "Content-Length",
+    "Transfer-Encoding",
+    "Connection",
+    "Keep-Alive",
+    "Upgrade",
+    "Trailer",
+    "TE",
+    "Host",
+    "Set-Cookie",
+    "Set-Cookie2",
+    "X-Content-Type-Options",
+    "X-Request-Id",
+    "X-Endpoint-Id",
+    "Content-Type",
+    "Clear-Site-Data",
+    "Strict-Transport-Security",
+    "Cache-Control",
+    "Alt-Svc",
+    "Refresh",
+    "Content-Encoding",
+    "X-Frame-Options",
+    "Referrer-Policy",
+    "Permissions-Policy",
+    "Service-Worker-Allowed",
+    "Public-Key-Pins",
+    "Public-Key-Pins-Report-Only",
+    "Report-To",
+    "NEL",
+    "Origin-Trial",
+    "Document-Policy",
+    "WWW-Authenticate",
+    "Proxy-Authenticate",
+    "Accept-CH",
+    "Critical-CH",
+    "Set-Login",
+    "Proxy-Authorization",
+    "Content-Security-Policy",
+    "Content-Security-Policy-Report-Only",
+    "Access-Control-Allow-Origin",
+    "Cross-Origin-Opener-Policy",
+];
+
+#[test]
+fn every_denylisted_header_name_is_refused_in_any_case() {
+    let pool = pool(1, 4);
+    for name in DENIED_HEADER_NAMES {
+        for spelled in [
+            (*name).to_owned(),
+            name.to_ascii_lowercase(),
+            name.to_ascii_uppercase(),
+        ] {
+            let source = format!(r#"#{{ response: #{{ headers: #{{ "{spelled}": "v" }} }} }}"#);
+            match run(&pool, &source) {
+                Err(ScriptError::InvalidResponse(found)) => {
+                    assert_eq!(found.len(), 1, "{spelled}");
+                    assert_eq!(found[0].code, "denied", "{spelled}");
+                }
+                other => panic!("{spelled}: {other:?}"),
+            }
+        }
+    }
+}
+
+#[test]
+fn response_size_and_count_limits_follow_the_core_rules() {
+    let pool = pool(1, 4);
     let many: String = (0..=MAX_RESPONSE_HEADERS)
-        .map(|index| format!("\"h{index}\": \"v\","))
+        .map(|index| format!(r#""h{index}": "v","#))
         .collect();
-    let error = failure(&format!("#{{ response: #{{ headers: #{{ {many} }} }} }}"));
-    assert_eq!(error.code(), "invalid_result");
+    let found = violations(&format!("#{{ response: #{{ headers: #{{ {many} }} }} }}"));
+    assert_eq!(found, vec![("response.headers".to_owned(), "too_many")]);
+    let long_name = "n".repeat(MAX_HEADER_NAME_BYTES + 1);
+    let long_value = "v".repeat(MAX_HEADER_VALUE_BYTES + 1);
+    let source = format!(
+        r#"#{{ response: #{{ headers: #{{ "{long_name}": "v", "ok": "{long_value}" }} }} }}"#
+    );
+    let found = violations(&source);
+    assert_eq!(found.len(), 2, "{found:?}");
+    assert!(found.iter().all(|(_, code)| *code == "too_long"));
+    let allowed = run(
+        &pool,
+        r#"#{ response: #{ status: 200, content_type: "application/json; charset=utf-8", headers: #{ "X-Ok": "fine" } } }"#,
+    )
+    .expect("a valid response passes");
+    assert_eq!(allowed.response.expect("response").status, Some(200));
 }
 
 #[test]
@@ -282,12 +438,12 @@ fn printed_and_debugged_lines_reach_the_log() {
 fn inputs_that_are_not_objects_or_are_too_large_are_refused() {
     let pool = pool(1, 4);
     let error = pool
-        .run(job_with(compile("()"), json!([1, 2]), RunLimits::default()))
+        .run(job_with(compile("()"), json!([1, 2]), roomy()))
         .expect_err("not an object");
     assert_eq!(error.code(), "invalid_input");
     let limits = RunLimits {
         max_input_bytes: 100,
-        ..RunLimits::default()
+        ..roomy()
     };
     let error = pool
         .run(job_with(
@@ -296,15 +452,60 @@ fn inputs_that_are_not_objects_or_are_too_large_are_refused() {
             limits,
         ))
         .expect_err("too large");
-    assert_eq!(error.code(), "invalid_input");
+    assert_eq!(error.code(), "input_too_large");
     let mut deep = json!(1);
     for _ in 0..50 {
         deep = json!({ "k": deep });
     }
     let error = pool
-        .run(job_with(compile("()"), deep, RunLimits::default()))
+        .run(job_with(compile("()"), deep, roomy()))
         .expect_err("too deep");
-    assert_eq!(error.code(), "invalid_input");
+    assert_eq!(error.code(), "input_too_large");
+}
+
+fn array_request(items: usize) -> serde_json::Value {
+    json!({ "arr": (0..items).collect::<Vec<_>>() })
+}
+
+#[test]
+fn a_large_input_array_is_usable_and_an_oversized_one_is_refused_before_the_script_runs() {
+    let pool = pool(1, 4);
+    for items in [299, 3000, 4096] {
+        let output = pool
+            .run(job_with(
+                compile(
+                    "let copy = request.arr; #{ vars: #{ n: request.arr.len(), m: copy.len() } }",
+                ),
+                array_request(items),
+                roomy(),
+            ))
+            .expect("the array is readable");
+        assert_eq!(output.vars["n"], json!(items));
+        assert_eq!(output.vars["m"], json!(items));
+    }
+    let error = pool
+        .run(job_with(
+            compile("try { request.arr.len() } catch { 0 }"),
+            array_request(5000),
+            roomy(),
+        ))
+        .expect_err("too many items");
+    assert_eq!(error.code(), "input_too_large");
+    assert!(error.to_string().contains("4096"), "{error}");
+}
+
+#[test]
+fn an_input_map_key_longer_than_the_cap_is_refused_before_the_script_runs() {
+    let pool = pool(1, 4);
+    let mut request = default_request();
+    request["headers"] = json!({ "k".repeat(256): "ok" });
+    pool.run(job_with(compile("()"), request.clone(), roomy()))
+        .expect("a key at the cap is accepted");
+    request["headers"] = json!({ "k".repeat(257): "too long" });
+    let error = pool
+        .run(job_with(compile("()"), request, roomy()))
+        .expect_err("key above the cap");
+    assert_eq!(error.code(), "input_too_large");
 }
 
 #[test]
@@ -316,7 +517,7 @@ fn a_large_input_string_is_readable_but_cannot_be_grown_past_the_string_limit() 
         .run(job_with(
             compile("#{ vars: #{ n: request.body.len() } }"),
             request.clone(),
-            RunLimits::default(),
+            roomy(),
         ))
         .expect("readable");
     assert_eq!(output.vars["n"], json!(40_000));
@@ -326,7 +527,7 @@ fn a_large_input_string_is_readable_but_cannot_be_grown_past_the_string_limit() 
             request,
             RunLimits {
                 time: Duration::from_secs(5),
-                ..RunLimits::default()
+                ..roomy()
             },
         ))
         .expect_err("grown");
@@ -342,7 +543,7 @@ fn secrets_stay_out_of_debug_output() {
     let input = job_with(
         compile("()"),
         json!({"authorization": "Bearer top-secret"}),
-        RunLimits::default(),
+        roomy(),
     );
     assert!(!format!("{input:?}").contains("top-secret"));
 }

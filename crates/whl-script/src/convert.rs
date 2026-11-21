@@ -2,7 +2,6 @@ use std::io::Write;
 
 use rhai::{Array, Dynamic, ImmutableString, Map};
 use serde_json::{Number, Value};
-use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
@@ -15,10 +14,12 @@ pub(crate) enum ConvertError {
     TooManyBytes(usize),
     #[error("a string is longer than {0} bytes")]
     StringTooLarge(usize),
-    #[error("an array is longer than {0} items")]
+    #[error("arrays hold more than {0} items in total")]
     ArrayTooLarge(usize),
-    #[error("a map has more than {0} entries")]
+    #[error("maps hold more than {0} entries in total")]
     MapTooLarge(usize),
+    #[error("a map key is longer than {0} bytes")]
+    KeyTooLarge(usize),
     #[error("a number is not finite")]
     NotFinite,
     #[error("a value of type {0} cannot be represented as JSON")]
@@ -33,12 +34,15 @@ pub(crate) struct ConvertLimits {
     pub max_string_bytes: usize,
     pub max_array_len: usize,
     pub max_map_len: usize,
+    pub max_key_bytes: usize,
 }
 
 struct Walker {
     limits: ConvertLimits,
     nodes: usize,
     bytes: usize,
+    array_items: usize,
+    map_entries: usize,
 }
 
 impl Walker {
@@ -47,7 +51,25 @@ impl Walker {
             limits,
             nodes: 0,
             bytes: 0,
+            array_items: 0,
+            map_entries: 0,
         }
+    }
+
+    fn array_items(&mut self, count: usize) -> Result<(), ConvertError> {
+        self.array_items = self.array_items.saturating_add(count);
+        if self.array_items > self.limits.max_array_len {
+            return Err(ConvertError::ArrayTooLarge(self.limits.max_array_len));
+        }
+        Ok(())
+    }
+
+    fn map_entries(&mut self, count: usize) -> Result<(), ConvertError> {
+        self.map_entries = self.map_entries.saturating_add(count);
+        if self.map_entries > self.limits.max_map_len {
+            return Err(ConvertError::MapTooLarge(self.limits.max_map_len));
+        }
+        Ok(())
     }
 
     fn node(&mut self, depth: usize) -> Result<(), ConvertError> {
@@ -62,6 +84,9 @@ impl Walker {
     }
 
     fn text(&mut self, length: usize, key: bool) -> Result<(), ConvertError> {
+        if key && length > self.limits.max_key_bytes {
+            return Err(ConvertError::KeyTooLarge(self.limits.max_key_bytes));
+        }
         if !key && length > self.limits.max_string_bytes {
             return Err(ConvertError::StringTooLarge(self.limits.max_string_bytes));
         }
@@ -83,9 +108,7 @@ impl Walker {
                 Dynamic::from(text.clone())
             }
             Value::Array(items) => {
-                if items.len() > self.limits.max_array_len {
-                    return Err(ConvertError::ArrayTooLarge(self.limits.max_array_len));
-                }
+                self.array_items(items.len())?;
                 let mut array = Array::with_capacity(items.len());
                 for item in items {
                     array.push(self.json_to_dynamic(item, depth + 1)?);
@@ -101,9 +124,7 @@ impl Walker {
         entries: &serde_json::Map<String, Value>,
         depth: usize,
     ) -> Result<Dynamic, ConvertError> {
-        if entries.len() > self.limits.max_map_len {
-            return Err(ConvertError::MapTooLarge(self.limits.max_map_len));
-        }
+        self.map_entries(entries.len())?;
         let mut map = Map::new();
         for (key, item) in entries {
             self.text(key.len(), true)?;
@@ -138,9 +159,7 @@ impl Walker {
             return Ok(Value::String(text.as_str().to_owned()));
         }
         if let Some(array) = value.read_lock::<Array>() {
-            if array.len() > self.limits.max_array_len {
-                return Err(ConvertError::ArrayTooLarge(self.limits.max_array_len));
-            }
+            self.array_items(array.len())?;
             let mut items = Vec::with_capacity(array.len());
             for item in array.iter() {
                 items.push(self.dynamic_to_json(item, depth + 1)?);
@@ -148,9 +167,7 @@ impl Walker {
             return Ok(Value::Array(items));
         }
         if let Some(map) = value.read_lock::<Map>() {
-            if map.len() > self.limits.max_map_len {
-                return Err(ConvertError::MapTooLarge(self.limits.max_map_len));
-            }
+            self.map_entries(map.len())?;
             let mut entries = serde_json::Map::new();
             for (key, item) in map.iter() {
                 self.text(key.len(), true)?;
@@ -201,66 +218,6 @@ pub(crate) fn dynamic_to_json(
     limits: ConvertLimits,
 ) -> Result<Value, ConvertError> {
     Walker::new(limits).dynamic_to_json(value, 0)
-}
-
-const FINGERPRINT_MAX_DEPTH: usize = 64;
-
-fn feed_length(hasher: &mut Sha256, length: usize) {
-    hasher.update(u64::try_from(length).unwrap_or(u64::MAX).to_le_bytes());
-}
-
-fn fingerprint_into(hasher: &mut Sha256, value: &Dynamic, depth: usize) -> bool {
-    if depth > FINGERPRINT_MAX_DEPTH {
-        return false;
-    }
-    if value.is_unit() {
-        hasher.update([0u8]);
-    } else if let Ok(flag) = value.as_bool() {
-        hasher.update([1u8, u8::from(flag)]);
-    } else if let Ok(number) = value.as_int() {
-        hasher.update([2u8]);
-        hasher.update(number.to_le_bytes());
-    } else if let Ok(number) = value.as_float() {
-        hasher.update([3u8]);
-        hasher.update(number.to_bits().to_le_bytes());
-    } else if let Ok(character) = value.as_char() {
-        hasher.update([4u8]);
-        hasher.update(u32::from(character).to_le_bytes());
-    } else if let Some(text) = value.read_lock::<ImmutableString>() {
-        hasher.update([5u8]);
-        feed_length(hasher, text.len());
-        hasher.update(text.as_bytes());
-    } else if let Some(array) = value.read_lock::<Array>() {
-        hasher.update([6u8]);
-        feed_length(hasher, array.len());
-        for item in array.iter() {
-            if !fingerprint_into(hasher, item, depth + 1) {
-                return false;
-            }
-        }
-    } else if let Some(map) = value.read_lock::<Map>() {
-        hasher.update([7u8]);
-        feed_length(hasher, map.len());
-        for (key, item) in map.iter() {
-            feed_length(hasher, key.len());
-            hasher.update(key.as_bytes());
-            if !fingerprint_into(hasher, item, depth + 1) {
-                return false;
-            }
-        }
-    } else {
-        return false;
-    }
-    true
-}
-
-pub(crate) fn fingerprint(value: &Dynamic) -> Option<[u8; 32]> {
-    let mut hasher = Sha256::new();
-    if fingerprint_into(&mut hasher, value, 0) {
-        Some(hasher.finalize().into())
-    } else {
-        None
-    }
 }
 
 pub(crate) struct BoundedWriter {

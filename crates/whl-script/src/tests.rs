@@ -9,7 +9,7 @@ use time::OffsetDateTime;
 use crate::pool::submit_extended;
 use crate::{
     CountingAlloc, EngineLimits, MemoryWindow, PoolConfig, RandomSeed, RunLimits, ScriptCompiler,
-    ScriptError, ScriptJob, ScriptPool, SeededRandom, SystemClock, allocator_installed,
+    ScriptError, ScriptJob, ScriptPool, SeededRandom, SystemClock, TenantKey, allocator_installed,
     memory_exceeded,
 };
 
@@ -17,6 +17,13 @@ use crate::{
 static ALLOCATOR: CountingAlloc<System> = CountingAlloc::new(System);
 
 const MIB: usize = 1024 * 1024;
+
+fn roomy() -> RunLimits {
+    RunLimits {
+        time: Duration::from_secs(20),
+        ..RunLimits::default()
+    }
+}
 
 fn allocate(bytes: usize) -> Vec<u8> {
     std::hint::black_box(Vec::<u8>::with_capacity(bytes))
@@ -37,6 +44,7 @@ fn hog_extension(engine: &mut Engine) {
 fn job(source: &str, limits: RunLimits) -> ScriptJob {
     let compiler = ScriptCompiler::new(EngineLimits::default()).expect("limits are valid");
     ScriptJob {
+        tenant: TenantKey::new("unit"),
         script: compiler.compile(source).expect("script compiles"),
         request: serde_json::json!({}),
         vars: serde_json::Map::new(),
@@ -189,7 +197,7 @@ fn a_host_function_that_allocates_past_the_budget_fails_the_run_without_taking_d
     let pool = pool(1);
     let limits = RunLimits {
         memory_bytes: MIB,
-        ..RunLimits::default()
+        ..roomy()
     };
     let result = submit_extended(
         &pool,
@@ -202,7 +210,7 @@ fn a_host_function_that_allocates_past_the_budget_fails_the_run_without_taking_d
 
     let huge = submit_extended(
         &pool,
-        job("hog(64 * 1024 * 1024); ()", RunLimits::default()),
+        job("hog(64 * 1024 * 1024); ()", roomy()),
         &hog_extension,
     )
     .expect("submitted")
@@ -212,7 +220,7 @@ fn a_host_function_that_allocates_past_the_budget_fails_the_run_without_taking_d
         ScriptError::Memory
     );
 
-    let follow_up = pool.run(job("#{ vars: #{ ok: true } }", RunLimits::default()));
+    let follow_up = pool.run(job("#{ vars: #{ ok: true } }", roomy()));
     assert!(follow_up.is_ok());
 }
 
@@ -221,7 +229,7 @@ fn a_host_function_within_the_budget_succeeds() {
     let pool = pool(1);
     let result = submit_extended(
         &pool,
-        job("#{ vars: #{ n: hog(1024 * 1024) } }", RunLimits::default()),
+        job("#{ vars: #{ n: hog(1024 * 1024) } }", roomy()),
         &hog_extension,
     )
     .expect("submitted")
@@ -234,20 +242,16 @@ fn a_host_function_within_the_budget_succeeds() {
 #[test]
 fn a_panic_inside_a_script_run_is_reported_and_the_worker_survives() {
     let pool = pool(1);
-    let result = submit_extended(
-        &pool,
-        job("boom(); ()", RunLimits::default()),
-        &hog_extension,
-    )
-    .expect("submitted")
-    .wait();
+    let result = submit_extended(&pool, job("boom(); ()", roomy()), &hog_extension)
+        .expect("submitted")
+        .wait();
     let error = result.expect_err("the host function panicked");
     assert_eq!(error, ScriptError::Panic);
     assert_eq!(error.code(), "script_panic");
     assert_eq!(error.outcome(), "panic");
     assert!(!memory_exceeded());
 
-    let follow_up = pool.run(job("#{ vars: #{ alive: true } }", RunLimits::default()));
+    let follow_up = pool.run(job("#{ vars: #{ alive: true } }", roomy()));
     assert!(follow_up.is_ok());
 }
 
@@ -256,7 +260,7 @@ fn scripts_run_on_the_dedicated_pool_threads_with_the_configured_stack() {
     let pool = pool(2);
     let output = submit_extended(
         &pool,
-        job("#{ vars: #{ name: thread_name() } }", RunLimits::default()),
+        job("#{ vars: #{ name: thread_name() } }", roomy()),
         &hog_extension,
     )
     .expect("submitted")
@@ -271,11 +275,43 @@ fn scripts_run_on_the_dedicated_pool_threads_with_the_configured_stack() {
 fn a_panic_outside_the_script_run_is_caught_by_the_worker() {
     let pool = pool(1);
     let pending = pool
-        .submit_task(Duration::from_secs(5), |_, _| -> Result<(), ScriptError> {
+        .submit_internal(Duration::from_secs(5), |_, _| -> Result<(), ScriptError> {
             panic!("task failure")
         })
         .expect("submitted");
     assert_eq!(pending.wait().expect_err("panicked"), ScriptError::Panic);
-    let follow_up = pool.run(job("()", RunLimits::default()));
+    let follow_up = pool.run(job("()", roomy()));
     assert!(follow_up.is_ok());
+}
+
+struct CountingClock {
+    reads: std::sync::atomic::AtomicU64,
+}
+
+impl crate::MonotonicClock for CountingClock {
+    fn elapsed(&self) -> Duration {
+        self.reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Duration::ZERO
+    }
+}
+
+#[test]
+fn the_clock_is_read_at_most_every_sixteenth_operation() {
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
+    assert_eq!(crate::DEADLINE_CHECK_INTERVAL, 16);
+    let clock = Arc::new(CountingClock {
+        reads: AtomicU64::new(0),
+    });
+    let guard = crate::guard::RunGuard::new(
+        clock.clone(),
+        Duration::from_secs(60),
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(AtomicBool::new(false)),
+        1 << 20,
+    );
+    for operations in 1..=1600_u64 {
+        assert!(guard.progress(operations).is_none());
+    }
+    assert_eq!(clock.reads.load(Ordering::SeqCst), 100);
 }

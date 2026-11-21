@@ -5,7 +5,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use hmac::{Hmac, KeyInit, Mac};
 use regex::{Regex, RegexBuilder};
-use rhai::{Array, Dynamic, Engine, EvalAltResult, ImmutableString, Position};
+use rhai::{Array, Dynamic, Engine, EvalAltResult, ImmutableString, Map, Position};
 use sha2::{Digest, Sha256};
 
 use crate::convert::{
@@ -18,19 +18,21 @@ const MAX_REGEX_PATTERN_BYTES: usize = 512;
 const MAX_REGEX_PATTERNS: usize = 8;
 const REGEX_COMPILE_COST: usize = 16 * 1024;
 const REGEX_NEST_LIMIT: u32 = 32;
-const REGEX_PROBE_START_BYTES: usize = 8 * 1024;
+const REGEX_PROBE_START_BYTES: usize = 1024;
 const REGEX_DFA_BYTES: usize = 256 * 1024;
 const REGEX_CALL_UNITS: u64 = 256 * 1024;
 const REGEX_UNIT_COST: usize = 4;
 const JSON_PARSE_MAX_DEPTH: usize = 32;
 const JSON_PARSE_MAX_NODES: usize = 4096;
 const MAX_RANDOM_REJECTIONS: usize = 64;
+const MAP_ENTRY_COST: usize = 16;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct HostLimits {
     pub max_string_bytes: usize,
     pub max_array_size: usize,
     pub max_map_size: usize,
+    pub max_map_key_bytes: usize,
     pub max_text_bytes: usize,
     pub regex_size_limit_bytes: usize,
 }
@@ -115,6 +117,7 @@ impl HostState {
             max_string_bytes: self.limits.max_string_bytes,
             max_array_len: self.limits.max_array_size,
             max_map_len: self.limits.max_map_size,
+            max_key_bytes: self.limits.max_map_key_bytes,
         }
     }
 
@@ -261,6 +264,77 @@ impl HostState {
         Ok(())
     }
 
+    fn pad(&self, text: &mut ImmutableString, length: i64, padding: &str) -> HostResult<()> {
+        if padding.is_empty() {
+            return Err(runtime("invalid_argument: the padding must not be empty"));
+        }
+        self.guard.charge(text.len())?;
+        if length <= 0 {
+            return Ok(());
+        }
+        let target = usize::try_from(length).map_err(|_| too_large("string"))?;
+        if target > self.limits.max_string_bytes {
+            return Err(too_large("string"));
+        }
+        let current = text.chars().count();
+        if target <= current {
+            return Ok(());
+        }
+        let missing = target - current;
+        self.guard.charge(missing)?;
+        let mut grown = String::with_capacity(target.min(self.limits.max_string_bytes));
+        grown.push_str(text.as_str());
+        for character in padding.chars().cycle().take(missing) {
+            grown.push(character);
+            if grown.len() > self.limits.max_string_bytes {
+                return Err(too_large("string"));
+            }
+        }
+        *text = grown.into();
+        Ok(())
+    }
+
+    fn admit_keys(&self, entries: &Map) -> HostResult<()> {
+        let mut bytes = 0usize;
+        for key in entries.keys() {
+            if key.len() > self.limits.max_map_key_bytes {
+                return Err(too_large("map key"));
+            }
+            bytes = bytes.saturating_add(key.len());
+        }
+        self.guard
+            .charge(bytes.saturating_add(entries.len().saturating_mul(MAP_ENTRY_COST)))
+    }
+
+    fn map_set(&self, map: &mut Map, key: &str, value: Dynamic) -> HostResult<()> {
+        if key.len() > self.limits.max_map_key_bytes {
+            return Err(too_large("map key"));
+        }
+        self.guard.charge(key.len())?;
+        map.insert(key.into(), value);
+        Ok(())
+    }
+
+    fn map_mixin(&self, map: &mut Map, other: Map) -> HostResult<()> {
+        self.admit_keys(&other)?;
+        map.extend(other);
+        Ok(())
+    }
+
+    fn map_merge(&self, mut left: Map, right: Map) -> HostResult<Map> {
+        self.admit_keys(&right)?;
+        left.extend(right);
+        Ok(left)
+    }
+
+    fn map_fill_with(&self, map: &mut Map, other: Map) -> HostResult<()> {
+        self.admit_keys(&other)?;
+        for (key, value) in other {
+            map.entry(key).or_insert(value);
+        }
+        Ok(())
+    }
+
     fn hmac_sha256(&self, key: &str, text: &str) -> HostResult<String> {
         self.input(text, 2)?;
         self.input(key, 2)?;
@@ -327,7 +401,8 @@ fn convert_failure(error: ConvertError) -> Box<EvalAltResult> {
         | ConvertError::TooManyBytes(_)
         | ConvertError::StringTooLarge(_)
         | ConvertError::ArrayTooLarge(_)
-        | ConvertError::MapTooLarge(_) => too_large("json value"),
+        | ConvertError::MapTooLarge(_)
+        | ConvertError::KeyTooLarge(_) => too_large("json value"),
         ConvertError::NotFinite | ConvertError::Unsupported(_) => {
             runtime(&format!("invalid_json: {error}"))
         }
@@ -398,6 +473,40 @@ pub(crate) fn register(engine: &mut Engine, state: &Arc<HostState>) {
             host.replace(text, &find.to_string(), &substitute.to_string())
         },
     );
+    let host = Arc::clone(state);
+    engine.register_fn(
+        "pad",
+        move |text: &mut ImmutableString, length: i64, padding: &str| {
+            host.pad(text, length, padding)
+        },
+    );
+    let host = Arc::clone(state);
+    engine.register_fn(
+        "pad",
+        move |text: &mut ImmutableString, length: i64, padding: char| {
+            host.pad(text, length, &padding.to_string())
+        },
+    );
+    let host = Arc::clone(state);
+    engine.register_fn("set", move |map: &mut Map, key: &str, value: Dynamic| {
+        host.map_set(map, key, value)
+    });
+    let host = Arc::clone(state);
+    engine.register_fn("mixin", move |map: &mut Map, other: Map| {
+        host.map_mixin(map, other)
+    });
+    let host = Arc::clone(state);
+    engine.register_fn("+=", move |map: &mut Map, other: Map| {
+        host.map_mixin(map, other)
+    });
+    let host = Arc::clone(state);
+    engine.register_fn("+", move |left: Map, right: Map| {
+        host.map_merge(left, right)
+    });
+    let host = Arc::clone(state);
+    engine.register_fn("fill_with", move |map: &mut Map, other: Map| {
+        host.map_fill_with(map, other)
+    });
     let host = Arc::clone(state);
     engine.register_fn("uuid", move || host.uuid());
     let host = Arc::clone(state);

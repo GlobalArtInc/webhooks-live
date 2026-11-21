@@ -1,8 +1,8 @@
 use std::sync::OnceLock;
 
 use rhai::packages::{
-    BasicArrayPackage, BasicMapPackage, BasicMathPackage, CorePackage, LogicPackage,
-    MoreStringPackage, Package,
+    ArithmeticPackage, BasicArrayPackage, BasicFnPackage, BasicIteratorPackage, BasicMapPackage,
+    BasicMathPackage, BasicStringPackage, LogicPackage, MoreStringPackage, Package,
 };
 use rhai::{Engine, Map, Module, Scope, Shared};
 
@@ -32,7 +32,10 @@ static PACKAGES: OnceLock<Packages> = OnceLock::new();
 fn packages() -> &'static Packages {
     PACKAGES.get_or_init(|| Packages {
         modules: vec![
-            CorePackage::new().as_shared_module(),
+            ArithmeticPackage::new().as_shared_module(),
+            BasicStringPackage::new().as_shared_module(),
+            BasicIteratorPackage::new().as_shared_module(),
+            BasicFnPackage::new().as_shared_module(),
             LogicPackage::new().as_shared_module(),
             BasicArrayPackage::new().as_shared_module(),
             BasicMapPackage::new().as_shared_module(),

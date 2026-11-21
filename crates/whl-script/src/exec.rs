@@ -10,19 +10,33 @@ use time::{OffsetDateTime, UtcOffset};
 
 use crate::alloc::MemoryWindow;
 use crate::compiled::CompiledScript;
-use crate::convert::{ConvertLimits, fingerprint, json_to_dynamic, object_to_dynamic};
+use crate::convert::{ConvertError, ConvertLimits, json_to_dynamic, object_to_dynamic};
 use crate::engine::{REQUEST_VARIABLE, VARS_VARIABLE, build_engine};
 use crate::env::{MonotonicClock, RandomSource};
 use crate::error::{LinePosition, ScriptError, bounded_message};
 use crate::guard::{Abort, RunGuard};
 use crate::host::{HostLimits, HostState, register};
-use crate::limits::RunLimits;
+use crate::limits::{EngineLimits, RunLimits};
 use crate::output::{LogBuffer, RunStats, ScriptOutput, extract};
 
 const INPUT_MAX_DEPTH: usize = 32;
 const INPUT_MAX_NODES: usize = 50_000;
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TenantKey(Arc<str>);
+
+impl TenantKey {
+    pub fn new(key: &str) -> Self {
+        Self(Arc::from(key))
+    }
+
+    pub fn unpack(&self) -> &str {
+        &self.0
+    }
+}
+
 pub struct ScriptJob {
+    pub tenant: TenantKey,
     pub script: CompiledScript,
     pub request: Value,
     pub vars: serde_json::Map<String, Value>,
@@ -36,6 +50,7 @@ impl std::fmt::Debug for ScriptJob {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("ScriptJob")
+            .field("tenant", &self.tenant)
             .field("script", &self.script)
             .field("limits", &self.limits)
             .finish_non_exhaustive()
@@ -100,14 +115,31 @@ fn map_eval_error(error: &EvalAltResult, guard: &RunGuard) -> ScriptError {
     }
 }
 
-fn input_limits(run: &RunLimits) -> ConvertLimits {
+fn input_limits(run: &RunLimits, engine: &EngineLimits) -> ConvertLimits {
     ConvertLimits {
         max_depth: INPUT_MAX_DEPTH,
         max_nodes: INPUT_MAX_NODES,
         max_bytes: run.max_input_bytes,
         max_string_bytes: run.max_input_bytes,
-        max_array_len: usize::MAX,
-        max_map_len: usize::MAX,
+        max_array_len: engine.max_array_size,
+        max_map_len: engine.max_map_size,
+        max_key_bytes: engine.max_map_key_bytes,
+    }
+}
+
+fn input_failure(what: &str, error: ConvertError) -> ScriptError {
+    let message = format!("{what}: {error}");
+    match error {
+        ConvertError::NotFinite | ConvertError::Unsupported(_) => {
+            ScriptError::InvalidInput(message)
+        }
+        ConvertError::TooDeep(_)
+        | ConvertError::TooManyNodes(_)
+        | ConvertError::TooManyBytes(_)
+        | ConvertError::StringTooLarge(_)
+        | ConvertError::ArrayTooLarge(_)
+        | ConvertError::MapTooLarge(_)
+        | ConvertError::KeyTooLarge(_) => ScriptError::InputTooLarge(message),
     }
 }
 
@@ -154,10 +186,10 @@ fn run(
             "request must be a JSON object".to_owned(),
         ));
     }
-    let request = json_to_dynamic(&job.request, input_limits(&limits))
-        .map_err(|error| ScriptError::InvalidInput(format!("request: {error}")))?;
-    let vars = object_to_dynamic(&job.vars, input_limits(&limits))
-        .map_err(|error| ScriptError::InvalidInput(format!("vars: {error}")))?;
+    let request = json_to_dynamic(&job.request, input_limits(&limits, &engine_limits))
+        .map_err(|error| input_failure("request", error))?;
+    let vars = object_to_dynamic(&job.vars, input_limits(&limits, &engine_limits))
+        .map_err(|error| input_failure("vars", error))?;
     let now = job
         .now
         .to_offset(UtcOffset::UTC)
@@ -191,6 +223,7 @@ fn run(
             max_string_bytes: engine_limits.max_string_bytes,
             max_array_size: engine_limits.max_array_size,
             max_map_size: engine_limits.max_map_size,
+            max_map_key_bytes: engine_limits.max_map_key_bytes,
             max_text_bytes: limits.max_host_text_bytes,
             regex_size_limit_bytes: limits.regex_size_limit_bytes,
         },
@@ -199,7 +232,6 @@ fn run(
     register(&mut engine, &state);
     extension(&mut engine);
 
-    let request_fingerprint = fingerprint(&request);
     let mut scope = Scope::new();
     scope.push_constant_dynamic(REQUEST_VARIABLE, request);
     scope.push_dynamic(VARS_VARIABLE, vars);
@@ -208,15 +240,6 @@ fn run(
         Ok(value) => value,
         Err(error) => return Err(map_eval_error(&error, &guard)),
     };
-    let request_after = scope
-        .get_value::<Dynamic>(REQUEST_VARIABLE)
-        .and_then(|value| fingerprint(&value));
-    if request_fingerprint.is_none() || request_after != request_fingerprint {
-        return Err(ScriptError::Runtime {
-            message: "the script modified the read-only request".to_owned(),
-            position: None,
-        });
-    }
     let scope_vars = scope.get_value::<Dynamic>(VARS_VARIABLE);
     let extracted = extract(&returned, scope_vars.as_ref(), &engine_limits, &limits)?;
     let log = log.lock().unwrap_or_else(PoisonError::into_inner).finish();

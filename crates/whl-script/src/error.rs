@@ -31,7 +31,6 @@ pub enum ErrorCode {
     AssignmentToConstant,
     InvalidFunction,
     InvalidLiteral,
-    CompileFailed,
 }
 
 impl ErrorCode {
@@ -48,7 +47,6 @@ impl ErrorCode {
             Self::AssignmentToConstant => "assignment_to_constant",
             Self::InvalidFunction => "invalid_function",
             Self::InvalidLiteral => "invalid_literal",
-            Self::CompileFailed => "compile_failed",
         }
     }
 
@@ -68,7 +66,21 @@ pub struct Diagnostic {
 #[error("script is invalid: {} error(s)", .diagnostics.len())]
 pub struct CompileError {
     pub diagnostics: Vec<Diagnostic>,
-    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResponseViolation {
+    pub field: String,
+    pub code: &'static str,
+    pub message: String,
+}
+
+fn describe_violations(violations: &[ResponseViolation]) -> String {
+    violations
+        .iter()
+        .map(|violation| format!("{} {}", violation.field, violation.message))
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -109,14 +121,24 @@ pub enum ScriptError {
     },
     #[error("invalid input: {0}")]
     InvalidInput(String),
+    #[error("input too large: {0}")]
+    InputTooLarge(String),
     #[error("invalid result: {0}")]
     InvalidResult(String),
+    #[error("invalid response: {}", describe_violations(.0))]
+    InvalidResponse(Vec<ResponseViolation>),
     #[error("script panicked")]
     Panic,
     #[error("run was cancelled")]
     Cancelled,
     #[error("script queue is full")]
     Overloaded,
+    #[error("too many jobs of this tenant are waiting or running")]
+    QueueFull,
+    #[error("the job waited too long for a worker")]
+    QueueTimeout,
+    #[error("too many worker threads are stuck, the pool refuses new work")]
+    PoolUnhealthy,
     #[error("script pool is shut down")]
     ShutDown,
     #[error("no result before the result timeout")]
@@ -140,10 +162,15 @@ impl ScriptError {
             Self::UndefinedVariable { .. } => "undefined_variable",
             Self::Runtime { .. } => "runtime",
             Self::InvalidInput(_) => "invalid_input",
+            Self::InputTooLarge(_) => "input_too_large",
             Self::InvalidResult(_) => "invalid_result",
+            Self::InvalidResponse(_) => "invalid_response",
             Self::Panic => "script_panic",
             Self::Cancelled => "cancelled",
             Self::Overloaded => "overloaded",
+            Self::QueueFull => "queue_full",
+            Self::QueueTimeout => "queue_timeout",
+            Self::PoolUnhealthy => "pool_unhealthy",
             Self::ShutDown => "shut_down",
             Self::ResultTimeout => "result_timeout",
             Self::Limits(_) => "limits",
@@ -154,7 +181,7 @@ impl ScriptError {
         match self {
             Self::Operations | Self::HostBudget | Self::CallDepth => "operations",
             Self::Memory => "memory",
-            Self::Time | Self::ResultTimeout => "time",
+            Self::Time | Self::ResultTimeout | Self::QueueTimeout => "time",
             Self::Panic => "panic",
             _ => "error",
         }

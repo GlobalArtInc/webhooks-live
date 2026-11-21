@@ -10,6 +10,7 @@ use time::OffsetDateTime;
 use whl_script::{
     CompiledScript, CountingAlloc, EngineLimits, MonotonicClock, PoolConfig, RandomSeed, RunLimits,
     ScriptCompiler, ScriptError, ScriptJob, ScriptOutput, ScriptPool, SeededRandom, SystemClock,
+    TenantKey,
 };
 
 #[global_allocator]
@@ -47,12 +48,21 @@ impl MonotonicClock for FrozenClock {
     }
 }
 
+pub fn roomy() -> RunLimits {
+    RunLimits {
+        time: Duration::from_secs(20),
+        ..RunLimits::default()
+    }
+}
+
 pub fn pool(threads: usize, queue_capacity: usize) -> ScriptPool {
     ScriptPool::new(PoolConfig {
         threads,
         queue_capacity,
         result_grace: Duration::from_secs(10),
         compile_timeout: Duration::from_secs(20),
+        max_running_per_tenant: threads,
+        max_queued_per_tenant: queue_capacity,
         ..PoolConfig::default()
     })
     .expect("pool starts")
@@ -77,6 +87,7 @@ pub fn default_request() -> Value {
 
 pub fn job_with(script: CompiledScript, request: Value, limits: RunLimits) -> ScriptJob {
     ScriptJob {
+        tenant: TenantKey::new("tenant"),
         script,
         request,
         vars: serde_json::Map::new(),
@@ -88,7 +99,7 @@ pub fn job_with(script: CompiledScript, request: Value, limits: RunLimits) -> Sc
 }
 
 pub fn job(script: CompiledScript) -> ScriptJob {
-    job_with(script, default_request(), RunLimits::default())
+    job_with(script, default_request(), roomy())
 }
 
 pub fn run(pool: &ScriptPool, source: &str) -> Result<ScriptOutput, ScriptError> {

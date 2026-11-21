@@ -6,7 +6,7 @@ use crate::error::ScriptError;
 use crate::limits::LimitsError;
 use crate::pool::ScriptPool;
 
-const WEIGHT_PER_SOURCE_BYTE: usize = 64;
+const WEIGHT_PER_SOURCE_BYTE: usize = 128;
 const WEIGHT_PER_ENTRY: usize = 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

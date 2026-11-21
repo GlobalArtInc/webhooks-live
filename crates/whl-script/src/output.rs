@@ -3,14 +3,18 @@ use std::time::Duration;
 use rhai::{Array, Dynamic, ImmutableString, Map};
 use serde_json::Value;
 
+use whl_core::content_type::DEFAULT_CONTENT_TYPE;
+pub use whl_core::content_type::MAX_CONTENT_TYPE_BYTES;
+use whl_core::header::HeaderInput;
+pub use whl_core::header::MAX_HEADERS as MAX_RESPONSE_HEADERS;
+pub use whl_core::header::{MAX_HEADER_NAME_BYTES, MAX_HEADER_VALUE_BYTES};
+use whl_core::response::{ResponseConfig, ResponseConfigInput};
+
 use crate::convert::{BoundedWriter, ConvertLimits, dynamic_to_json};
-use crate::error::ScriptError;
+use crate::error::{ResponseViolation, ScriptError};
 use crate::limits::{EngineLimits, RunLimits};
 
-pub const MAX_RESPONSE_HEADERS: usize = 20;
-pub const MAX_HEADER_NAME_BYTES: usize = 128;
-pub const MAX_HEADER_VALUE_BYTES: usize = 8 * 1024;
-pub const MAX_CONTENT_TYPE_BYTES: usize = 256;
+const DEFAULT_STATUS: i64 = 200;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResponseHeader {
@@ -104,6 +108,7 @@ fn json_limits(engine: &EngineLimits, run: &RunLimits) -> ConvertLimits {
         max_string_bytes: engine.max_string_bytes.max(run.max_response_body_bytes),
         max_array_len: engine.max_array_size,
         max_map_len: engine.max_map_size,
+        max_key_bytes: engine.max_map_key_bytes,
     }
 }
 
@@ -125,35 +130,21 @@ fn as_text(value: &Dynamic, what: &str, max: usize) -> Result<String, ScriptErro
     Ok(text)
 }
 
-fn forbidden_in_header(text: &str) -> bool {
-    text.chars()
-        .any(|character| character == '\r' || character == '\n' || character == '\0')
-}
-
-fn header(name: String, value: String) -> Result<ResponseHeader, ScriptError> {
-    if name.is_empty()
-        || name.len() > MAX_HEADER_NAME_BYTES
-        || !name
-            .bytes()
-            .all(|byte| byte.is_ascii_graphic() && byte != b':')
-    {
-        return Err(invalid("response header name is not a valid token"));
-    }
-    if value.len() > MAX_HEADER_VALUE_BYTES || forbidden_in_header(&value) {
-        return Err(invalid("response header value is invalid"));
-    }
-    Ok(ResponseHeader { name, value })
+struct RawResponse {
+    status: Option<i64>,
+    headers: Vec<ResponseHeader>,
+    body: Option<String>,
+    content_type: Option<String>,
 }
 
 fn extract_headers(value: &Dynamic) -> Result<Vec<ResponseHeader>, ScriptError> {
     let mut headers = Vec::new();
     if let Some(map) = value.read_lock::<Map>() {
         for (name, item) in map.iter() {
-            let text = as_text(item, "response header value", MAX_HEADER_VALUE_BYTES)?;
-            headers.push(header(name.to_string(), text)?);
-            if headers.len() > MAX_RESPONSE_HEADERS {
-                break;
-            }
+            headers.push(ResponseHeader {
+                name: name.to_string(),
+                value: as_text(item, "response header value", usize::MAX)?,
+            });
         }
     } else if let Some(array) = value.read_lock::<Array>() {
         for item in array.iter() {
@@ -164,23 +155,50 @@ fn extract_headers(value: &Dynamic) -> Result<Vec<ResponseHeader>, ScriptError> 
             let text = entry
                 .get("value")
                 .ok_or_else(|| invalid("response header needs a value"))?;
-            headers.push(header(
-                as_text(name, "response header name", MAX_HEADER_NAME_BYTES)?,
-                as_text(text, "response header value", MAX_HEADER_VALUE_BYTES)?,
-            )?);
-            if headers.len() > MAX_RESPONSE_HEADERS {
-                break;
-            }
+            headers.push(ResponseHeader {
+                name: as_text(name, "response header name", usize::MAX)?,
+                value: as_text(text, "response header value", usize::MAX)?,
+            });
         }
     } else {
         return Err(invalid("response headers must be a map or an array"));
     }
-    if headers.len() > MAX_RESPONSE_HEADERS {
-        return Err(invalid(format!(
-            "response has more than {MAX_RESPONSE_HEADERS} headers"
-        )));
-    }
     Ok(headers)
+}
+
+fn violations_of(error: &whl_core::validation::ValidationError) -> Vec<ResponseViolation> {
+    error
+        .violations()
+        .iter()
+        .map(|violation| ResponseViolation {
+            field: violation.field.to_string(),
+            code: violation.code.as_str(),
+            message: violation.code.to_string(),
+        })
+        .collect()
+}
+
+fn validate_response(raw: &RawResponse) -> Result<(), ScriptError> {
+    let input = ResponseConfigInput {
+        status: raw.status.unwrap_or(DEFAULT_STATUS),
+        content_type: raw
+            .content_type
+            .clone()
+            .unwrap_or_else(|| DEFAULT_CONTENT_TYPE.to_owned()),
+        headers: raw
+            .headers
+            .iter()
+            .map(|header| HeaderInput {
+                name: header.name.clone(),
+                value: header.value.clone(),
+            })
+            .collect(),
+        body: raw.body.clone().unwrap_or_default().into_bytes(),
+        delay_ms: 0,
+    };
+    ResponseConfig::validate(input)
+        .map(|_| ())
+        .map_err(|error| ScriptError::InvalidResponse(violations_of(&error)))
 }
 
 fn extract_response(
@@ -191,35 +209,39 @@ fn extract_response(
         return Ok(None);
     }
     let map = as_map(value, "response")?;
-    let mut response = ScriptResponse::default();
+    let mut raw = RawResponse {
+        status: None,
+        headers: Vec::new(),
+        body: None,
+        content_type: None,
+    };
     for (key, item) in &map {
         match key.as_str() {
             "status" => {
-                let status = item
-                    .as_int()
-                    .map_err(|_| invalid("response status must be an integer"))?;
-                if !(100..=599).contains(&status) {
-                    return Err(invalid("response status must be between 100 and 599"));
-                }
-                response.status = u16::try_from(status).ok();
+                raw.status = Some(
+                    item.as_int()
+                        .map_err(|_| invalid("response status must be an integer"))?,
+                );
             }
-            "headers" => response.headers = extract_headers(item)?,
+            "headers" => raw.headers = extract_headers(item)?,
             "body" => {
-                response.body = Some(as_text(item, "response body", run.max_response_body_bytes)?);
+                raw.body = Some(as_text(item, "response body", run.max_response_body_bytes)?);
             }
             "content_type" => {
-                let text = as_text(item, "response content_type", MAX_CONTENT_TYPE_BYTES)?;
-                if forbidden_in_header(&text) {
-                    return Err(invalid("response content_type is invalid"));
-                }
-                response.content_type = Some(text);
+                raw.content_type = Some(as_text(item, "response content_type", usize::MAX)?);
             }
             other => {
                 return Err(invalid(format!("unknown response field {other}")));
             }
         }
     }
-    Ok(Some(response))
+    validate_response(&raw)?;
+    Ok(Some(ScriptResponse {
+        status: raw.status.and_then(|status| u16::try_from(status).ok()),
+        headers: raw.headers,
+        body: raw.body,
+        content_type: raw.content_type,
+    }))
 }
 
 fn extract_vars(
