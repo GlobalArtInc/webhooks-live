@@ -5,6 +5,7 @@ mod public;
 mod readiness;
 mod rotate;
 mod router;
+mod schedules;
 mod secrets;
 mod signal;
 
@@ -43,6 +44,7 @@ pub use signal::shutdown_signal;
 use background::Background;
 use forward::ForwardRuntime;
 use readiness::Readiness;
+use schedules::ScheduleRuntime;
 
 pub struct Bound {
     public: TcpListener,
@@ -55,6 +57,7 @@ pub struct Bound {
     api: ApiSettings,
     capture: CaptureSettings,
     forward: ForwardRuntime,
+    schedules: ScheduleRuntime,
     http: HttpLimits,
     auth: Option<AuthSettings>,
     auth_mode: AuthMode,
@@ -117,7 +120,8 @@ impl Bound {
         let state = ApiState::new(store.clone(), self.api.clone())
             .with_access(access)
             .with_limits(self.api_limits.clone())
-            .with_forward(ForwardSettings::with_system_lookup(self.forward.guard()));
+            .with_forward(ForwardSettings::with_system_lookup(self.forward.guard()))
+            .with_schedules(self.schedules.settings());
         let state = match &self.secrets {
             Some(keyring) => state.with_secrets(Arc::clone(keyring)),
             None => state,
@@ -127,6 +131,9 @@ impl Bound {
         let capture =
             CaptureState::new(store.clone(), self.capture)?.with_limiters(self.limiters.clone());
         let storage_full = capture.storage_full().clone();
+        let schedule_runner =
+            self.schedules
+                .runner(&store, self.secrets.clone(), storage_full.clone())?;
         let (stop_tx, stop_rx) = watch::channel(false);
         let background_stop = stop_rx.clone();
         let hub = Hub::new(HUB_CAPACITY);
@@ -212,6 +219,7 @@ impl Bound {
             &self.background,
             storage_full,
             self.limiters,
+            schedule_runner,
             &background_stop,
         );
         let mut forward = worker.map(|worker| worker.spawn(until_stopped(worker_stop)));
@@ -302,6 +310,7 @@ pub async fn bind(config: &Config) -> Result<Bound, ServerError> {
         api: ApiSettings::from_config(config),
         capture: CaptureSettings::from_config(config)?,
         forward: ForwardRuntime::from_config(config)?,
+        schedules: ScheduleRuntime::from_config(config)?,
         http: HttpLimits::default(),
         auth: AuthSettings::from_config(config)?,
         auth_mode: config.auth.mode,

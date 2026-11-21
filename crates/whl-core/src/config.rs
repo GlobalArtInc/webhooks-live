@@ -20,6 +20,7 @@ const FILE_ENV: &str = "WEBHOOKS_LIVE_CONFIG";
 const ENV_PREFIX: &str = "WEBHOOKS_LIVE_";
 
 pub const MIN_DB_POOL_SIZE: u32 = 2;
+pub const MIN_SCHEDULE_INTERVAL: Duration = Duration::from_secs(60);
 
 const DEFAULTS: &str = r#"
 listen_addr = "0.0.0.0:8080"
@@ -61,6 +62,13 @@ concurrency = 32
 max_attempts = 3
 allow_cidrs = []
 
+[schedules]
+enabled = true
+max_per_user = 5
+min_interval = "5m"
+runs_per_hour = 120
+workers = 8
+
 [shutdown]
 drain = "5s"
 grace = "25s"
@@ -98,6 +106,11 @@ const ENV_KEYS: &[(&str, &str)] = &[
     ("FORWARD_CONCURRENCY", "forward.concurrency"),
     ("FORWARD_MAX_ATTEMPTS", "forward.max_attempts"),
     ("FORWARD_ALLOW_CIDRS", "forward.allow_cidrs"),
+    ("SCHEDULES_ENABLED", "schedules.enabled"),
+    ("SCHEDULES_MAX_PER_USER", "schedules.max_per_user"),
+    ("SCHEDULES_MIN_INTERVAL", "schedules.min_interval"),
+    ("SCHEDULES_RUNS_PER_HOUR", "schedules.runs_per_hour"),
+    ("SCHEDULES_WORKERS", "schedules.workers"),
     ("SHUTDOWN_DRAIN", "shutdown.drain"),
     ("SHUTDOWN_GRACE", "shutdown.grace"),
     ("SECRETS_KEYS", "secrets.keys"),
@@ -118,6 +131,7 @@ pub struct Config {
     pub capture: CaptureConfig,
     pub rate: RateConfig,
     pub forward: ForwardConfig,
+    pub schedules: SchedulesConfig,
     #[serde(default)]
     pub secrets: SecretsConfig,
     pub shutdown: ShutdownConfig,
@@ -208,6 +222,16 @@ pub struct ForwardConfig {
     pub allow_cidrs: Vec<IpNet>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct SchedulesConfig {
+    pub enabled: bool,
+    pub max_per_user: u32,
+    #[serde(deserialize_with = "de::duration")]
+    pub min_interval: Duration,
+    pub runs_per_hour: u32,
+    pub workers: u32,
+}
+
 #[derive(Debug, Default, Deserialize)]
 pub struct SecretsConfig {
     pub keys: Option<SecretKeys>,
@@ -292,6 +316,8 @@ pub enum Problem {
     MissingForSso(&'static str),
     MissingForMixed(&'static str),
     PoolSizeTooSmall,
+    ScheduleIntervalTooShort,
+    ScheduleRunsPerHourZero,
 }
 
 impl fmt::Display for Problem {
@@ -307,6 +333,14 @@ impl fmt::Display for Problem {
                 f,
                 "{ENV_PREFIX}{key} is required when {ENV_PREFIX}AUTH_MODE is mixed"
             ),
+            Self::ScheduleIntervalTooShort => write!(
+                f,
+                "{ENV_PREFIX}SCHEDULES_MIN_INTERVAL must be at least {}s",
+                MIN_SCHEDULE_INTERVAL.as_secs()
+            ),
+            Self::ScheduleRunsPerHourZero => {
+                write!(f, "{ENV_PREFIX}SCHEDULES_RUNS_PER_HOUR must be at least 1")
+            }
             Self::PoolSizeTooSmall => write!(
                 f,
                 "{ENV_PREFIX}DB_POOL_SIZE must be at least {MIN_DB_POOL_SIZE}"
@@ -442,6 +476,12 @@ impl Config {
             oidc.client_secret.is_some(),
         ));
         problems.extend(pool_size_problem(self.database.pool_size));
+        if self.schedules.min_interval < MIN_SCHEDULE_INTERVAL {
+            problems.push(Problem::ScheduleIntervalTooShort);
+        }
+        if self.schedules.runs_per_hour == 0 {
+            problems.push(Problem::ScheduleRunsPerHourZero);
+        }
 
         if problems.is_empty() {
             Ok(())

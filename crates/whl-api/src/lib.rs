@@ -14,6 +14,7 @@ mod listing;
 mod members;
 mod policy;
 mod resolve;
+mod schedules;
 mod secrets;
 mod settings;
 mod state;
@@ -31,6 +32,7 @@ pub use cors::api_cors;
 pub use forward::ForwardSettings;
 pub use limit::{ApiLimits, enforce_rate_limit};
 pub use policy::guard_routes;
+pub use schedules::ScheduleSettings;
 pub use settings::ApiSettings;
 pub use state::ApiState;
 pub use stream::stream_authorizer;
@@ -53,6 +55,7 @@ pub fn router(state: ApiState) -> Router {
         .merge(captures::routes())
         .merge(folders::routes())
         .merge(forward::routes())
+        .merge(schedules::routes())
         .merge(secrets::routes())
         .merge(tokens::routes());
     let api = guard_routes(api, &state.access)

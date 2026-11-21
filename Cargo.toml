@@ -16,10 +16,12 @@ whl-capture = { path = "crates/whl-capture" }
 whl-core = { path = "crates/whl-core" }
 whl-forward = { path = "crates/whl-forward" }
 whl-live = { path = "crates/whl-live" }
+whl-schedule = { path = "crates/whl-schedule" }
 whl-secrets = { path = "crates/whl-secrets" }
 whl-server = { path = "crates/whl-server" }
 whl-store = { path = "crates/whl-store" }
 whl-telemetry = { path = "crates/whl-telemetry" }
+whl-template = { path = "crates/whl-template" }
 whl-testkit = { path = "crates/whl-testkit" }
 whl-web = { path = "crates/whl-web" }
 
@@ -73,6 +75,8 @@ rand_chacha = "0.9"
 serde_json_path = { version = "0.7", default-features = false, features = ["functions"] }
 regex = { version = "1", default-features = false, features = ["std", "perf", "unicode"] }
 rhai = { version = "=1.27.0", default-features = false, features = ["std", "sync", "no_module", "no_custom_syntax", "no_closure", "no_optimize", "no_time"] }
+croner = { version = "4", default-features = false, features = ["jiff"] }
+jiff = { version = "0.2", default-features = false, features = ["std", "tzdb-bundle-always"] }
 
 [profile.dev]
 debug = 0

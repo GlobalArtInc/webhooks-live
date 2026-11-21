@@ -8,6 +8,7 @@ use whl_core::validation::{FieldPath, Violation, ViolationCode};
 use whl_secrets::{MAX_SECRETS_PER_ENDPOINT, SealError};
 use whl_store::MAX_FOLDERS_PER_USER;
 use whl_store::forward::ForwardStoreError;
+use whl_store::schedules::ScheduleStoreError;
 use whl_store::secrets::SecretStoreError;
 use whl_store::{ApiTokenStoreError, EndpointError, FolderError, LifecycleError, MembershipError};
 
@@ -25,6 +26,12 @@ pub enum FieldCode {
     NotAllowed,
     TargetRefused,
     TargetUnresolvable,
+    CronInvalid,
+    TimezoneInvalid,
+    IntervalTooShort,
+    TemplateInvalid,
+    SecretUnknown,
+    SecretNotAllowed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -173,6 +180,18 @@ pub enum ApiError {
     EntropyUnavailable,
     #[error("API token storage failed: {0}")]
     TokenStorage(ApiTokenStoreError),
+    #[error("the schedule is not found in this endpoint")]
+    ScheduleNotFound,
+    #[error("the owner already has the maximum number of schedules")]
+    ScheduleLimit(usize),
+    #[error("the schedule is paused or disabled, enable it before running it")]
+    ScheduleDisabled,
+    #[error("schedules are switched off on this instance")]
+    SchedulesDisabled,
+    #[error("only the owner can change a request that uses secrets")]
+    ScheduleOwnerRequired,
+    #[error("schedule storage failed: {0}")]
+    ScheduleStorage(ScheduleStoreError),
 }
 
 impl From<ApiTokenStoreError> for ApiError {
@@ -181,6 +200,16 @@ impl From<ApiTokenStoreError> for ApiError {
             Self::StoreUnavailable
         } else {
             Self::TokenStorage(error)
+        }
+    }
+}
+
+impl From<ScheduleStoreError> for ApiError {
+    fn from(error: ScheduleStoreError) -> Self {
+        if error.is_unavailable() {
+            Self::StoreUnavailable
+        } else {
+            Self::ScheduleStorage(error)
         }
     }
 }
@@ -313,6 +342,7 @@ impl IntoResponse for ApiError {
                 "never_expire",
                 usize::try_from(*max).unwrap_or(usize::MAX),
             )),
+            Self::ScheduleLimit(max) => Some(LimitDetail::count("schedules", *max)),
             _ => None,
         };
         let (status, code, message, fields) = match self {
@@ -559,6 +589,45 @@ impl IntoResponse for ApiError {
             ),
             Self::SecretStorage(error) => {
                 tracing::error!(%error, "secret storage failed");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal_error",
+                    "the request could not be completed".to_owned(),
+                    None,
+                )
+            }
+            Self::ScheduleNotFound => (
+                StatusCode::NOT_FOUND,
+                "schedule_not_found",
+                self.to_string(),
+                None,
+            ),
+            Self::ScheduleLimit(_) => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "limit_reached",
+                self.to_string(),
+                None,
+            ),
+            Self::ScheduleOwnerRequired => (
+                StatusCode::FORBIDDEN,
+                "owner_required",
+                self.to_string(),
+                None,
+            ),
+            Self::ScheduleDisabled => (
+                StatusCode::CONFLICT,
+                "schedule_disabled",
+                self.to_string(),
+                None,
+            ),
+            Self::SchedulesDisabled => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "feature_disabled",
+                self.to_string(),
+                None,
+            ),
+            Self::ScheduleStorage(error) => {
+                tracing::error!(%error, "schedule storage failed");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "internal_error",

@@ -22,3 +22,4 @@ pub const DB_POOL_CONNECTIONS: &str = "webhooks_live_db_pool_connections";
 pub const TOKEN_AUTH_TOTAL: &str = "webhooks_live_token_auth_total";
 pub const AUTH_AVAILABLE: &str = "webhooks_live_auth_available";
 pub const MAINTENANCE_LEADER: &str = "webhooks_live_maintenance_leader";
+pub const SCHEDULE_RUNS_TOTAL: &str = "webhooks_live_schedule_runs_total";
