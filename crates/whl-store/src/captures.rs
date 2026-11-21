@@ -30,12 +30,12 @@ const SESSION_LIMITS: &str = "SELECT \
 
 const ENDPOINT_LIVE: &str = "SELECT 1 FROM endpoints \
      WHERE id = $1 AND deleted_at IS NULL \
-     AND last_active_at > now() - make_interval(secs => $2)";
+     AND (never_expires OR last_active_at > now() - make_interval(secs => COALESCE(retention_seconds::float8, $2)))";
 
-const ENDPOINT_ADMISSION: &str = "SELECT (capture_count >= $3 AND overflow <> 'ring') AS full \
+const ENDPOINT_ADMISSION: &str = "SELECT (capture_count >= COALESCE(max_captures::bigint, $3) AND overflow <> 'ring') AS full \
      FROM endpoints \
      WHERE id = $1 AND deleted_at IS NULL \
-     AND last_active_at > now() - make_interval(secs => $2)";
+     AND (never_expires OR last_active_at > now() - make_interval(secs => COALESCE(retention_seconds::float8, $2)))";
 
 const CLAIM_SLOT: &str = "UPDATE endpoints SET \
        capture_count = capture_count + 1, \
@@ -43,9 +43,9 @@ const CLAIM_SLOT: &str = "UPDATE endpoints SET \
        last_seq = last_seq + 1, \
        last_active_at = GREATEST(last_active_at, now()) \
      WHERE id = $1 AND deleted_at IS NULL \
-       AND last_active_at > now() - make_interval(secs => $3) \
-       AND (capture_count < $4 OR overflow = 'ring') \
-     RETURNING last_seq, capture_count, response_status, response_content_type, \
+       AND (never_expires OR last_active_at > now() - make_interval(secs => COALESCE(retention_seconds::float8, $3))) \
+       AND (capture_count < COALESCE(max_captures::bigint, $4) OR overflow = 'ring') \
+     RETURNING last_seq, capture_count, COALESCE(max_captures::bigint, $4) AS effective_max, response_status, response_content_type, \
        response_headers::text AS response_headers, response_body, response_delay_ms, cors";
 
 const EVICT_OLDEST: &str = "WITH evicted AS ( \
@@ -552,9 +552,14 @@ async fn execute_capture(
         row.try_get("capture_count")
             .map_err(CaptureStoreError::classify)
     );
+    let effective_max: i64 = attempt!(
+        tx,
+        row.try_get("effective_max")
+            .map_err(CaptureStoreError::classify)
+    );
     let endpoint = attempt!(tx, endpoint_from_row(&row, &capture.endpoint_id));
 
-    let surplus = i64::from(count_after) - max_captures;
+    let surplus = i64::from(count_after) - effective_max;
     if surplus > 0 {
         attempt!(
             tx,

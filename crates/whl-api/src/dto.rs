@@ -53,6 +53,9 @@ struct LimitsDto {
     max_captures: u32,
     max_body_bytes: u64,
     retention_seconds: u64,
+    max_captures_settable: u32,
+    max_retention_seconds: i64,
+    never_expire_endpoints: u32,
     max_delay_ms: i64,
     max_forward_rules: u32,
     max_response_body_bytes: usize,
@@ -74,6 +77,7 @@ impl InstanceDto {
         user: Option<&UserRecord>,
         secrets: bool,
     ) -> Self {
+        let ceilings = settings.lifecycle_limits(user.is_some());
         Self {
             version: env!("CARGO_PKG_VERSION"),
             auth_mode: access.mode().as_str(),
@@ -87,6 +91,9 @@ impl InstanceDto {
                 max_captures: settings.max_captures,
                 max_body_bytes: settings.max_body_bytes,
                 retention_seconds: settings.retention.as_secs(),
+                max_captures_settable: ceilings.max_captures,
+                max_retention_seconds: ceilings.max_retention_seconds,
+                never_expire_endpoints: ceilings.never_expire_endpoints,
                 max_delay_ms: MAX_DELAY_MS,
                 max_forward_rules: MAX_FORWARD_RULES,
                 max_response_body_bytes: RESPONSE_BODY_BYTES,
@@ -117,9 +124,17 @@ pub struct EndpointDto {
     last_seq: i64,
     created_at: String,
     last_active_at: String,
-    expires_at: String,
+    expires_at: Option<String>,
+    retention: RetentionDto,
+    capture_ttl_seconds: Option<i32>,
     owner: Option<UserDto>,
     my_role: Option<&'static str>,
+}
+
+#[derive(Serialize)]
+struct RetentionDto {
+    mode: &'static str,
+    seconds: Option<i32>,
 }
 
 #[derive(Serialize)]
@@ -194,13 +209,24 @@ impl EndpointDto {
             cors: stored.cors,
             overflow: stored.overflow.as_str(),
             forward_rules: rules.iter().map(RuleDto::from).collect(),
-            max_captures: settings.max_captures,
+            max_captures: record
+                .lifecycle
+                .effective_max_captures(settings.max_captures),
             capture_count: record.capture_count,
             bytes_used: record.bytes_used,
             last_seq: record.last_seq,
             created_at: timestamp(record.created_at),
             last_active_at: timestamp(record.last_active_at),
-            expires_at: timestamp(record.expires_at),
+            expires_at: record.expires_at.map(timestamp),
+            retention: RetentionDto {
+                mode: if record.lifecycle.never_expires {
+                    "never"
+                } else {
+                    "sliding"
+                },
+                seconds: record.lifecycle.retention_seconds,
+            },
+            capture_ttl_seconds: record.lifecycle.capture_ttl_seconds,
             owner: None,
             my_role: None,
         }

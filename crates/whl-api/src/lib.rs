@@ -6,6 +6,7 @@ mod error;
 mod forward;
 mod handlers;
 mod input;
+mod lifecycle;
 mod limit;
 mod listing;
 mod members;

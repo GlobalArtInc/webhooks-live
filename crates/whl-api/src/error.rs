@@ -7,7 +7,7 @@ use whl_core::validation::{FieldPath, Violation, ViolationCode};
 use whl_secrets::{MAX_SECRETS_PER_ENDPOINT, SealError};
 use whl_store::forward::ForwardStoreError;
 use whl_store::secrets::SecretStoreError;
-use whl_store::{EndpointError, MembershipError};
+use whl_store::{EndpointError, LifecycleError, MembershipError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -140,6 +140,10 @@ pub enum ApiError {
     SecretNotFound,
     #[error("the endpoint already has the maximum number of secrets")]
     SecretLimit,
+    #[error("only the owner can change the retention settings of an endpoint")]
+    OwnerRequired,
+    #[error("the owner already has the maximum of {max} never-expire endpoints")]
+    NeverExpireLimit { max: u32 },
     #[error("secrets are not configured on this instance")]
     SecretsDisabled,
     #[error("secret storage failed: {0}")]
@@ -173,6 +177,16 @@ impl From<MembershipError> for ApiError {
         match error {
             MembershipError::Unavailable(_) => Self::StoreUnavailable,
             other => Self::Membership(other),
+        }
+    }
+}
+
+impl From<LifecycleError> for ApiError {
+    fn from(error: LifecycleError) -> Self {
+        match error {
+            LifecycleError::Endpoint(error) => error.into(),
+            LifecycleError::NeverExpireLimit { max } => Self::NeverExpireLimit { max },
+            LifecycleError::NeverExpireNeedsOwner => Self::Auth(AuthRejection::SignInRequired),
         }
     }
 }
@@ -226,6 +240,10 @@ impl IntoResponse for ApiError {
             Self::SecretLimit => Some(LimitDetail {
                 name: "secrets",
                 max: MAX_SECRETS_PER_ENDPOINT,
+            }),
+            Self::NeverExpireLimit { max } => Some(LimitDetail {
+                name: "never_expire",
+                max: usize::try_from(*max).unwrap_or(usize::MAX),
             }),
             _ => None,
         };
@@ -395,6 +413,13 @@ impl IntoResponse for ApiError {
                 None,
             ),
             Self::SecretLimit => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "limit_reached",
+                self.to_string(),
+                None,
+            ),
+            Self::OwnerRequired => (StatusCode::FORBIDDEN, "forbidden", self.to_string(), None),
+            Self::NeverExpireLimit { .. } => (
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "limit_reached",
                 self.to_string(),

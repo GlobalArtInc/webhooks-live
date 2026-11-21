@@ -7,6 +7,7 @@ pub mod endpoints;
 mod error;
 pub mod forward;
 mod kind;
+pub mod lifecycle;
 pub mod maintenance;
 mod members;
 pub mod secrets;
@@ -22,9 +23,12 @@ pub use capture_queries::{
     CaptureQuery, DeleteOutcome, FormFile, NameValue, Order, StatusFilter,
 };
 pub use claim::{ClaimOutcome, ClaimRefusal};
-pub use endpoints::{EndpointError, EndpointRecord, EndpointSettings, Overflow};
+pub use endpoints::{
+    EndpointChange, EndpointError, EndpointRecord, EndpointSettings, NewEndpoint, Overflow,
+};
 pub use error::StoreError;
 pub use kind::CaptureKind;
+pub use lifecycle::{Lifecycle, LifecycleError, LifecycleLimits};
 pub use members::{
     GrantedRole, ListPosition, MemberRecord, MembershipError, RemoveMemberOutcome, RoleFilter,
     SetMemberOutcome, UserEndpoint, UserEndpointPage,

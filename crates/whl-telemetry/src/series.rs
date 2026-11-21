@@ -17,6 +17,7 @@ pub const FORWARD_IN_FLIGHT: &str = "webhooks_live_forward_in_flight";
 pub const STORE_BYTES: &str = "webhooks_live_store_bytes";
 pub const ENDPOINTS: &str = "webhooks_live_endpoints";
 pub const EVICTIONS_TOTAL: &str = "webhooks_live_evictions_total";
+pub const CAPTURE_TTL_DELETED_TOTAL: &str = "webhooks_live_capture_ttl_deleted_total";
 pub const DB_POOL_CONNECTIONS: &str = "webhooks_live_db_pool_connections";
 pub const AUTH_AVAILABLE: &str = "webhooks_live_auth_available";
 pub const MAINTENANCE_LEADER: &str = "webhooks_live_maintenance_leader";

@@ -63,7 +63,10 @@ pub(crate) fn summary_columns(path_limit: Option<i32>) -> String {
 fn endpoint_view_sql() -> String {
     let created_at = timestamp("e.created_at");
     let last_active_at = timestamp("e.last_active_at");
-    let expires_at = timestamp("(e.last_active_at + make_interval(secs => $2))");
+    let expires_at = timestamp(
+        "(CASE WHEN e.never_expires THEN NULL \
+         ELSE e.last_active_at + make_interval(secs => COALESCE(e.retention_seconds::float8, $2)) END)",
+    );
     let rule_created_at = timestamp("r.created_at");
     format!(
         r#"
@@ -83,6 +86,10 @@ SELECT
   {created_at} AS created_at,
   {last_active_at} AS last_active_at,
   {expires_at} AS expires_at,
+  e.retention_seconds,
+  e.never_expires,
+  e.max_captures,
+  e.capture_ttl_seconds,
   (
     SELECT coalesce(json_agg(json_build_object(
       'id', r.id,
@@ -100,7 +107,7 @@ SELECT
 FROM endpoints e
 WHERE e.id = $1
   AND e.deleted_at IS NULL
-  AND e.last_active_at > now() - make_interval(secs => $2)
+  AND (e.never_expires OR e.last_active_at > now() - make_interval(secs => COALESCE(e.retention_seconds::float8, $2)))
 "#
     )
 }
@@ -158,7 +165,7 @@ UPDATE endpoints
 SET last_active_at = now()
 WHERE id = $1
   AND deleted_at IS NULL
-  AND last_active_at > now() - make_interval(secs => $2)
+  AND (never_expires OR last_active_at > now() - make_interval(secs => COALESCE(retention_seconds::float8, $2)))
 RETURNING last_seq, capture_count
 "#;
 
@@ -309,7 +316,11 @@ pub struct EndpointView {
     pub last_seq: i64,
     pub created_at: String,
     pub last_active_at: String,
-    pub expires_at: String,
+    pub expires_at: Option<String>,
+    pub retention_seconds: Option<i32>,
+    pub never_expires: bool,
+    pub max_captures: Option<i32>,
+    pub capture_ttl_seconds: Option<i32>,
     pub forward_rules: Vec<ForwardRuleView>,
 }
 
@@ -459,6 +470,10 @@ fn endpoint_view_from_row(row: &PgRow) -> Result<EndpointView, ViewError> {
         created_at: row.try_get("created_at")?,
         last_active_at: row.try_get("last_active_at")?,
         expires_at: row.try_get("expires_at")?,
+        retention_seconds: row.try_get("retention_seconds")?,
+        never_expires: row.try_get("never_expires")?,
+        max_captures: row.try_get("max_captures")?,
+        capture_ttl_seconds: row.try_get("capture_ttl_seconds")?,
         forward_rules,
     })
 }
@@ -699,7 +714,7 @@ mod tests {
         assert_eq!(targets, vec!["http://zero", "http://one"]);
         assert!(view.forward_rules[0].created_at.ends_with('Z'));
         assert!(view.created_at.ends_with('Z'));
-        assert!(view.expires_at > view.last_active_at);
+        assert!(view.expires_at.as_deref() > Some(view.last_active_at.as_str()));
 
         sqlx::query("UPDATE endpoints SET deleted_at = now() WHERE id = $1")
             .bind(endpoint.unpack())

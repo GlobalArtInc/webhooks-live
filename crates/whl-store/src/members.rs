@@ -12,11 +12,12 @@ use crate::store::Store;
 
 const QUALIFIED_COLUMNS: &str = "e.id, e.title, e.response_status, e.response_content_type, \
     e.response_headers::text AS response_headers, e.response_body, e.response_delay_ms, e.cors, \
-    e.overflow, e.capture_count, e.bytes_used, e.last_seq, e.created_at, e.last_active_at";
+    e.overflow, e.capture_count, e.bytes_used, e.last_seq, e.created_at, e.last_active_at, \
+    e.retention_seconds, e.never_expires, e.max_captures, e.capture_ttl_seconds";
 
 const LIVE_ENDPOINT_SQL: &str = "SELECT owner_id FROM endpoints \
     WHERE id = $1 AND deleted_at IS NULL \
-        AND last_active_at > now() - make_interval(secs => $2) \
+        AND (never_expires OR last_active_at > now() - make_interval(secs => COALESCE(retention_seconds::float8, $2))) \
     FOR SHARE";
 
 const FIND_USER_BY_EMAIL_SQL: &str = "SELECT id, email, display_name FROM users \
@@ -309,7 +310,7 @@ impl Store {
              LEFT JOIN endpoint_members m ON m.endpoint_id = e.id AND m.user_id = $1 \
              LEFT JOIN users ou ON ou.id = e.owner_id \
              WHERE e.deleted_at IS NULL \
-                AND e.last_active_at > now() - make_interval(secs => $2) \
+                AND (e.never_expires OR e.last_active_at > now() - make_interval(secs => COALESCE(e.retention_seconds::float8, $2))) \
                 AND (e.owner_id = $1 OR m.user_id IS NOT NULL) \
                 AND ($3::text = 'any' \
                     OR ($3::text = 'owner' AND e.owner_id = $1) \

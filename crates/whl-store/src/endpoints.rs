@@ -13,15 +13,18 @@ use whl_core::header::HeaderInput;
 use whl_core::response::{ResponseConfig, ResponseConfigInput};
 
 use crate::captures::EVENT_CHANNEL;
+use crate::lifecycle::{Lifecycle, LifecycleError, LifecycleLimits, admit_never_expires};
 use crate::store::Store;
 
 pub(crate) const COLUMNS: &str = "id, title, response_status, response_content_type, \
     response_headers::text AS response_headers, response_body, response_delay_ms, cors, overflow, \
-    capture_count, bytes_used, last_seq, created_at, last_active_at";
+    capture_count, bytes_used, last_seq, created_at, last_active_at, retention_seconds, \
+    never_expires, max_captures, capture_ttl_seconds";
 
 const GET_SQL: &str = "WITH live AS ( \
         SELECT id FROM endpoints \
-        WHERE id = $1 AND deleted_at IS NULL AND last_active_at > now() - make_interval(secs => $2) \
+        WHERE id = $1 AND deleted_at IS NULL \
+        AND (never_expires OR last_active_at > now() - make_interval(secs => COALESCE(retention_seconds::float8, $2))) \
     ), bumped AS ( \
         UPDATE endpoints SET last_active_at = now() \
         WHERE id IN (SELECT id FROM live) AND last_active_at < now() - interval '60 seconds' \
@@ -30,12 +33,14 @@ const GET_SQL: &str = "WITH live AS ( \
     SELECT e.id, e.title, e.response_status, e.response_content_type, \
         e.response_headers::text AS response_headers, e.response_body, e.response_delay_ms, e.cors, \
         e.overflow, e.capture_count, e.bytes_used, e.last_seq, e.created_at, \
-        COALESCE(b.last_active_at, e.last_active_at) AS last_active_at \
+        COALESCE(b.last_active_at, e.last_active_at) AS last_active_at, \
+        e.retention_seconds, e.never_expires, e.max_captures, e.capture_ttl_seconds \
     FROM endpoints e LEFT JOIN bumped b ON b.id = e.id \
     WHERE e.id IN (SELECT id FROM live)";
 
 const DELETE_SQL: &str = "UPDATE endpoints SET deleted_at = now() \
-    WHERE id = $1 AND deleted_at IS NULL AND last_active_at > now() - make_interval(secs => $2)";
+    WHERE id = $1 AND deleted_at IS NULL \
+    AND (never_expires OR last_active_at > now() - make_interval(secs => COALESCE(retention_seconds::float8, $2)))";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Overflow {
@@ -77,7 +82,23 @@ pub struct EndpointRecord {
     pub last_seq: i64,
     pub created_at: OffsetDateTime,
     pub last_active_at: OffsetDateTime,
-    pub expires_at: OffsetDateTime,
+    pub expires_at: Option<OffsetDateTime>,
+    pub lifecycle: Lifecycle,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct NewEndpoint<'a> {
+    pub owner: Option<Uuid>,
+    pub creator_net: Option<&'a CreatorNet>,
+    pub settings: &'a EndpointSettings,
+    pub lifecycle: Lifecycle,
+    pub limits: LifecycleLimits,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EndpointChange {
+    pub settings: EndpointSettings,
+    pub lifecycle: Lifecycle,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -117,7 +138,8 @@ impl Store {
         settings: &EndpointSettings,
         retention: Duration,
     ) -> Result<EndpointRecord, EndpointError> {
-        self.insert_endpoint(owner, None, settings, retention).await
+        self.insert_default_lifecycle(owner, None, settings, retention)
+            .await
     }
 
     pub async fn create_endpoint_from_network(
@@ -126,32 +148,74 @@ impl Store {
         settings: &EndpointSettings,
         retention: Duration,
     ) -> Result<EndpointRecord, EndpointError> {
-        self.insert_endpoint(None, creator_net, settings, retention)
+        self.insert_default_lifecycle(None, creator_net, settings, retention)
             .await
     }
 
-    async fn insert_endpoint(
+    pub async fn create_endpoint_with_lifecycle(
+        &self,
+        new: NewEndpoint<'_>,
+        retention: Duration,
+    ) -> Result<EndpointRecord, LifecycleError> {
+        self.insert_endpoint(&new, retention).await
+    }
+
+    async fn insert_default_lifecycle(
         &self,
         owner: Option<Uuid>,
         creator_net: Option<&CreatorNet>,
         settings: &EndpointSettings,
         retention: Duration,
     ) -> Result<EndpointRecord, EndpointError> {
-        let id = EndpointId::generate()?;
+        let new = NewEndpoint {
+            owner,
+            creator_net,
+            settings,
+            lifecycle: Lifecycle::default(),
+            limits: LifecycleLimits::NONE,
+        };
+        self.insert_endpoint(&new, retention)
+            .await
+            .map_err(|error| match error {
+                LifecycleError::Endpoint(error) => error,
+                other => EndpointError::Invalid {
+                    id: String::new(),
+                    reason: other.to_string(),
+                },
+            })
+    }
+
+    async fn insert_endpoint(
+        &self,
+        new: &NewEndpoint<'_>,
+        retention: Duration,
+    ) -> Result<EndpointRecord, LifecycleError> {
+        let id = EndpointId::generate().map_err(EndpointError::from)?;
         let sql = format!(
             "INSERT INTO endpoints (id, title, response_status, response_content_type, \
              response_headers, response_body, response_delay_ms, cors, overflow, owner_id, \
-             creator_net) \
-             VALUES ($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9, $10, $11::text::cidr) \
+             creator_net, retention_seconds, never_expires, max_captures, capture_ttl_seconds) \
+             VALUES ($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9, $10, $11::text::cidr, \
+             $12, $13, $14, $15) \
              RETURNING {COLUMNS}"
         );
-        let row = bind_settings(sqlx::query(&sql).bind(id.unpack()), settings)?
-            .bind(owner)
-            .bind(creator_net.map(ToString::to_string))
-            .fetch_one(self.pool())
+        let mut transaction = self.pool().begin().await.map_err(classify)?;
+        if new.lifecycle.never_expires {
+            admit_never_expires(&mut transaction, new.owner, new.limits).await?;
+        }
+        let row = bind_settings(sqlx::query(&sql).bind(id.unpack()), new.settings)?
+            .bind(new.owner)
+            .bind(new.creator_net.map(ToString::to_string))
+            .bind(new.lifecycle.retention_seconds)
+            .bind(new.lifecycle.never_expires)
+            .bind(new.lifecycle.max_captures)
+            .bind(new.lifecycle.capture_ttl_seconds)
+            .fetch_one(&mut *transaction)
             .await
             .map_err(classify)?;
-        record_from_row(&row, retention)
+        let record = record_from_row(&row, retention)?;
+        transaction.commit().await.map_err(classify)?;
+        Ok(record)
     }
 
     pub async fn get_endpoint(
@@ -174,11 +238,12 @@ impl Store {
         &self,
         id: &EndpointId,
         retention: Duration,
+        limits: LifecycleLimits,
         merge: F,
     ) -> Result<Option<EndpointRecord>, E>
     where
-        F: FnOnce(&EndpointRecord) -> Result<EndpointSettings, E>,
-        E: From<EndpointError>,
+        F: FnOnce(&EndpointRecord, Option<Uuid>) -> Result<EndpointChange, E>,
+        E: From<EndpointError> + From<LifecycleError>,
     {
         let mut transaction = self
             .pool()
@@ -186,8 +251,9 @@ impl Store {
             .await
             .map_err(|error| E::from(classify(error)))?;
         let lock_sql = format!(
-            "SELECT {COLUMNS} FROM endpoints \
-             WHERE id = $1 AND deleted_at IS NULL AND last_active_at > now() - make_interval(secs => $2) \
+            "SELECT {COLUMNS}, owner_id FROM endpoints \
+             WHERE id = $1 AND deleted_at IS NULL \
+             AND (never_expires OR last_active_at > now() - make_interval(secs => COALESCE(retention_seconds::float8, $2))) \
              FOR UPDATE"
         );
         let Some(row) = sqlx::query(&lock_sql)
@@ -200,15 +266,28 @@ impl Store {
             return Ok(None);
         };
         let current = record_from_row(&row, retention).map_err(E::from)?;
-        let settings = merge(&current)?;
+        let owner: Option<Uuid> = row
+            .try_get("owner_id")
+            .map_err(|error| E::from(EndpointError::Query(error)))?;
+        let change = merge(&current, owner)?;
+        if change.lifecycle.never_expires && !current.lifecycle.never_expires {
+            admit_never_expires(&mut transaction, owner, limits)
+                .await
+                .map_err(E::from)?;
+        }
         let update_sql = format!(
             "UPDATE endpoints SET title = $2, response_status = $3, response_content_type = $4, \
              response_headers = $5::text::jsonb, response_body = $6, response_delay_ms = $7, \
-             cors = $8, overflow = $9, last_active_at = now() \
+             cors = $8, overflow = $9, retention_seconds = $10, never_expires = $11, \
+             max_captures = $12, capture_ttl_seconds = $13, last_active_at = now() \
              WHERE id = $1 RETURNING {COLUMNS}"
         );
-        let row = bind_settings(sqlx::query(&update_sql).bind(id.unpack()), &settings)
+        let row = bind_settings(sqlx::query(&update_sql).bind(id.unpack()), &change.settings)
             .map_err(E::from)?
+            .bind(change.lifecycle.retention_seconds)
+            .bind(change.lifecycle.never_expires)
+            .bind(change.lifecycle.max_captures)
+            .bind(change.lifecycle.capture_ttl_seconds)
             .fetch_one(&mut *transaction)
             .await
             .map_err(|error| E::from(classify(error)))?;
@@ -322,7 +401,20 @@ pub(crate) fn record_from_row(
     .map_err(|error| invalid(error.to_string()))?;
     let overflow = Overflow::parse(&overflow_text)
         .ok_or_else(|| invalid(format!("unknown overflow mode {overflow_text}")))?;
-    let expires_at = expiry(last_active_at, retention)?;
+    let lifecycle = Lifecycle {
+        retention_seconds: row
+            .try_get("retention_seconds")
+            .map_err(EndpointError::Query)?,
+        never_expires: row.try_get("never_expires").map_err(EndpointError::Query)?,
+        max_captures: row.try_get("max_captures").map_err(EndpointError::Query)?,
+        capture_ttl_seconds: row
+            .try_get("capture_ttl_seconds")
+            .map_err(EndpointError::Query)?,
+    };
+    let expires_at = lifecycle
+        .effective_retention(retention)
+        .map(|window| expiry(last_active_at, window))
+        .transpose()?;
 
     Ok(EndpointRecord {
         id,
@@ -338,6 +430,7 @@ pub(crate) fn record_from_row(
         created_at,
         last_active_at,
         expires_at,
+        lifecycle,
     })
 }
 
