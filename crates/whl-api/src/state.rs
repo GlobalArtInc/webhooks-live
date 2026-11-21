@@ -4,6 +4,7 @@ use whl_auth::AccessControl;
 use whl_secrets::Keyring;
 use whl_store::Store;
 
+use crate::export::ExportSlots;
 use crate::forward::ForwardSettings;
 use crate::limit::ApiLimits;
 use crate::settings::ApiSettings;
@@ -16,10 +17,12 @@ pub struct ApiState {
     pub(crate) forward: ForwardSettings,
     pub(crate) access: AccessControl,
     pub(crate) secrets: Option<Arc<Keyring>>,
+    pub(crate) exports: ExportSlots,
 }
 
 impl ApiState {
     pub fn new(store: Store, settings: ApiSettings) -> Self {
+        let exports = ExportSlots::new(settings.export_concurrency);
         Self {
             store,
             settings,
@@ -27,6 +30,7 @@ impl ApiState {
             forward: ForwardSettings::default(),
             access: AccessControl::open(),
             secrets: None,
+            exports,
         }
     }
 

@@ -22,6 +22,7 @@ pub struct ApiSettings {
     pub forwarding: bool,
     pub private_forward_targets_allowed: bool,
     pub ring_mode_allowed: bool,
+    pub export_concurrency: u32,
 }
 
 impl ApiSettings {
@@ -34,6 +35,7 @@ impl ApiSettings {
             forwarding: config.forward.enabled,
             private_forward_targets_allowed: !config.forward.allow_cidrs.is_empty(),
             ring_mode_allowed: config.capture.ring_mode_allowed,
+            export_concurrency: config.export.concurrency,
         }
     }
 

@@ -160,6 +160,8 @@ pub enum ApiError {
     NeverExpireLimit { max: u32 },
     #[error("the secret is still used by the signature verifier of this endpoint")]
     SecretInUse { endpoint: String },
+    #[error("the selection is larger than the export limit")]
+    ExportTooLarge,
     #[error("secrets are not configured on this instance")]
     SecretsDisabled,
     #[error("secret storage failed: {0}")]
@@ -577,6 +579,12 @@ impl IntoResponse for ApiError {
             Self::NeverExpireLimit { .. } => (
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "limit_reached",
+                self.to_string(),
+                None,
+            ),
+            Self::ExportTooLarge => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "export_too_large",
                 self.to_string(),
                 None,
             ),

@@ -7,6 +7,7 @@ mod claim;
 pub mod endpoints;
 mod error;
 pub mod folders;
+mod export;
 pub mod forward;
 mod kind;
 pub mod lifecycle;
@@ -39,6 +40,7 @@ pub use error::StoreError;
 pub use folders::{
     CreateFolderOutcome, FolderError, FolderRecord, MAX_FOLDERS_PER_USER, UpdateFolderOutcome,
 };
+pub use export::{ExportSelection, ExportSnapshot};
 pub use kind::CaptureKind;
 pub use lifecycle::{Lifecycle, LifecycleError, LifecycleLimits};
 pub use members::{

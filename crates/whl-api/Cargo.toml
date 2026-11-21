@@ -8,14 +8,17 @@ publish.workspace = true
 [dependencies]
 axum.workspace = true
 base64.workspace = true
+futures-util.workspace = true
 metrics.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 time = { workspace = true, features = ["formatting", "macros", "parsing"] }
+tokio.workspace = true
 tracing.workspace = true
 whl-auth.workspace = true
 whl-core.workspace = true
+whl-export.workspace = true
 whl-forward.workspace = true
 whl-live.workspace = true
 whl-secrets.workspace = true
@@ -27,7 +30,7 @@ whl-verify.workspace = true
 futures-util.workspace = true
 sha2.workspace = true
 sqlx.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
 tower.workspace = true
 tracing-subscriber.workspace = true
 url.workspace = true

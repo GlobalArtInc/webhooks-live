@@ -74,6 +74,7 @@ fn settings(forwarding: bool) -> ApiSettings {
         forwarding,
         private_forward_targets_allowed: false,
         ring_mode_allowed: true,
+        export_concurrency: 2,
     }
 }
 

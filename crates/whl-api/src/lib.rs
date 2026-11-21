@@ -5,6 +5,7 @@ mod cors;
 mod dto;
 mod error;
 mod folders;
+mod export;
 mod forward;
 mod handlers;
 mod input;
@@ -52,6 +53,7 @@ pub fn router(state: ApiState) -> Router {
         .merge(members::routes())
         .merge(captures::routes())
         .merge(folders::routes())
+        .merge(export::routes())
         .merge(forward::routes())
         .merge(secrets::routes())
         .merge(tokens::routes());
