@@ -23,6 +23,10 @@ import { EndpointSettingsScreen } from '../routes/settings/EndpointSettingsScree
 import { SettingsIndexScreen } from '../routes/settings/SettingsIndexScreen';
 import { SettingsSectionScreen } from '../routes/settings/SettingsSectionScreen';
 import { SignInScreen } from '../routes/signin/SignInScreen';
+import { ensureUnlocked } from '../features/access/ensureUnlocked';
+import { installGrantGuard } from '../features/access/grantGuard';
+import { installGrantResolver } from '../features/access/grants';
+import { UnlockScreen } from '../features/access/UnlockScreen';
 import { validateCaptureSearch } from '../features/filters/captureSearch';
 import { validateComposeSearch } from '../features/composer/search';
 import { validateEndpointsSearch } from '../features/folders/search';
@@ -134,7 +138,8 @@ const endpointRoute = createRoute({
   path: '/e/$id',
   validateSearch: validateCaptureSearch,
   beforeLoad: ({ params }) => assertEndpointId(params.id),
-  loader: ({ context, params }) => ensureEndpoint(context.queryClient, params.id),
+  loader: ({ context, params, location }) =>
+    ensureUnlocked(() => ensureEndpoint(context.queryClient, params.id), params.id, location.href),
   errorComponent: RouteError,
   notFoundComponent: NotFoundScreen,
   component: EndpointScreen,
@@ -180,6 +185,16 @@ const forwardingRedirectRoute = createRoute({
   },
 });
 
+const unlockRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/e/$id/unlock',
+  validateSearch: validateSignInSearch,
+  beforeLoad: ({ params }) => assertEndpointId(params.id),
+  errorComponent: RouteError,
+  notFoundComponent: NotFoundScreen,
+  component: UnlockScreen,
+});
+
 const diffRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/e/$id/diff/$a/$b',
@@ -189,7 +204,8 @@ const diffRoute = createRoute({
     assertCaptureId(params.a);
     assertCaptureId(params.b);
   },
-  loader: ({ context, params }) => ensureEndpoint(context.queryClient, params.id),
+  loader: ({ context, params, location }) =>
+    ensureUnlocked(() => ensureEndpoint(context.queryClient, params.id), params.id, location.href),
   errorComponent: RouteError,
   notFoundComponent: NotFoundScreen,
   component: DiffScreen,
@@ -240,13 +256,17 @@ const routeTree = rootRoute.addChildren([
       forwardingRedirectRoute,
     ]),
     diffRoute,
+    unlockRoute,
     notFoundRoute,
   ]),
   ...devRoutes,
 ]);
 
 export function createAppRouter({ history, queryClient }: AppRouterOptions) {
-  return createRouter({ routeTree, history, context: { queryClient } });
+  installGrantResolver();
+  const router = createRouter({ routeTree, history, context: { queryClient } });
+  installGrantGuard(router);
+  return router;
 }
 
 export type AppRouter = ReturnType<typeof createAppRouter>;

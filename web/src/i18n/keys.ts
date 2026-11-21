@@ -1,3 +1,4 @@
+import access from './en/access.json';
 import common from './en/common.json';
 import composer from './en/composer.json';
 import detail from './en/detail.json';
@@ -20,7 +21,8 @@ import steps from './en/steps.json';
 import tokens from './en/tokens.json';
 import workspace from './en/workspace.json';
 
-export type SourceMessages = typeof common &
+export type SourceMessages = typeof access &
+  typeof common &
   typeof composer &
   typeof detail &
   typeof diff &
