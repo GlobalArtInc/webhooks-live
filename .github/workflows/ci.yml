@@ -7,7 +7,7 @@ on:
       - "**/*.md"
       - "LICENSE"
   push:
-    branches: [main]
+    branches: [main, "wip/**"]
     paths-ignore:
       - "docs/**"
       - "**/*.md"
