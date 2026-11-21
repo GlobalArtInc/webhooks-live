@@ -1,0 +1,21 @@
+{
+  "wl.inbox.screen": "Inbox",
+  "wl.inbox.scope.label": "Scope",
+  "wl.inbox.scope.all": "All my endpoints",
+  "wl.inbox.scope.allLocal": "All endpoints in this browser",
+  "wl.inbox.scope.endpoints": "Chosen endpoints",
+  "wl.inbox.scope.endpoints.legend": "Endpoints in this scope",
+  "wl.inbox.scope.endpoints.limit": "Up to {{max}} endpoints at a time",
+  "wl.inbox.scope.endpoints.none": "No endpoints in this browser yet. Create one to add it here.",
+  "wl.inbox.empty.title": "No captures in this scope yet",
+  "wl.inbox.empty.body": "Captures from these endpoints appear here as they arrive.",
+  "wl.inbox.empty.none": "This scope has no endpoints. Choose endpoints or another scope.",
+  "wl.inbox.empty.copy": "Copy address",
+  "wl.inbox.gone.title": "An endpoint in this scope is no longer available",
+  "wl.inbox.gone.body": "Choose the scope again to keep receiving captures.",
+  "wl.inbox.gone.choose": "Choose scope",
+  "wl.inbox.row.deleteDenied": "Your role does not allow this",
+  "wl.inbox.detail.open": "Open endpoint",
+  "wl.inbox.detail.none": "Select a capture to see its details",
+  "wl.inbox.delete.failed": "The capture could not be deleted"
+}

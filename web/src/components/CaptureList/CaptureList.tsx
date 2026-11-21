@@ -1,5 +1,5 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type UIEvent } from 'react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode, type UIEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { CaptureSummary } from '../../api/types';
 import { compareLabelOf } from '../../features/list/compare';
@@ -24,6 +24,13 @@ const KEY_NAVIGATION: Readonly<Record<string, ListNavigation>> = {
   End: 'last',
 };
 
+export interface RowExtras {
+  endpoint?: ReactNode;
+  deleteDenied?: string;
+}
+
+const NO_ROW_EXTRAS = (): RowExtras => ({});
+
 export interface CaptureListProps {
   items: CaptureSummary[];
   selectedId: string | null;
@@ -47,6 +54,8 @@ export interface CaptureListProps {
   onRetry: () => void;
   onAtTopChange: (atTop: boolean) => void;
   onPillActivate: () => void;
+  rowExtras?: (item: CaptureSummary) => RowExtras;
+  compare?: boolean;
 }
 
 export function CaptureList({
@@ -72,6 +81,8 @@ export function CaptureList({
   onRetry,
   onAtTopChange,
   onPillActivate,
+  rowExtras = NO_ROW_EXTRAS,
+  compare = true,
 }: CaptureListProps) {
   const { t } = useTranslation();
   const idPrefix = useId();
@@ -192,6 +203,7 @@ export function CaptureList({
                   now={now}
                   unread={unreadIds.has(item.id)}
                   arriving={arrivingIds.has(item.id)}
+                  endpoint={rowExtras(item).endpoint}
                   style={{ height: rowHeight, transform: `translateY(${index * rowHeight}px)` }}
                   onSelect={onSelect}
                 />
@@ -204,6 +216,8 @@ export function CaptureList({
                   captureId={item.id}
                   compareLabel={compareLabelOf(markedId, item.id)}
                   style={{ height: rowHeight, transform: `translateY(${index * rowHeight}px)` }}
+                  compare={compare}
+                  deleteDenied={rowExtras(item).deleteDenied}
                   onDelete={onDelete}
                   onCompare={onCompare}
                 />

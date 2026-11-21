@@ -3,19 +3,24 @@ import type {
   CaptureBodyOptions,
   CaptureListQuery,
   CapturePage,
+  CaptureSummary,
   Endpoint,
   EndpointInput,
   EndpointListQuery,
   EndpointPage,
   FieldError,
+  Folder,
   ForwardJob,
   ForwardRequest,
   ForwardRule,
   ForwardRuleInput,
+  InboxCaptureQuery,
   Instance,
+  ItemList,
   Member,
   MemberInput,
   MemberList,
+  Page,
 } from './types';
 
 export const API_PREFIX = '/api/v1';
@@ -280,4 +285,12 @@ export function patchForwardRule(
 
 export function deleteForwardRule(endpointId: string, ruleId: string): Promise<void> {
   return requestEmpty(`${endpointPath(endpointId)}/forward-rules/${encodeURIComponent(ruleId)}`, { method: 'DELETE' });
+}
+
+export function listInboxCaptures(query: InboxCaptureQuery = {}): Promise<Page<CaptureSummary>> {
+  return requestJson<Page<CaptureSummary>>('/inbox/captures', { method: 'GET', query: { ...query } });
+}
+
+export function listFolders(): Promise<ItemList<Folder>> {
+  return requestJson<ItemList<Folder>>('/folders', { method: 'GET' });
 }

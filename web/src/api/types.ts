@@ -229,6 +229,21 @@ export interface EndpointListQuery {
   role?: EndpointRoleFilter;
 }
 
+export interface InboxCaptureQuery {
+  endpoints?: string;
+  folder?: string;
+  cursor?: string | null;
+  limit?: number;
+}
+
+export interface Folder {
+  id: Uuid;
+  name: string;
+  position: number;
+  endpoint_ids: EndpointId[];
+  created_at: Timestamp;
+}
+
 export interface CaptureBodyOptions {
   view?: 'text';
   download?: boolean;

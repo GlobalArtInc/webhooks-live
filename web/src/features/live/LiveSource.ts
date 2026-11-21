@@ -29,12 +29,14 @@ export type EventSourceFactory = (url: string) => EventSourceLike;
 export type StatusProbe = (endpointId: string) => Promise<number>;
 
 export interface LiveSourceOptions {
-  endpointId: string;
+  endpointId?: string;
   getLastSeq?: () => number | null;
   createEventSource?: EventSourceFactory | null;
   probe?: StatusProbe;
   random?: () => number;
   now?: () => number;
+  buildUrl?: (lastEventId: string | null) => string;
+  finishOnEndpointDeleted?: boolean;
 }
 
 export function streamUrl(endpointId: string, lastSeq: number): string {
@@ -89,6 +91,7 @@ export class LiveSource {
   private disposed = false;
   private started = false;
   private highSeq = 0;
+  private lastEventId: string | null = null;
   private probeToken = 0;
 
   constructor(options: LiveSourceOptions) {
@@ -195,7 +198,7 @@ export class LiveSource {
       return;
     }
     this.setState(this.hasConnected || this.attempt > 0 ? 'reconnecting' : 'connecting');
-    const source = this.factory(streamUrl(this.options.endpointId, this.getLastSeq()));
+    const source = this.factory(this.currentUrl());
     this.source = source;
     source.addEventListener('open', () => {
       if (this.source !== source) {
@@ -215,9 +218,17 @@ export class LiveSource {
     }
   }
 
+  private currentUrl(): string {
+    const { buildUrl, endpointId } = this.options;
+    return buildUrl === undefined ? streamUrl(endpointId ?? '', this.getLastSeq()) : buildUrl(this.lastEventId);
+  }
+
   private handleMessage(source: EventSourceLike, name: LiveEventName, event: Event): void {
     if (this.source !== source || !(event instanceof MessageEvent)) {
       return;
+    }
+    if (event.lastEventId !== '') {
+      this.lastEventId = event.lastEventId;
     }
     const parsed = parseLiveEvent(name, String(event.data));
     if (parsed === null) {
@@ -230,7 +241,7 @@ export class LiveSource {
     this.dispatch(parsed);
     if (parsed.name === 'bye') {
       this.handleBye();
-    } else if (parsed.name === 'endpoint_deleted') {
+    } else if (parsed.name === 'endpoint_deleted' && this.options.finishOnEndpointDeleted !== false) {
       this.finish('deleted');
     }
   }
@@ -289,7 +300,7 @@ export class LiveSource {
     const token = this.probeToken;
     let status: number | null = null;
     try {
-      status = await this.probe(this.options.endpointId);
+      status = await this.probe(this.options.endpointId ?? '');
     } catch {
       status = null;
     }

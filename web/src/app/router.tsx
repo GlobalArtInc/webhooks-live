@@ -14,6 +14,7 @@ import { CaptureScreen } from '../routes/capture/CaptureScreen';
 import { EndpointScreen } from '../routes/endpoint/EndpointScreen';
 import { EndpointsScreen } from '../routes/endpoints/EndpointsScreen';
 import { HomeScreen } from '../routes/home/HomeScreen';
+import { InboxScreen } from '../routes/inbox/InboxScreen';
 import { NotFoundScreen } from '../routes/states/NotFoundScreen';
 import { SettingsScreen } from '../routes/settings/SettingsScreen';
 import { EndpointSettingsScreen } from '../routes/settings/EndpointSettingsScreen';
@@ -43,9 +44,17 @@ export interface SignInSearch {
 
 export type EndpointSearch = Record<string, never>;
 
+export interface InboxSearch {
+  scope?: string;
+}
+
 function validateSignInSearch(search: Record<string, unknown>): SignInSearch {
   const next = safeReturnPath(search.next);
   return next === null ? {} : { next };
+}
+
+function validateInboxSearch(search: Record<string, unknown>): InboxSearch {
+  return typeof search.scope === 'string' ? { scope: search.scope } : {};
 }
 
 function validateEndpointSearch(): EndpointSearch {
@@ -162,6 +171,22 @@ const diffRoute = createRoute({
   component: DiffScreen,
 });
 
+const inboxRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/inbox',
+  validateSearch: validateInboxSearch,
+  component: InboxScreen,
+});
+
+const inboxCaptureRoute = createRoute({
+  getParentRoute: () => inboxRoute,
+  path: '$endpointId/$captureId',
+  beforeLoad: ({ params }) => {
+    assertEndpointId(params.endpointId);
+    assertCaptureId(params.captureId);
+  },
+});
+
 const notFoundRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '$',
@@ -195,6 +220,7 @@ const routeTree = rootRoute.addChildren([
       forwardingRedirectRoute,
     ]),
     diffRoute,
+    inboxRoute.addChildren([inboxCaptureRoute]),
     notFoundRoute,
   ]),
   ...devRoutes,
