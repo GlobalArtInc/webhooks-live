@@ -12,6 +12,7 @@ mod kind;
 pub mod lifecycle;
 pub mod maintenance;
 mod members;
+pub mod rules;
 pub mod secrets;
 pub mod stats;
 mod store;

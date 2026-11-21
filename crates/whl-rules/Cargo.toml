@@ -1,0 +1,18 @@
+[package]
+name = "whl-rules"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+ipnet.workspace = true
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+whl-core.workspace = true
+whl-script.workspace = true
+whl-secrets.workspace = true
+whl-template.workspace = true

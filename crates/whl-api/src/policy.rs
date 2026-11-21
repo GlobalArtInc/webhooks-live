@@ -98,13 +98,19 @@ fn endpoint_role(method: &Method, tail: &str) -> EndpointRole {
         | "/captures"
         | "/captures/latest"
         | "/forward-rules"
+        | "/rules"
+        | "/rules/{rule_id}"
         | "/captures/{capture_id}"
         | "/captures/{capture_id}/body"
             if read =>
         {
             EndpointRole::Viewer
         }
-        "/forward-rules" if *method == Method::POST => EndpointRole::Editor,
+        "/forward-rules" | "/rules" if *method == Method::POST => EndpointRole::Editor,
+        "/rules/order" if *method == Method::PUT => EndpointRole::Editor,
+        "/rules/{rule_id}" if matches!(*method, Method::PATCH | Method::DELETE) => {
+            EndpointRole::Editor
+        }
         "/forward-rules/{rule_id}" if matches!(*method, Method::PATCH | Method::DELETE) => {
             EndpointRole::Editor
         }
@@ -168,7 +174,7 @@ mod tests {
     #[test]
     fn every_documented_route_needs_the_role_of_the_api_table() {
         use EndpointRole::{Editor, Owner, Viewer};
-        let table: [(&Method, &str, Requirement); 29] = [
+        let table: [(&Method, &str, Requirement); 35] = [
             (&GET, "/secrets", Requirement::Role(Editor)),
             (&Method::HEAD, "/secrets", Requirement::Role(Editor)),
             (&PUT, "/secrets/{name}", Requirement::Role(Editor)),
@@ -179,6 +185,12 @@ mod tests {
             (&GET, "/members", Requirement::OwnedRole(Owner)),
             (&PUT, "/members", Requirement::OwnedRole(Owner)),
             (&DELETE, "/members/{user_id}", Requirement::OwnedRole(Owner)),
+            (&GET, "/rules", Requirement::Role(Viewer)),
+            (&POST, "/rules", Requirement::Role(Editor)),
+            (&GET, "/rules/{rule_id}", Requirement::Role(Viewer)),
+            (&PATCH, "/rules/{rule_id}", Requirement::Role(Editor)),
+            (&DELETE, "/rules/{rule_id}", Requirement::Role(Editor)),
+            (&PUT, "/rules/order", Requirement::Role(Editor)),
             (&GET, "/forward-rules", Requirement::Role(Viewer)),
             (&POST, "/forward-rules", Requirement::Role(Editor)),
             (

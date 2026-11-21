@@ -14,6 +14,7 @@ mod listing;
 mod members;
 mod policy;
 mod resolve;
+mod rules;
 mod secrets;
 mod settings;
 mod state;
@@ -53,6 +54,7 @@ pub fn router(state: ApiState) -> Router {
         .merge(captures::routes())
         .merge(folders::routes())
         .merge(forward::routes())
+        .merge(rules::routes())
         .merge(secrets::routes())
         .merge(tokens::routes());
     let api = guard_routes(api, &state.access)
