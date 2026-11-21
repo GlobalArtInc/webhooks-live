@@ -187,7 +187,7 @@ test('s opens the endpoint settings', async ({ page }) => {
 
   await page.keyboard.press('s');
 
-  await expect(page).toHaveURL(`${ENDPOINT_PATH}/settings`);
+  await expect(page).toHaveURL(`${ENDPOINT_PATH}/settings/general`);
 });
 
 test('Shift+F opens the forwarding workspace', async ({ page }) => {
@@ -196,7 +196,7 @@ test('Shift+F opens the forwarding workspace', async ({ page }) => {
 
   await page.keyboard.press('Shift+F');
 
-  await expect(page).toHaveURL(`${ENDPOINT_PATH}/forwarding`);
+  await expect(page).toHaveURL(`${ENDPOINT_PATH}/settings/forwarding`);
 });
 
 test('n opens the home page where a new endpoint is created', async ({ page }) => {
