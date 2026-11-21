@@ -52,7 +52,7 @@ file, which means all rights are reserved.
 
 | Allowed | Denied |
 |---|---|
-| MIT, Apache-2.0, BSD-2/3-Clause, ISC, Unicode, Zlib, MPL-2.0 (file-level copyleft only) | GPL, AGPL, LGPL for statically linked code, SSPL, unlicensed, and anything with a non-commercial clause |
+| MIT, Apache-2.0, BSD-2/3-Clause, ISC, Unicode, Zlib, MPL-2.0 (file-level copyleft only), CDLA-Permissive-2.0 (the CA root bundle data) | GPL, AGPL, LGPL for statically linked code, SSPL, unlicensed, and anything with a non-commercial clause |
 
 - Font files may additionally be under OFL-1.1 (the SIL Open Font License), because it permits embedding
   and redistribution and only restricts selling the font on its own. Code dependencies may not.
