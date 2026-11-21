@@ -294,10 +294,7 @@ impl IntoResponse for ApiError {
                 window: Some("hour"),
                 resets_at: Some(timestamp(*resets_at)),
             }),
-            Self::FolderLimit => Some(LimitDetail {
-                name: "folders",
-                max: MAX_FOLDERS_PER_USER,
-            }),
+            Self::FolderLimit => Some(LimitDetail::count("folders", MAX_FOLDERS_PER_USER)),
             _ => None,
         };
         let (status, code, message, fields) = match self {
