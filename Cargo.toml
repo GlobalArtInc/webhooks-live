@@ -62,10 +62,10 @@ tower = { version = "0.5", features = ["util"] }
 metrics = "0.24"
 
 [profile.dev]
-debug = "line-tables-only"
+debug = 0
 
 [profile.test]
-debug = "line-tables-only"
+debug = 0
 
 [profile.release]
 lto = "thin"
