@@ -1,5 +1,6 @@
 import { Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
+import { useInstance } from '../../api/queries';
 import type { Endpoint } from '../../api/types';
 import { WORKSPACE_SECTIONS, type WorkspaceSection } from './sections';
 import styles from './WorkspaceNav.module.css';
@@ -22,10 +23,12 @@ function CountBadge({ section, endpoint }: { section: WorkspaceSection; endpoint
 
 export function WorkspaceNav({ endpointId, endpoint, variant }: WorkspaceNavProps) {
   const { t } = useTranslation();
+  const instance = useInstance().data;
+  const sections = WORKSPACE_SECTIONS.filter((section) => section.available?.(instance) ?? true);
   return (
     <nav aria-label={t('wl.workspace.nav.label')} className={styles[variant]}>
       <ul className={styles.list}>
-        {WORKSPACE_SECTIONS.map((section) => {
+        {sections.map((section) => {
           const label = t(section.labelKey);
           if (section.Component === null) {
             return (

@@ -19,6 +19,7 @@ import rail from './en/rail.json';
 import sample from './en/sample.json';
 import script from './en/script.json';
 import selection from './en/selection.json';
+import schedules from './en/schedules.json';
 import state from './en/state.json';
 import steps from './en/steps.json';
 import tokens from './en/tokens.json';
@@ -46,6 +47,7 @@ export type SourceMessages = typeof access &
   typeof sample &
   typeof script &
   typeof selection &
+  typeof schedules &
   typeof state &
   typeof steps &
   typeof tokens &
