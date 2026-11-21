@@ -1,6 +1,7 @@
 mod body;
 mod captures;
 mod claim;
+mod composer;
 mod cors;
 mod dto;
 mod error;
@@ -31,6 +32,10 @@ use axum::middleware::{from_fn_with_state, map_response};
 use axum::response::Response;
 use axum::routing::{get, post};
 
+pub use composer::{
+    ComposerLimits, ComposerSettings, LocalDelivery, LocalError, LocalFuture, LocalReply,
+    LocalRequest, MAX_SEND_BODY_BYTES,
+};
 pub use cors::api_cors;
 pub use forward::ForwardSettings;
 pub use inbox::inbox_selector;
@@ -62,6 +67,7 @@ pub fn router(state: ApiState) -> Router {
         .merge(forward::routes())
         .merge(rules::routes())
         .merge(secrets::routes())
+        .merge(composer::routes())
         .merge(tokens::routes())
         .merge(vars::routes());
     let api = guard_routes(api, &state.access)

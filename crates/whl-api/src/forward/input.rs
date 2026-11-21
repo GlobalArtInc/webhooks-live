@@ -122,6 +122,7 @@ fn refusal_code(reason: RefusalReason) -> FieldCode {
         | RefusalReason::MissingHost => FieldCode::InvalidFormat,
         RefusalReason::Userinfo
         | RefusalReason::ForbiddenHost
+        | RefusalReason::ForbiddenPort
         | RefusalReason::RefusedAddress
         | RefusalReason::HttpsDowngrade => FieldCode::TargetRefused,
     }

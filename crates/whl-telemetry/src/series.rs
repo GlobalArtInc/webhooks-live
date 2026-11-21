@@ -15,6 +15,7 @@ pub const FORWARD_DURATION_SECONDS: &str = "webhooks_live_forward_duration_secon
 pub const FORWARD_QUEUE_DEPTH: &str = "webhooks_live_forward_queue_depth";
 pub const FORWARD_IN_FLIGHT: &str = "webhooks_live_forward_in_flight";
 pub const DNS_QUERIES_TOTAL: &str = "webhooks_live_dns_queries_total";
+pub const OUTBOUND_REQUESTS_TOTAL: &str = "webhooks_live_outbound_requests_total";
 pub const STORE_BYTES: &str = "webhooks_live_store_bytes";
 pub const ENDPOINTS: &str = "webhooks_live_endpoints";
 pub const EVICTIONS_TOTAL: &str = "webhooks_live_evictions_total";

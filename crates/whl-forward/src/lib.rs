@@ -20,7 +20,7 @@ pub use client::{
     SELECTED_RESPONSE_HEADERS,
 };
 pub use config::{
-    DEFAULT_MAX_REDIRECTS, DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_USER_AGENT, GuardConfig,
+    DEFAULT_MAX_REDIRECTS, DEFAULT_MAX_RESPONSE_BYTES, DEFAULT_USER_AGENT, GuardConfig, Hardening,
 };
 pub use error::{ForwardError, RefusalReason};
 pub use lookup::{LookupFuture, LookupHost, SystemLookup};
