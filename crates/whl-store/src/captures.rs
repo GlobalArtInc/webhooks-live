@@ -111,7 +111,7 @@ impl CaptureStoreError {
         )
     }
 
-    fn classify(source: sqlx::Error) -> Self {
+    pub(crate) fn classify(source: sqlx::Error) -> Self {
         let unavailable = match &source {
             sqlx::Error::PoolTimedOut
             | sqlx::Error::PoolClosed
@@ -232,7 +232,7 @@ pub enum CaptureOutcome {
 }
 
 impl NewCapture {
-    fn scrub(&mut self) {
+    pub(crate) fn scrub(&mut self) {
         scrub_string(&mut self.method);
         scrub_string(&mut self.url);
         scrub_string(&mut self.path);
@@ -479,7 +479,7 @@ impl Store {
             .map_err(CaptureStoreError::classify)
     }
 
-    async fn begin_capture_transaction(
+    pub(crate) async fn begin_capture_transaction(
         &self,
     ) -> Result<Transaction<'static, Postgres>, CaptureStoreError> {
         tokio::time::timeout(ACQUIRE_TIMEOUT, self.pool().begin())
@@ -489,17 +489,17 @@ impl Store {
     }
 }
 
-struct Prepared {
-    headers: String,
-    query: String,
-    form: Option<String>,
-    search_text: String,
-    body_size: i32,
-    stored_bytes: i32,
+pub(crate) struct Prepared {
+    pub(crate) headers: String,
+    pub(crate) query: String,
+    pub(crate) form: Option<String>,
+    pub(crate) search_text: String,
+    pub(crate) body_size: i32,
+    pub(crate) stored_bytes: i32,
 }
 
 impl Prepared {
-    fn new(capture: &NewCapture) -> Result<Self, CaptureStoreError> {
+    pub(crate) fn new(capture: &NewCapture) -> Result<Self, CaptureStoreError> {
         let headers = serde_json::to_string(&capture.headers)?;
         let query = serde_json::to_string(&capture.query)?;
         let form = capture

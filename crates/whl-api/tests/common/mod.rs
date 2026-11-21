@@ -130,6 +130,7 @@ pub fn api_settings() -> ApiSettings {
         private_forward_targets_allowed: false,
         ring_mode_allowed: true,
         export_concurrency: 2,
+        storage_cap_bytes: 20 * 1024 * 1024 * 1024,
     }
 }
 
@@ -159,7 +160,24 @@ pub async fn mixed_harness_behind(proxies: TrustedProxies) -> SsoHarness {
     build_with_users(true, proxies).await
 }
 
+pub async fn mixed_harness_with(settings: ApiSettings) -> SsoHarness {
+    build_with_settings(true, TrustedProxies::default(), settings, Duration::ZERO).await
+}
+
+pub async fn mixed_harness_with_import_cooldown(window: Duration) -> SsoHarness {
+    build_with_settings(true, TrustedProxies::default(), api_settings(), window).await
+}
+
 async fn build_with_users(mixed: bool, proxies: TrustedProxies) -> SsoHarness {
+    build_with_settings(mixed, proxies, api_settings(), Duration::ZERO).await
+}
+
+async fn build_with_settings(
+    mixed: bool,
+    proxies: TrustedProxies,
+    api: ApiSettings,
+    import_cooldown: Duration,
+) -> SsoHarness {
     let db = TestDb::new().await;
     let store = Store::from_pool(db.pool().clone());
     let issuer = Url::parse("https://sso.test").expect("the issuer URL parses");
@@ -186,7 +204,9 @@ async fn build_with_users(mixed: bool, proxies: TrustedProxies) -> SsoHarness {
         AccessControl::sso(auth, RETENTION)
     }
     .with_proxies(proxies);
-    let state = ApiState::new(store.clone(), api_settings()).with_access(access.clone());
+    let state = ApiState::new(store.clone(), api)
+        .with_access(access.clone())
+        .with_import_cooldown(import_cooldown);
     SsoHarness {
         db,
         app: whl_api::router(state),

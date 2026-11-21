@@ -8,6 +8,7 @@ mod export;
 mod folders;
 mod forward;
 mod handlers;
+mod import;
 mod input;
 mod lifecycle;
 mod limit;
@@ -54,6 +55,7 @@ pub fn router(state: ApiState) -> Router {
         .merge(captures::routes())
         .merge(folders::routes())
         .merge(export::routes())
+        .merge(import::routes())
         .merge(forward::routes())
         .merge(secrets::routes())
         .merge(tokens::routes());

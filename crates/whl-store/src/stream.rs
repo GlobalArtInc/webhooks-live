@@ -60,7 +60,8 @@ pub(crate) fn summary_columns(path_limit: Option<i32>) -> String {
   c.kind,
   c.starred,
   (c.note IS NOT NULL) AS has_note,
-  c.verification"#
+  c.verification,
+  c.imported"#
     )
 }
 
@@ -283,6 +284,7 @@ pub struct CaptureSummary {
     pub starred: bool,
     pub has_note: bool,
     pub verification: Option<Verification>,
+    pub imported: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -532,6 +534,7 @@ pub(crate) fn summary_from_row(row: &PgRow) -> Result<CaptureSummary, StreamErro
         starred: row.try_get("starred")?,
         has_note: row.try_get("has_note")?,
         verification,
+        imported: row.try_get("imported")?,
     })
 }
 

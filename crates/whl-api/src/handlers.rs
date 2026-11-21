@@ -4,12 +4,14 @@ use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use whl_auth::{Access, AuthRejection, Caller, Creation};
 use whl_core::endpoint_id::EndpointId;
-use whl_store::{EndpointRole, Lifecycle, LifecycleLimits, NewEndpoint, UserRecord};
+use whl_store::{
+    EndpointRecord, EndpointRole, Lifecycle, LifecycleLimits, NewEndpoint, UserRecord,
+};
 
 use crate::body::RawBody;
 use crate::dto::{EndpointDto, InstanceDto};
 use crate::error::ApiError;
-use crate::input::{EndpointPatch, parse_endpoint_input};
+use crate::input::{EndpointPatch, ParsedInput, parse_endpoint_input};
 use crate::lifecycle::{self, Standing, combine};
 use crate::resolve::{defaults, resolve};
 use crate::settings::ApiSettings;
@@ -37,7 +39,29 @@ pub async fn create(
     }
     let creation = state.access.creation(&caller)?;
     let parsed = parse_endpoint_input(&body, true)?;
-    require_secrets_for_verifier(&state, &parsed.patch)?;
+    let record = store_new_endpoint(&state, &caller, &creation, parsed).await?;
+    let owner = caller.user();
+    let location = format!("/api/v1/endpoints/{}", record.id.unpack());
+    let role = match creation {
+        Creation::Owned(_) => Some(EndpointRole::Owner),
+        Creation::Anonymous { .. } if state.access.is_mixed() => Some(EndpointRole::Owner),
+        Creation::Anonymous { .. } => None,
+    };
+    Ok((
+        StatusCode::CREATED,
+        [(header::LOCATION, location)],
+        Json(EndpointDto::from_record(&record, &state.settings, &[]).with_identity(role, owner)),
+    )
+        .into_response())
+}
+
+pub(crate) async fn store_new_endpoint(
+    state: &ApiState,
+    caller: &Caller,
+    creation: &Creation,
+    parsed: ParsedInput,
+) -> Result<EndpointRecord, ApiError> {
+    require_secrets_for_verifier(state, &parsed.patch)?;
     let standing = Standing {
         owned: matches!(creation, Creation::Owned(_)),
         signed_in: caller.user().is_some(),
@@ -58,11 +82,11 @@ pub async fn create(
             &parsed.patch.lifecycle,
         ),
     )?;
-    let (owner_id, creator_net) = match &creation {
+    let (owner_id, creator_net) = match creation {
         Creation::Owned(user) => (Some(*user), None),
         Creation::Anonymous { network } => (None, network.as_ref()),
     };
-    let record = state
+    Ok(state
         .store
         .create_endpoint_with_lifecycle(
             NewEndpoint {
@@ -74,20 +98,7 @@ pub async fn create(
             },
             state.settings.retention,
         )
-        .await?;
-    let owner = caller.user();
-    let location = format!("/api/v1/endpoints/{}", record.id.unpack());
-    let role = match creation {
-        Creation::Owned(_) => Some(EndpointRole::Owner),
-        Creation::Anonymous { .. } if state.access.is_mixed() => Some(EndpointRole::Owner),
-        Creation::Anonymous { .. } => None,
-    };
-    Ok((
-        StatusCode::CREATED,
-        [(header::LOCATION, location)],
-        Json(EndpointDto::from_record(&record, &state.settings, &[]).with_identity(role, owner)),
-    )
-        .into_response())
+        .await?)
 }
 
 pub async fn show(

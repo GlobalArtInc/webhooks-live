@@ -7,6 +7,7 @@ use whl_auth::AuthRejection;
 use whl_core::validation::{FieldPath, Violation, ViolationCode};
 use whl_secrets::{MAX_SECRETS_PER_ENDPOINT, SealError};
 use whl_store::MAX_FOLDERS_PER_USER;
+use whl_store::captures::CaptureStoreError;
 use whl_store::forward::ForwardStoreError;
 use whl_store::secrets::SecretStoreError;
 use whl_store::{ApiTokenStoreError, EndpointError, FolderError, LifecycleError, MembershipError};
@@ -52,6 +53,13 @@ impl FieldViolation {
     #[cfg(test)]
     pub fn code(&self) -> FieldCode {
         self.code
+    }
+
+    pub fn prefixed(self, prefix: &str) -> Self {
+        Self {
+            field: format!("{prefix}.{}", self.field),
+            ..self
+        }
     }
 
     pub fn from_core(violation: &Violation) -> Self {
@@ -162,6 +170,12 @@ pub enum ApiError {
     SecretInUse { endpoint: String },
     #[error("the selection is larger than the export limit")]
     ExportTooLarge,
+    #[error("the import is larger than the import limit")]
+    ImportTooLarge,
+    #[error("the import must be application/json or application/x-ndjson")]
+    ImportMediaType,
+    #[error("import storage failed: {0}")]
+    ImportStorage(CaptureStoreError),
     #[error("secrets are not configured on this instance")]
     SecretsDisabled,
     #[error("secret storage failed: {0}")]
@@ -186,6 +200,16 @@ impl From<ApiTokenStoreError> for ApiError {
             Self::StoreUnavailable
         } else {
             Self::TokenStorage(error)
+        }
+    }
+}
+
+impl From<CaptureStoreError> for ApiError {
+    fn from(error: CaptureStoreError) -> Self {
+        if error.is_unavailable() {
+            Self::StoreUnavailable
+        } else {
+            Self::ImportStorage(error)
         }
     }
 }
@@ -588,6 +612,27 @@ impl IntoResponse for ApiError {
                 self.to_string(),
                 None,
             ),
+            Self::ImportTooLarge => (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "payload_too_large",
+                self.to_string(),
+                None,
+            ),
+            Self::ImportMediaType => (
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                "unsupported_media_type",
+                self.to_string(),
+                None,
+            ),
+            Self::ImportStorage(error) => {
+                tracing::error!(%error, "import storage failed");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal_error",
+                    "the request could not be completed".to_owned(),
+                    None,
+                )
+            }
             Self::SecretsDisabled => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "feature_disabled",

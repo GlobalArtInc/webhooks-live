@@ -23,3 +23,5 @@ pub const TOKEN_AUTH_TOTAL: &str = "webhooks_live_token_auth_total";
 pub const AUTH_AVAILABLE: &str = "webhooks_live_auth_available";
 pub const MAINTENANCE_LEADER: &str = "webhooks_live_maintenance_leader";
 pub const VERIFICATIONS_TOTAL: &str = "webhooks_live_verifications_total";
+pub const CAPTURES_IMPORTED_TOTAL: &str = "webhooks_live_captures_imported_total";
+pub const IMPORT_STOPS_TOTAL: &str = "webhooks_live_import_stops_total";

@@ -12,7 +12,7 @@ futures-util = { workspace = true, features = ["io"] }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-time = { workspace = true, features = ["formatting", "macros"] }
+time = { workspace = true, features = ["formatting", "macros", "parsing"] }
 tokio.workspace = true
 whl-core.workspace = true
 whl-store.workspace = true

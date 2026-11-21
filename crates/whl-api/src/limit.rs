@@ -13,6 +13,7 @@ use crate::error::ApiError;
 const LIMIT_HEADER: HeaderName = HeaderName::from_static("ratelimit-limit");
 const REMAINING_HEADER: HeaderName = HeaderName::from_static("ratelimit-remaining");
 const CREATE_PATH: &str = "/api/v1/endpoints";
+const IMPORT_PATH: &str = "/api/v1/endpoints/import";
 const SCOPE_API_IP: &str = "api_ip";
 const SCOPE_CREATE_IP: &str = "create_ip";
 
@@ -65,7 +66,7 @@ pub async fn enforce_rate_limit(
 }
 
 fn creates_endpoint(request: &Request) -> bool {
-    request.method() == Method::POST && request.uri().path() == CREATE_PATH
+    request.method() == Method::POST && matches!(request.uri().path(), CREATE_PATH | IMPORT_PATH)
 }
 
 fn refuse(scope: &'static str, limit: u32, retry_after_secs: u64) -> Response {

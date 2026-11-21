@@ -6,6 +6,7 @@ use whl_store::Store;
 
 use crate::export::ExportSlots;
 use crate::forward::ForwardSettings;
+use crate::import::{IMPORT_COOLDOWN, ImportCooldown, import_slots};
 use crate::limit::ApiLimits;
 use crate::settings::ApiSettings;
 
@@ -18,6 +19,8 @@ pub struct ApiState {
     pub(crate) access: AccessControl,
     pub(crate) secrets: Option<Arc<Keyring>>,
     pub(crate) exports: ExportSlots,
+    pub(crate) imports: ExportSlots,
+    pub(crate) import_cooldown: ImportCooldown,
 }
 
 impl ApiState {
@@ -31,7 +34,14 @@ impl ApiState {
             access: AccessControl::open(),
             secrets: None,
             exports,
+            imports: import_slots(),
+            import_cooldown: ImportCooldown::new(IMPORT_COOLDOWN),
         }
+    }
+
+    pub fn with_import_cooldown(mut self, window: std::time::Duration) -> Self {
+        self.import_cooldown = ImportCooldown::new(window);
+        self
     }
 
     pub fn with_secrets(mut self, keyring: Arc<Keyring>) -> Self {
