@@ -24,6 +24,8 @@ import { validateCaptureSearch } from '../features/filters/captureSearch';
 import { isCaptureId, isEndpointId } from './ids';
 import { ensureEndpoint } from './endpointQuery';
 import { isWorkspaceSectionId } from '../features/workspace/sections';
+import { RuleEditorPlaceholder } from '../features/rules/RuleEditorPlaceholder';
+import { validateRuleEditorSearch } from '../features/rules/ruleEditorSearch';
 import { RouteError } from './RouteError';
 import { ShellLayout } from './shell/ShellLayout';
 import { safeReturnPath } from './signIn';
@@ -139,6 +141,13 @@ const settingsSectionRoute = createRoute({
   component: SettingsSectionScreen,
 });
 
+const ruleEditorRoute = createRoute({
+  getParentRoute: () => endpointSettingsRoute,
+  path: 'rules/$ruleId',
+  validateSearch: validateRuleEditorSearch,
+  component: RuleEditorPlaceholder,
+});
+
 const forwardingRedirectRoute = createRoute({
   getParentRoute: () => endpointRoute,
   path: 'forwarding',
@@ -191,7 +200,7 @@ const routeTree = rootRoute.addChildren([
     settingsRoute,
     endpointRoute.addChildren([
       captureRoute,
-      endpointSettingsRoute.addChildren([settingsIndexRoute, settingsSectionRoute]),
+      endpointSettingsRoute.addChildren([settingsIndexRoute, settingsSectionRoute, ruleEditorRoute]),
       forwardingRedirectRoute,
     ]),
     diffRoute,

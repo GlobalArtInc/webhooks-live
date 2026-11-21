@@ -9,6 +9,7 @@ import exportMessages from './en/export.json';
 import forwarding from './en/forwarding.json';
 import home from './en/home.json';
 import live from './en/live.json';
+import rules from './en/rules.json';
 import sample from './en/sample.json';
 import state from './en/state.json';
 import workspace from './en/workspace.json';
@@ -34,6 +35,7 @@ export function createI18nInstance(): I18nInstance {
           ...forwarding,
           ...home,
           ...live,
+          ...rules,
           ...sample,
           ...state,
           ...workspace,

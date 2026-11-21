@@ -10,6 +10,7 @@ import type {
   Member,
   MemberInput,
 } from '../../api/types';
+import { ruleHandlers } from './rules';
 import { API_HEADERS, emptyResponse, errorResponse, jsonResponse, readJsonBody } from './responses';
 import { applyEndpointInput, bodyBytes, mockStore, newEndpoint, randomUuid, storeCaptures, summaryOf } from './store';
 
@@ -533,4 +534,6 @@ export const handlers: HttpHandler[] = [
     const endpoint = mockStore.endpoints.get(params.endpointId);
     return endpoint === undefined ? endpointMissing() : streamReady(endpoint);
   }),
+
+  ...ruleHandlers,
 ];
