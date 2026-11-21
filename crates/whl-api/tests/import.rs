@@ -8,7 +8,8 @@ use axum::http::{Method, Request, StatusCode, header};
 use common::matrix::error_code;
 use common::{
     Actor, RETENTION, Reply, SsoHarness, api_settings, field_codes, harness, mixed_harness,
-    mixed_harness_with_api, mixed_harness_with_import_cooldown, send, sso_harness,
+    mixed_harness_configured, mixed_harness_with_api, mixed_harness_with_import_cooldown, send,
+    sso_harness,
 };
 use futures_util::stream;
 use serde_json::Value;
@@ -16,6 +17,7 @@ use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 use whl_core::capture_id::CaptureId;
 use whl_core::endpoint_id::EndpointId;
+use whl_core::tier::{TierLimits, Tiers};
 use whl_store::captures::{CapturePolicy, NameValue, NewCapture};
 
 const BASE: i64 = 1_700_000_000;
@@ -448,7 +450,16 @@ async fn an_upload_that_is_neither_json_nor_ndjson_is_refused() {
 
 #[tokio::test]
 async fn a_second_import_from_the_same_caller_is_refused_while_the_first_runs() {
-    let harness = mixed_harness().await;
+    let tiers = Tiers::default()
+        .with_limits(
+            "member",
+            TierLimits {
+                imports_per_day: 1_000,
+                ..TierLimits::member()
+            },
+        )
+        .expect("the tier is valid");
+    let harness = mixed_harness_configured(|state| state.with_tiers(tiers)).await;
     let owner = harness.actor("own", "owner@example.test", true).await;
     let target = harness.endpoint_for(&owner).await;
     let uri = existing(&target);
