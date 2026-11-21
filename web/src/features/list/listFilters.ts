@@ -1,13 +1,19 @@
 import type { QueryKey } from '@tanstack/react-query';
 import type { CaptureListFilters } from '../../api/types';
 
-export type ActiveFilters = Pick<CaptureListFilters, 'method' | 'kind' | 'status' | 'q' | 'since' | 'until'>;
+export interface ActiveFilters extends Pick<
+  CaptureListFilters,
+  'method' | 'kind' | 'status' | 'q' | 'since' | 'until' | 'starred'
+> {
+  ip?: string;
+  path?: string;
+}
 
 export const NO_FILTERS: ActiveFilters = {};
 
-const FILTER_FIELDS = ['method', 'kind', 'status', 'q', 'since', 'until'] as const;
+const FILTER_FIELDS = ['method', 'kind', 'status', 'q', 'since', 'until', 'starred', 'ip', 'path'] as const;
 
-export function activeFiltersOf(filters: Partial<CaptureListFilters>): ActiveFilters {
+export function activeFiltersOf(filters: Partial<ActiveFilters>): ActiveFilters {
   const active: ActiveFilters = {};
   if (filters.method) {
     active.method = filters.method;
@@ -26,6 +32,15 @@ export function activeFiltersOf(filters: Partial<CaptureListFilters>): ActiveFil
   }
   if (filters.until) {
     active.until = filters.until;
+  }
+  if (filters.starred !== undefined) {
+    active.starred = filters.starred;
+  }
+  if (filters.ip) {
+    active.ip = filters.ip;
+  }
+  if (filters.path) {
+    active.path = filters.path;
   }
   return active;
 }

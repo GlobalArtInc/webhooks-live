@@ -281,6 +281,19 @@ describe('applyLiveEvent', () => {
     expect(hasActiveFilters(activeFiltersOf({ kind: 'email' }))).toBe(true);
   });
 
+  it('matches the sender, the path prefix and the starred flag on the client', () => {
+    const capture = summaryFor(1, { client_ip: '203.0.113.7', path: '/orders/1', starred: true });
+    const plain = summaryFor(2);
+
+    expect(matchesActiveFilter({ ip: '203.0.113.0/24', path: '/orders' }, capture)).toBe(true);
+    expect(matchesActiveFilter({ ip: '198.51.100.4' }, capture)).toBe(false);
+    expect(matchesActiveFilter({ path: '/hooks' }, capture)).toBe(false);
+    expect(matchesActiveFilter({ starred: true }, capture)).toBe(true);
+    expect(matchesActiveFilter({ starred: false }, capture)).toBe(false);
+    expect(matchesActiveFilter({ starred: false }, plain)).toBe(true);
+    expect(hasActiveFilters(activeFiltersOf({ starred: false }))).toBe(true);
+  });
+
   it('matches the received time against the inclusive start and the exclusive end', () => {
     const capture = summaryFor(2);
     const receivedAt = Date.parse(capture.received_at);

@@ -255,6 +255,7 @@ export interface CaptureSummary {
   forward_state: ForwardState | null;
   kind?: CaptureKind;
   subject?: string | null;
+  starred?: boolean;
   imported?: boolean;
 }
 
@@ -320,6 +321,7 @@ export interface CaptureListFilters {
   status?: string;
   q?: string;
   since?: Timestamp;
+  starred?: boolean;
   until?: Timestamp;
 }
 

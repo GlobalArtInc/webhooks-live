@@ -11,6 +11,7 @@ import email from './en/email.json';
 import endpoint from './en/endpoint.json';
 import exportMessages from './en/export.json';
 import exportDialog from './en/exportdialog.json';
+import filterbuilder from './en/filterbuilder.json';
 import forwarding from './en/forwarding.json';
 import home from './en/home.json';
 import kinds from './en/kinds.json';
@@ -51,6 +52,7 @@ export function createI18nInstance(): I18nInstance {
           ...endpoint,
           ...exportMessages,
           ...exportDialog,
+          ...filterbuilder,
           ...forwarding,
           ...home,
           ...kinds,

@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type ChangeEvent, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ViewportLayout } from '../../features/endpoint/useViewport';
+import { FilterBuilder } from '../../features/filterbuilder';
 import {
   activePartCount,
   hasCaptureSearch,
@@ -182,6 +183,7 @@ export function FilterBar({ search, layout, hiddenCount, onChange, onClear, sear
             onChange({ q });
           }}
         />
+        <FilterBuilder search={search} layout={layout} onApply={onChange} />
         {collapsible ? (
           <button
             type="button"
