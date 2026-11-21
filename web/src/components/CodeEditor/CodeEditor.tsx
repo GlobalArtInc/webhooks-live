@@ -46,6 +46,8 @@ export interface CodeEditorProps {
 
 type EditorStatus = 'loading' | 'ready' | 'failed';
 
+type PendingAction = { kind: 'focus' } | { kind: 'insert'; text: string };
+
 interface RowsStyle extends CSSProperties {
   '--editor-rows': number;
 }
@@ -83,6 +85,7 @@ export function CodeEditor({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const engineRef = useRef<EngineHandle | null>(null);
   const announcedRef = useRef('');
+  const pendingRef = useRef<PendingAction[]>([]);
   const [status, setStatus] = useState<EditorStatus>('loading');
   const [tabEscape, setTabEscape] = useState(false);
   const [announcement, setAnnouncement] = useState('');
@@ -126,27 +129,50 @@ export function CodeEditor({
     }
   }
 
-  useImperativeHandle(ref, () => ({
-    focus: () => {
-      const engine = engineRef.current;
-      if (engine !== null) {
+  function perform(action: PendingAction): boolean {
+    const engine = engineRef.current;
+    if (engine !== null) {
+      if (action.kind === 'focus') {
         engine.focus();
       } else {
-        textareaRef.current?.focus();
+        engine.insertAtCursor(action.text);
       }
+      return true;
+    }
+    const area = textareaRef.current;
+    if (area === null) {
+      return false;
+    }
+    if (action.kind === 'focus') {
+      area.focus();
+    } else if (!readOnly) {
+      area.setRangeText(action.text, area.selectionStart, area.selectionEnd, 'end');
+      onChange?.(area.value);
+      area.focus();
+    }
+    return true;
+  }
+
+  function submit(action: PendingAction): void {
+    if (!perform(action)) {
+      pendingRef.current.push(action);
+    }
+  }
+
+  const drainPending = useEffectEvent((): void => {
+    const queued = pendingRef.current;
+    pendingRef.current = [];
+    for (const action of queued) {
+      perform(action);
+    }
+  });
+
+  useImperativeHandle(ref, () => ({
+    focus: () => {
+      submit({ kind: 'focus' });
     },
     insertAtCursor: (text: string) => {
-      const engine = engineRef.current;
-      if (engine !== null) {
-        engine.insertAtCursor(text);
-        return;
-      }
-      const area = textareaRef.current;
-      if (area !== null && !readOnly) {
-        area.setRangeText(text, area.selectionStart, area.selectionEnd, 'end');
-        onChange?.(area.value);
-        area.focus();
-      }
+      submit({ kind: 'insert', text });
     },
     goTo,
   }));
@@ -163,6 +189,7 @@ export function CodeEditor({
           return;
         }
         engineRef.current = module.createEngine(host, buildConfig());
+        drainPending();
         setStatus('ready');
       },
       () => {
@@ -177,6 +204,12 @@ export function CodeEditor({
       engineRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    if (status === 'failed') {
+      drainPending();
+    }
+  }, [status]);
 
   useEffect(() => {
     if (status === 'ready') {
