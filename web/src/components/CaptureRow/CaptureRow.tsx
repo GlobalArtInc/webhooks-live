@@ -1,6 +1,8 @@
 import type { CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { CaptureSummary } from '../../api/types';
+import { badgeKindOf, captureKindOf } from '../../features/kinds/kinds';
+import { KindBadge } from '../../features/kinds/KindBadge';
 import type { CompareLabel } from '../../features/list/compare';
 import { formatByteSize, formatRelativeTime } from '../format/format';
 import { MethodBadge } from '../MethodBadge/MethodBadge';
@@ -55,6 +57,10 @@ export function CaptureRow({
   const size = formatByteSize(summary.body_size, locale);
   const time = formatRelativeTime(summary.received_at, now, locale);
   const contentType = summary.content_type ?? t('wl.endpoint.row.noType');
+  const kind = captureKindOf(summary);
+  const badge = badgeKindOf(kind);
+  const subject = (summary.subject ?? '').trim();
+  const headline = badge === 'email' && subject === '' ? t('wl.kinds.row.noSubject') : subject;
 
   const forwardText =
     summary.forward_state === 'pending'
@@ -87,10 +93,21 @@ export function CaptureRow({
             <span className={styles.visuallyHidden}>{t('wl.live.row.unread')}</span>
           </span>
         ) : null}
-        <MethodBadge method={summary.method} />
-        <span className={styles.path} title={path}>
-          {path}
-        </span>
+        {badge === null ? (
+          <>
+            <MethodBadge method={summary.method} />
+            <span className={styles.path} title={path}>
+              {path}
+            </span>
+          </>
+        ) : (
+          <>
+            <KindBadge kind={badge} />
+            <span className={styles.headline} title={headline} data-empty={subject === '' ? 'true' : undefined}>
+              {headline}
+            </span>
+          </>
+        )}
         {summary.status_override === null ? null : (
           <span title={t('wl.endpoint.row.overrideTitle', { code: summary.status_override })}>
             <StatusChip code={summary.status_override} kind="override" label={String(summary.status_override)} />
@@ -107,7 +124,9 @@ export function CaptureRow({
         </time>
       </span>
       <span className={styles.meta}>
-        <span>{contentType}</span>
+        {badge === null ? <span>{contentType}</span> : null}
+        {kind === 'schedule' ? <span>{t('wl.kinds.row.scheduled')}</span> : null}
+        {summary.imported === true ? <span>{t('wl.kinds.row.imported')}</span> : null}
         <span>{summary.client_ip}</span>
       </span>
     </div>

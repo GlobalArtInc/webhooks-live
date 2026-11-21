@@ -9,6 +9,11 @@ describe('validateCaptureSearch', () => {
     });
   });
 
+  it('keeps known capture kinds in any case and drops the rest', () => {
+    expect(validateCaptureSearch({ kind: 'EMAIL,dns,schedule,mail' })).toEqual({ kind: 'email,dns' });
+    expect(validateCaptureSearch({ kind: 'schedule' })).toEqual({});
+  });
+
   it('trims and caps the text query and drops an empty one', () => {
     expect(validateCaptureSearch({ q: '  invoice  ' })).toEqual({ q: 'invoice' });
     expect(validateCaptureSearch({ q: '   ' })).toEqual({});
@@ -33,6 +38,7 @@ describe('listFiltersOf and helpers', () => {
   it('maps the search onto the list query without the time range label', () => {
     const search = validateCaptureSearch({
       method: 'POST',
+      kind: 'email',
       status: '5xx',
       q: 'x',
       range: '7d',
@@ -41,6 +47,7 @@ describe('listFiltersOf and helpers', () => {
 
     expect(listFiltersOf(search)).toEqual({
       method: 'POST',
+      kind: 'email',
       status: '5xx',
       q: 'x',
       since: '2026-11-14T00:00:00.000Z',
@@ -56,6 +63,7 @@ describe('listFiltersOf and helpers', () => {
 
   it('counts the active chips and the range as filter parts', () => {
     expect(activePartCount({ method: 'GET,POST', status: '2xx', range: '1h', since: '2026-11-21T13:00:00Z' })).toBe(4);
+    expect(activePartCount({ kind: 'email,dns' })).toBe(2);
     expect(activePartCount({ q: 'only text' })).toBe(0);
   });
 

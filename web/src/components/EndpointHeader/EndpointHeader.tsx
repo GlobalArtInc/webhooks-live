@@ -3,6 +3,8 @@ import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { formatRelativeTime } from '../format/format';
 import { CopyButton } from '../CopyButton/CopyButton';
+import { AddressesPopover } from '../../features/kinds/addresses/AddressesPopover';
+import type { AddressSource } from '../../features/kinds/addresses/addressLines';
 import { HeaderMenu } from './HeaderMenu';
 import styles from './EndpointHeader.module.css';
 
@@ -18,6 +20,7 @@ export interface EndpointHeaderProps {
   now: number;
   narrow: boolean;
   status?: ReactNode;
+  addresses?: AddressSource;
   onDeleteAll: () => void;
 }
 
@@ -40,12 +43,15 @@ export function EndpointHeader({
   now,
   narrow,
   status,
+  addresses,
   onDeleteAll,
 }: EndpointHeaderProps) {
   const { t, i18n } = useTranslation();
   const locale = i18n.language;
   const capacityState = capacityStateOf(count, capacity);
   const expiry = formatRelativeTime(expiresAt, now, locale);
+  const addressSource =
+    addresses !== undefined && (addresses.email !== undefined || addresses.dns !== undefined) ? addresses : undefined;
 
   return (
     <div className={styles.root}>
@@ -55,6 +61,7 @@ export function EndpointHeader({
           {captureUrl}
         </code>
         <CopyButton value={captureUrl} label={t('wl.endpoint.header.copyUrl')} />
+        {addressSource === undefined ? null : <AddressesPopover endpoint={addressSource} curl={curl} />}
       </div>
       <div className={styles.meta}>
         <span className={styles.count}>{t('wl.endpoint.header.count', { count, capacity })}</span>

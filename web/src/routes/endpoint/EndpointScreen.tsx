@@ -9,6 +9,7 @@ import { copyText } from '../../components/CopyButton/clipboard';
 import { ConnectionIndicator } from '../../components/ConnectionIndicator/ConnectionIndicator';
 import { EmptyState } from '../../components/EmptyState/EmptyState';
 import { EndpointHeader } from '../../components/EndpointHeader/EndpointHeader';
+import { EmptySamples } from '../../features/kinds/samples/EmptySamples';
 import { FilterBar } from '../../components/FilterBar/FilterBar';
 import { ListPager, type ListPagerProps } from '../../components/ListPager/ListPager';
 import { SplitHandle } from '../../components/SplitHandle/SplitHandle';
@@ -287,6 +288,7 @@ export function EndpointScreen() {
         now={now}
         narrow={narrow}
         status={<ConnectionIndicator state={live.connection} lastEventAt={live.lastEventAt} now={now} />}
+        addresses={endpoint}
         onDeleteAll={() => {
           setClearOpen(true);
         }}
@@ -303,6 +305,7 @@ export function EndpointScreen() {
       ) : showEmpty ? (
         <div className={styles.empty}>
           <EmptyState captureUrl={endpoint.url} curl={curl} />
+          <EmptySamples endpoint={endpoint} />
         </div>
       ) : (
         <div className={styles.body} data-pane={paneHidden ? 'hidden' : 'shown'}>

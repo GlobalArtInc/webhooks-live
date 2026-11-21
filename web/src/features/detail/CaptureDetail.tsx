@@ -7,6 +7,7 @@ import { ForwardResultPanel } from '../../components/ForwardResultPanel/ForwardR
 import { KeyValueTable } from '../../components/KeyValueTable/KeyValueTable';
 import { SectionNav, type SectionNavItem } from '../../components/SectionNav/SectionNav';
 import type { BodyLoader, BodyViewMode } from '../body';
+import { DnsDetail } from '../kinds/dns/DnsDetail';
 import { BodySection } from './BodySection';
 import { DetailSection } from './DetailSection';
 import { FormSection } from './FormSection';
@@ -22,6 +23,7 @@ export interface CaptureDetailProps {
   state: CaptureDetailState;
   capture: Capture | null;
   endpointResponse?: ResponseConfig;
+  dnsName?: string | null;
   loadBody: BodyLoader;
   bodyMode: BodyViewMode;
   onBodyModeChange: (mode: BodyViewMode) => void;
@@ -73,6 +75,7 @@ export function CaptureDetail(props: CaptureDetailProps) {
 function ReadyDetail({
   capture,
   endpointResponse,
+  dnsName,
   loadBody,
   bodyMode,
   onBodyModeChange,
@@ -99,6 +102,7 @@ function ReadyDetail({
     form: t('wl.detail.section.form'),
     body: t('wl.detail.section.body'),
     headers: t('wl.detail.section.headers'),
+    dns: t('wl.kinds.dns.title'),
   };
   const navItems: SectionNavItem[] = sectionIds.map((id) => ({ id, label: titles[id] }));
 
@@ -154,6 +158,8 @@ function ReadyDetail({
         return (
           <KeyValueTable label={titles.headers} rows={capture.headers} collapseAfter={HEADER_PREVIEW_ROWS} copyable />
         );
+      case 'dns':
+        return <DnsDetail capture={capture} dnsName={dnsName} />;
     }
   };
 
