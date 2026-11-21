@@ -13,6 +13,7 @@ import home from './en/home.json';
 import kinds from './en/kinds.json';
 import live from './en/live.json';
 import rules from './en/rules.json';
+import rail from './en/rail.json';
 import sample from './en/sample.json';
 import script from './en/script.json';
 import selection from './en/selection.json';
@@ -45,6 +46,7 @@ export function createI18nInstance(): I18nInstance {
           ...kinds,
           ...live,
           ...rules,
+          ...rail,
           ...sample,
           ...script,
           ...selection,

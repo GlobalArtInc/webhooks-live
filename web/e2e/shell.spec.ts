@@ -36,7 +36,12 @@ test('the offline banner appears while the network is down and clears when it re
 test('an anonymous visitor on an SSO instance sees the sign-in gate with the return path', async ({ page }) => {
   await mockApi(
     page,
-    openReplies({ 'GET /instance': instanceWith({ auth_mode: 'sso', auth: { provider_name: 'Example ID' } }) }),
+    openReplies({
+      'GET /instance': instanceWith({
+        auth_mode: 'sso',
+        auth: { provider_name: 'Example ID', sign_in_available: true },
+      }),
+    }),
   );
   await page.goto('/endpoints');
 

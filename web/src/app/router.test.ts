@@ -7,14 +7,13 @@ import { DevStepsScreen } from '../routes/dev/DevStepsScreen';
 import { DevTokensScreen } from '../routes/dev/DevTokensScreen';
 import { DiffScreen } from '../routes/diff/DiffScreen';
 import { EndpointScreen } from '../routes/endpoint/EndpointScreen';
-import { EndpointsScreen } from '../routes/endpoints/EndpointsScreen';
 import { HomeScreen } from '../routes/home/HomeScreen';
 import { NotFoundScreen } from '../routes/states/NotFoundScreen';
 import { SettingsScreen } from '../routes/settings/SettingsScreen';
 import { SettingsIndexScreen } from '../routes/settings/SettingsIndexScreen';
 import { SettingsSectionScreen } from '../routes/settings/SettingsSectionScreen';
 import { SignInScreen } from '../routes/signin/SignInScreen';
-import { createAppRouter } from './router';
+import { createAppRouter, EndpointsRouteScreen } from './router';
 
 const ENDPOINT_ID = '0123456789abcdefghjkmnpq';
 const CAPTURE_ID = '0193a1c2-7e4b-7c11-9a2f-3b5d1e0f4a21';
@@ -28,7 +27,7 @@ interface RouteCase {
 
 const ROUTE_CASES: RouteCase[] = [
   { path: '/', screen: HomeScreen, params: {} },
-  { path: '/endpoints', screen: EndpointsScreen, params: {} },
+  { path: '/endpoints', screen: EndpointsRouteScreen, params: {} },
   { path: '/signin', screen: SignInScreen, params: {} },
   { path: '/settings', screen: SettingsScreen, params: {} },
   { path: `/e/${ENDPOINT_ID}`, screen: EndpointScreen, params: { id: ENDPOINT_ID } },

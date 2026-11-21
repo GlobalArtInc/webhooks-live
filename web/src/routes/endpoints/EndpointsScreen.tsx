@@ -1,7 +1,10 @@
-import { useTranslation } from 'react-i18next';
-import { ScreenPlaceholder } from '../../components/ScreenPlaceholder/ScreenPlaceholder';
+import { MyEndpointsPage } from '../../features/folders/MyEndpointsPage';
+import type { EndpointsSearch } from '../../features/folders/search';
 
-export function EndpointsScreen() {
-  const { t } = useTranslation();
-  return <ScreenPlaceholder title={t('wl.screen.endpoints')} />;
+export interface EndpointsScreenProps {
+  search: EndpointsSearch;
+}
+
+export function EndpointsScreen({ search }: EndpointsScreenProps) {
+  return <MyEndpointsPage search={search} />;
 }
