@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use support::{
     RETENTION, TestApp, capture_payload, insert_captures, insert_endpoint, new_endpoint_id, notify,
-    stream_path,
+    stream_path, wait_until,
 };
 use whl_live::StreamSettings;
 use whl_testkit::TestDb;
@@ -243,7 +243,7 @@ async fn each_stream_gets_its_own_jittered_lifetime() {
     let longest = lifetimes.iter().max().copied().expect("there are streams");
     assert!(shortest >= BASE.mul_f64(0.9), "{shortest:?}");
     assert!(
-        longest <= BASE.mul_f64(1.1) + Duration::from_secs(2),
+        longest <= BASE.mul_f64(1.1) + Duration::from_secs(10),
         "{longest:?}"
     );
     assert!(
@@ -283,7 +283,7 @@ async fn the_server_closes_the_stream_after_the_maximum_lifetime() {
     client.expect_end().await;
 
     assert!(started.elapsed() >= Duration::from_millis(350));
-    assert!(started.elapsed() < Duration::from_secs(5));
+    assert!(started.elapsed() < Duration::from_secs(30));
 }
 
 #[tokio::test]
@@ -317,17 +317,15 @@ async fn a_disconnected_viewer_frees_its_hub_entry() {
     assert_eq!(app.hub.subscriber_count(&endpoint), 2);
 
     drop(first);
-    wait_for(|| app.hub.subscriber_count(&endpoint) == 1).await;
+    wait_until("the first viewer to leave the hub", || {
+        app.hub.subscriber_count(&endpoint) == 1
+    })
+    .await;
     assert_eq!(app.hub.endpoint_count(), 1);
 
     drop(second);
-    wait_for(|| app.hub.endpoint_count() == 0).await;
-}
-
-async fn wait_for(condition: impl Fn() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while !condition() {
-        assert!(Instant::now() < deadline, "the condition never held");
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
+    wait_until("the hub to drop the endpoint", || {
+        app.hub.endpoint_count() == 0
+    })
+    .await;
 }

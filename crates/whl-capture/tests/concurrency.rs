@@ -73,10 +73,12 @@ async fn a_locked_endpoint_does_not_block_captures_to_another() {
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(!blocked.is_finished(), "the capture waits for the row lock");
 
-    let started = std::time::Instant::now();
     let reply = harness.post(&format!("/{free}"), "free").await;
     assert_eq!(reply.status, 200);
-    assert!(started.elapsed() < Duration::from_secs(1));
+    assert!(
+        !blocked.is_finished(),
+        "the free endpoint was answered only after the locked one"
+    );
 
     holder.rollback().await.expect("lock releases");
     let released = blocked.await.expect("task joins");
@@ -104,7 +106,7 @@ async fn notification_carries_the_documented_summary_on_commit() {
         .await;
     assert_eq!(reply.status, 404);
 
-    let notification = tokio::time::timeout(Duration::from_secs(5), listener.recv())
+    let notification = tokio::time::timeout(Duration::from_secs(30), listener.recv())
         .await
         .expect("a notification arrives")
         .expect("listener stays up");
@@ -154,7 +156,7 @@ async fn notification_stays_under_the_limit_for_a_path_near_the_uri_maximum() {
     let reply = harness.get(&path).await;
     assert_eq!(reply.status, 200);
 
-    let notification = tokio::time::timeout(Duration::from_secs(5), listener.recv())
+    let notification = tokio::time::timeout(Duration::from_secs(30), listener.recv())
         .await
         .expect("a notification arrives")
         .expect("listener stays up");

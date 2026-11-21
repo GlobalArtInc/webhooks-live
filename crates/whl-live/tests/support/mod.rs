@@ -25,7 +25,8 @@ use whl_live::{
 use whl_store::Store;
 use whl_testkit::TestDb;
 
-pub const WAIT: Duration = Duration::from_secs(10);
+pub const WAIT: Duration = Duration::from_secs(30);
+pub const POLL_INTERVAL: Duration = Duration::from_millis(20);
 pub const RETENTION: Duration = Duration::from_secs(3600);
 pub const HUB_TEST_CAPACITY: usize = 256;
 
@@ -264,6 +265,17 @@ pub fn capture_payload(endpoint: &EndpointId, seq: i64) -> String {
 pub fn padded_capture_payload(endpoint: &EndpointId, seq: i64, padding: usize) -> String {
     let pad = "x".repeat(padding);
     format!(r#"{{"t":"capture","e":"{endpoint}","seq":{seq},"s":{{"seq":{seq},"pad":"{pad}"}}}}"#)
+}
+
+pub async fn wait_until(what: &str, condition: impl Fn() -> bool) {
+    let deadline = tokio::time::Instant::now() + WAIT;
+    while !condition() {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "timed out waiting for {what}"
+        );
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
 }
 
 pub async fn terminate_listener_backend(pool: &PgPool) -> u64 {

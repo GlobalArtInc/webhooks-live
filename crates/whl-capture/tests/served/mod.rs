@@ -28,7 +28,7 @@ pub async fn harness_with_slots(max_delayed: usize) -> Harness {
 }
 
 pub async fn wait_until(mut condition: impl FnMut() -> bool) -> bool {
-    for _ in 0..200 {
+    for _ in 0..1500 {
         if condition() {
             return true;
         }

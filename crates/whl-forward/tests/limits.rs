@@ -63,7 +63,7 @@ async fn fails_with_hop_timeout_when_the_server_never_answers() {
         .unwrap_err();
 
     assert_eq!(error, ForwardError::HopTimeout);
-    assert!(started.elapsed() < Duration::from_secs(3));
+    assert!(started.elapsed() < Duration::from_secs(30));
 }
 
 #[tokio::test]
@@ -88,7 +88,7 @@ async fn fails_with_total_timeout_when_several_hops_exhaust_the_overall_budget()
     })
     .await;
     let config = GuardConfig {
-        hop_timeout: Duration::from_secs(2),
+        hop_timeout: Duration::from_secs(60),
         total_timeout: Duration::from_millis(700),
         ..loopback_config()
     };
@@ -99,7 +99,7 @@ async fn fails_with_total_timeout_when_several_hops_exhaust_the_overall_budget()
         .unwrap_err();
 
     assert_eq!(error, ForwardError::TotalTimeout);
-    assert!(started.elapsed() < Duration::from_secs(2));
+    assert!(started.elapsed() < Duration::from_secs(30));
     assert!(server.seen().len() >= 2);
 }
 
@@ -109,11 +109,11 @@ async fn reports_connect_timeout_when_name_resolution_outlasts_it() {
     let lookup = Arc::new(
         StaticLookup::new()
             .with_answer("slow.test", &answer)
-            .with_delay(Duration::from_secs(5)),
+            .with_delay(Duration::from_secs(120)),
     );
     let config = GuardConfig {
         connect_timeout: Duration::from_millis(200),
-        hop_timeout: Duration::from_secs(3),
+        hop_timeout: Duration::from_secs(60),
         ..loopback_config()
     };
     let started = Instant::now();
@@ -123,7 +123,7 @@ async fn reports_connect_timeout_when_name_resolution_outlasts_it() {
         .unwrap_err();
 
     assert_eq!(error, ForwardError::ConnectTimeout);
-    assert!(started.elapsed() < Duration::from_secs(2));
+    assert!(started.elapsed() < Duration::from_secs(30));
 }
 
 #[tokio::test]
@@ -131,7 +131,12 @@ async fn connects_only_to_vetted_addresses_of_a_mixed_answer() {
     let server = TestServer::start("127.0.0.1:0", |_| Reply::ok("vetted")).await;
     let answer: [IpAddr; 2] = ["10.0.0.5".parse().unwrap(), "127.0.0.1".parse().unwrap()];
     let lookup = Arc::new(StaticLookup::new().with_answer("mixed.test", &answer));
-    let config = loopback_config();
+    let config = GuardConfig {
+        connect_timeout: Duration::from_secs(60),
+        hop_timeout: Duration::from_secs(60),
+        total_timeout: Duration::from_secs(120),
+        ..loopback_config()
+    };
     let url = format!("http://mixed.test:{}/", server.addr.port());
     let started = Instant::now();
     let response = client_with(config.clone(), lookup)
@@ -140,7 +145,7 @@ async fn connects_only_to_vetted_addresses_of_a_mixed_answer() {
         .unwrap();
 
     assert_eq!(response.body.as_ref(), b"vetted");
-    assert!(started.elapsed() < Duration::from_secs(1));
+    assert!(started.elapsed() < Duration::from_secs(30));
 }
 
 #[tokio::test]

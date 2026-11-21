@@ -1,5 +1,5 @@
 use std::net::{IpAddr, Ipv4Addr};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use whl_core::endpoint_id::EndpointId;
 use whl_core::limiter::{
@@ -27,7 +27,7 @@ fn settings(capture_ip: &str, max_keys: usize) -> LimiterSettings {
 
 #[test]
 fn burst_is_admitted_then_the_key_is_limited_with_a_wait() {
-    let limiter = KeyedLimiter::new(spec("1/s:3"), 100).expect("limiter builds");
+    let limiter = KeyedLimiter::new(spec("1/m:3"), 100).expect("limiter builds");
     let key = ClientKey::from_ip(ip("198.51.100.1"));
     let remaining: Vec<u32> = (0..3)
         .map(|_| match limiter.check(&key) {
@@ -42,22 +42,41 @@ fn burst_is_admitted_then_the_key_is_limited_with_a_wait() {
     match limiter.check(&key) {
         Verdict::Limited { limit, retry_after } => {
             assert_eq!(limit, 3);
-            assert!(retry_after > Duration::ZERO && retry_after <= Duration::from_secs(1));
+            assert!(retry_after > Duration::ZERO && retry_after <= Duration::from_secs(60));
         }
         other => panic!("expected a refusal, got {other:?}"),
     }
 }
 
 #[test]
-fn keys_are_limited_independently_and_recover() {
-    let limiter = KeyedLimiter::new(spec("50/s:1"), 100).expect("limiter builds");
+fn keys_are_limited_independently() {
+    let limiter = KeyedLimiter::new(spec("1/m:1"), 100).expect("limiter builds");
     let first = ClientKey::from_ip(ip("198.51.100.1"));
     let second = ClientKey::from_ip(ip("198.51.100.2"));
     assert!(limiter.check(&first).is_allowed());
     assert!(!limiter.check(&first).is_allowed());
     assert!(limiter.check(&second).is_allowed());
-    std::thread::sleep(Duration::from_millis(60));
-    assert!(limiter.check(&first).is_allowed());
+    assert!(!limiter.check(&second).is_allowed());
+}
+
+#[test]
+fn a_limited_key_recovers_once_the_bucket_refills() {
+    let limiter = KeyedLimiter::new(spec("50/s:1"), 100).expect("limiter builds");
+    let key = ClientKey::from_ip(ip("198.51.100.1"));
+    let mut limited = false;
+    for _ in 0..1000 {
+        if !limiter.check(&key).is_allowed() {
+            limited = true;
+            break;
+        }
+    }
+    assert!(limited, "the key was never limited");
+
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !limiter.check(&key).is_allowed() {
+        assert!(Instant::now() < deadline, "the limit never lifted");
+        std::thread::sleep(Duration::from_millis(5));
+    }
 }
 
 #[test]

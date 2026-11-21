@@ -53,7 +53,7 @@ fn number(reply: &Reply, name: &str) -> u32 {
 #[tokio::test]
 async fn every_response_carries_the_limit_and_a_decreasing_remaining_count() {
     let harness =
-        harness_with_limits(limits("1/s:5", "100/m:100", TrustedProxies::default())).await;
+        harness_with_limits(limits("1/m:5", "100/m:100", TrustedProxies::default())).await;
     let mut remaining = Vec::new();
     for _ in 0..3 {
         let reply = send(&harness.app, from(Method::GET, "/api/v1/instance", CLIENT)).await;
@@ -71,7 +71,7 @@ async fn every_response_carries_the_limit_and_a_decreasing_remaining_count() {
 #[tokio::test]
 async fn the_api_limit_answers_429_with_the_json_error_and_retry_after() {
     let harness =
-        harness_with_limits(limits("10/s:2", "100/m:100", TrustedProxies::default())).await;
+        harness_with_limits(limits("1/m:2", "100/m:100", TrustedProxies::default())).await;
     for _ in 0..2 {
         let reply = send(&harness.app, from(Method::GET, "/api/v1/instance", CLIENT)).await;
         assert_eq!(reply.status, StatusCode::OK);
@@ -80,13 +80,7 @@ async fn the_api_limit_answers_429_with_the_json_error_and_retry_after() {
     assert_eq!(limited.status, StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(limited.json()["error"]["code"], "rate_limited");
     assert!(limited.json()["error"]["message"].is_string());
-    assert_eq!(
-        limited
-            .headers
-            .get(header::RETRY_AFTER)
-            .expect("retry-after"),
-        "1"
-    );
+    assert!((1..=60).contains(&number(&limited, "retry-after")));
     assert_eq!(number(&limited, "ratelimit-limit"), 2);
     assert_eq!(number(&limited, "ratelimit-remaining"), 0);
     assert_eq!(
@@ -103,10 +97,40 @@ async fn the_api_limit_answers_429_with_the_json_error_and_retry_after() {
     )
     .await;
     assert_eq!(other.status, StatusCode::OK);
+}
 
-    tokio::time::sleep(Duration::from_millis(250)).await;
-    let recovered = send(&harness.app, from(Method::GET, "/api/v1/instance", CLIENT)).await;
-    assert_eq!(recovered.status, StatusCode::OK);
+const RECOVERY_DEADLINE: Duration = Duration::from_secs(30);
+const RECOVERY_POLL: Duration = Duration::from_millis(25);
+const SATURATION_ATTEMPTS: usize = 200;
+
+#[tokio::test]
+async fn the_api_limit_recovers_once_the_bucket_refills() {
+    let harness =
+        harness_with_limits(limits("20/s:1", "100/m:100", TrustedProxies::default())).await;
+    let mut limited = false;
+    for _ in 0..SATURATION_ATTEMPTS {
+        let reply = send(&harness.app, from(Method::GET, "/api/v1/instance", CLIENT)).await;
+        if reply.status == StatusCode::TOO_MANY_REQUESTS {
+            limited = true;
+            break;
+        }
+        assert_eq!(reply.status, StatusCode::OK);
+    }
+    assert!(limited, "the client was never limited");
+
+    let deadline = tokio::time::Instant::now() + RECOVERY_DEADLINE;
+    loop {
+        let reply = send(&harness.app, from(Method::GET, "/api/v1/instance", CLIENT)).await;
+        if reply.status == StatusCode::OK {
+            break;
+        }
+        assert_eq!(reply.status, StatusCode::TOO_MANY_REQUESTS);
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the limit never lifted"
+        );
+        tokio::time::sleep(RECOVERY_POLL).await;
+    }
 }
 
 #[tokio::test]

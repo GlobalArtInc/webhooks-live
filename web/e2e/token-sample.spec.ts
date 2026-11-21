@@ -15,6 +15,6 @@ test('switches the theme on the token sample page and captures both themes', asy
 
   await page.getByRole('radio', { name: 'Dark', exact: true }).check();
   await expect(html).toHaveAttribute('data-theme', 'dark');
-  expect(await backgroundOfBody()).not.toBe(lightBackground);
+  await expect.poll(backgroundOfBody).not.toBe(lightBackground);
   await page.screenshot({ path: 'e2e/screenshots/dark.png', fullPage: true, animations: 'disabled' });
 });

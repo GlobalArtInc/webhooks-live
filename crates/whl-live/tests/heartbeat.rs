@@ -113,7 +113,7 @@ async fn a_frozen_listener_connection_is_detected_by_the_heartbeat_and_resynced(
         .connect_with(direct.clone().host("127.0.0.1").port(proxy.port))
         .await
         .expect("the pool connects through the proxy");
-    let beat = Duration::from_millis(300);
+    let beat = Duration::from_secs(1);
     let listening = ListenerSettings {
         heartbeat_interval: beat,
         initial_backoff: Duration::from_millis(50),
@@ -144,7 +144,7 @@ async fn a_frozen_listener_connection_is_detected_by_the_heartbeat_and_resynced(
         resync.json(),
         serde_json::json!({"reason": "listener_reconnect"})
     );
-    assert!(frozen_at.elapsed() < beat * 2 + Duration::from_secs(2));
+    assert!(frozen_at.elapsed() < beat * 2 + Duration::from_secs(10));
     app.listener
         .wait_for_establishments(2)
         .await

@@ -16,6 +16,8 @@ use whl_store::Store;
 use whl_store::maintenance::LEADER_LOCK_KEY;
 use whl_testkit::TestDb;
 
+const OUTER_DEADLINE: Duration = Duration::from_secs(30);
+
 struct Reply {
     status: u16,
     headers: Vec<(String, String)>,
@@ -79,7 +81,7 @@ async fn stream_head(addr: SocketAddr, endpoint: &str) -> Reply {
     let mut received = Vec::new();
     let mut chunk = [0_u8; 1024];
     while !String::from_utf8_lossy(&received).contains("\r\n\r\n") {
-        let read = tokio::time::timeout(Duration::from_secs(5), stream.read(&mut chunk))
+        let read = tokio::time::timeout(OUTER_DEADLINE, stream.read(&mut chunk))
             .await
             .expect("the stream answers")
             .expect("the socket reads");
@@ -106,7 +108,7 @@ fn load_config(database_url: &str, extra: &[(&str, &str)]) -> Config {
             ("WEBHOOKS_LIVE_LISTEN_ADDR", "127.0.0.1:0"),
             ("WEBHOOKS_LIVE_ADMIN_ADDR", "127.0.0.1:0"),
             ("WEBHOOKS_LIVE_SHUTDOWN_DRAIN", "0s"),
-            ("WEBHOOKS_LIVE_SHUTDOWN_GRACE", "5s"),
+            ("WEBHOOKS_LIVE_SHUTDOWN_GRACE", "60s"),
         ];
         for (key, value) in vars.iter().chain(extra.iter()) {
             jail.set_env(key, value);
@@ -170,7 +172,7 @@ impl Running {
         self.trigger
             .send(())
             .expect("server waits for the shutdown future");
-        tokio::time::timeout(Duration::from_secs(10), self.server)
+        tokio::time::timeout(OUTER_DEADLINE, self.server)
             .await
             .expect("serve returns within the grace period")
             .expect("server task joins")
@@ -220,6 +222,20 @@ where
     panic!("timed out waiting for {what}");
 }
 
+const RATE_PERIOD_SECS: u64 = 60;
+
+fn assert_retry_after_within_period(reply: &Reply) {
+    let advertised: u64 = reply
+        .header("retry-after")
+        .expect("the refusal carries retry-after")
+        .parse()
+        .expect("retry-after is whole seconds");
+    assert!(
+        (1..=RATE_PERIOD_SECS).contains(&advertised),
+        "retry-after {advertised} is outside 1..={RATE_PERIOD_SECS}"
+    );
+}
+
 #[tokio::test]
 async fn rate_limits_are_wired_into_capture_api_and_stream() {
     let db = TestDb::new().await;
@@ -247,7 +263,7 @@ async fn rate_limits_are_wired_into_capture_api_and_stream() {
         limited.header("x-webhooks-live-error"),
         Some("rate_limited")
     );
-    assert_eq!(limited.header("retry-after"), Some("60"));
+    assert_retry_after_within_period(&limited);
 
     let first = get(running.public, "/api/v1/instance")
         .await
@@ -275,7 +291,7 @@ async fn rate_limits_are_wired_into_capture_api_and_stream() {
         "{}",
         refused.body
     );
-    assert_eq!(refused.header("retry-after"), Some("60"));
+    assert_retry_after_within_period(&refused);
     running.stop().await;
 }
 

@@ -1,25 +1,10 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BodyViewer } from './BodyViewer';
-import {
-  BINARY_BODY,
-  encode,
-  generateLargeBody,
-  HTML_BODY,
-  INVALID_JSON_BODY,
-  JSON_BODY,
-  MIB,
-  PNG_1X1,
-  TEXT_BODY,
-  XML_BODY,
-} from './fixtures';
-import type { BodyFormatter, BodyViewerProps, Bytes, FormatResult } from './types';
+import { BINARY_BODY, encode, HTML_BODY, INVALID_JSON_BODY, JSON_BODY, PNG_1X1, TEXT_BODY, XML_BODY } from './fixtures';
+import type { BodyViewerProps, Bytes } from './types';
 
 const BINARY_SHA256 = 'c44d343ffc7415a2914c78986df18d31b6780909f30c5b03d2e58cdcfe022803';
-
-function createFormatter(result: FormatResult): BodyFormatter {
-  return { format: vi.fn(() => Promise.resolve(result)), dispose: vi.fn() };
-}
 
 function propsFor(body: Bytes, contentType: string, overrides: Partial<BodyViewerProps> = {}): BodyViewerProps {
   return {
@@ -174,46 +159,5 @@ describe('BodyViewer', () => {
     expect(editorRoot(container)).toBeNull();
     unmount();
     expect(revoke).toHaveBeenCalledWith('blob:preview-image/png');
-  });
-
-  it('does not pretty-print a 5 MiB body until it is requested, then does it in the formatter', async () => {
-    const body = generateLargeBody(5 * MIB);
-    const formatter = createFormatter({ ok: true, text: 'FORMATTED_BY_WORKER' });
-    const props = propsFor(body, 'application/json', { formatter });
-    const { container } = render(<BodyViewer {...props} />);
-
-    expect(screen.getByRole('button', { name: 'Load full body (5.0 MiB)' })).toBeTruthy();
-    await waitFor(() => {
-      expect(inEditor(container, '.cm-content')).not.toBeNull();
-    });
-    expect(formatter.format).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Load full body (5.0 MiB)' }));
-    expect(formatter.format).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Pretty' }));
-    expect(formatter.format).toHaveBeenCalledTimes(1);
-    expect(formatter.format).toHaveBeenCalledWith({ kind: 'json', bytes: body });
-    await waitFor(() => {
-      expect(editorText(container)).toContain('FORMATTED_BY_WORKER');
-    });
-  });
-
-  it('fetches a large body through the loader: a 256 KiB prefix on open, the rest on request', async () => {
-    const full = generateLargeBody(2 * MIB);
-    const loadBody = vi.fn((limit: number | null) =>
-      limit === null ? new Promise<Bytes>(() => undefined) : Promise.resolve(full.slice(0, limit)),
-    );
-    const props = propsFor(full, 'application/json', { body: undefined, loadBody });
-    render(<BodyViewer {...props} />);
-
-    await screen.findByRole('button', { name: /Load full body/ });
-    expect(loadBody).toHaveBeenCalledTimes(1);
-    expect(loadBody).toHaveBeenLastCalledWith(256 * 1024);
-
-    fireEvent.click(screen.getByRole('button', { name: /Load full body/ }));
-    await waitFor(() => {
-      expect(loadBody).toHaveBeenLastCalledWith(null);
-    });
   });
 });

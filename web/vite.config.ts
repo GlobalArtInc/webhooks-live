@@ -10,6 +10,8 @@ export default defineConfig({
         test: {
           name: 'dom',
           environment: 'jsdom',
+          setupFiles: ['src/test/setup.ts'],
+          testTimeout: 20_000,
           include: ['src/**/*.test.{ts,tsx}'],
           exclude: [...configDefaults.exclude, 'src/features/export/**'],
         },

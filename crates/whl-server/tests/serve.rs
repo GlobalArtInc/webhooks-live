@@ -67,6 +67,8 @@ async fn get(addr: SocketAddr, path: &str) -> io::Result<Reply> {
     })
 }
 
+const OUTER_DEADLINE: Duration = Duration::from_secs(30);
+
 #[allow(clippy::result_large_err)]
 fn load_config(database_url: &str) -> Config {
     let mut result = None;
@@ -77,7 +79,7 @@ fn load_config(database_url: &str) -> Config {
             ("WEBHOOKS_LIVE_LISTEN_ADDR", "127.0.0.1:0"),
             ("WEBHOOKS_LIVE_ADMIN_ADDR", "127.0.0.1:0"),
             ("WEBHOOKS_LIVE_SHUTDOWN_DRAIN", "1s"),
-            ("WEBHOOKS_LIVE_SHUTDOWN_GRACE", "5s"),
+            ("WEBHOOKS_LIVE_SHUTDOWN_GRACE", "60s"),
         ];
         for (key, value) in vars {
             jail.set_env(key, value);
@@ -158,7 +160,7 @@ async fn serves_probes_and_drains_when_shutdown_fires() {
     }
     assert!(draining, "readyz turned 503 during the drain");
 
-    tokio::time::timeout(Duration::from_secs(5), server)
+    tokio::time::timeout(OUTER_DEADLINE, server)
         .await
         .expect("run returns within the grace period")
         .expect("server task joins")
@@ -169,7 +171,7 @@ async fn serves_probes_and_drains_when_shutdown_fires() {
 async fn run_returns_ok_when_the_shutdown_future_completes() {
     let db = TestDb::new().await;
     let result = tokio::time::timeout(
-        Duration::from_secs(5),
+        OUTER_DEADLINE,
         whl_server::run(load_config(db.url()), async {}),
     )
     .await
@@ -206,11 +208,11 @@ async fn never_reports_ready_while_a_migration_is_missing() {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
     };
-    tokio::time::timeout(Duration::from_secs(5), probing)
+    tokio::time::timeout(OUTER_DEADLINE, probing)
         .await
         .expect("serve returns once the schema check fails");
 
-    let outcome = tokio::time::timeout(Duration::from_secs(5), server)
+    let outcome = tokio::time::timeout(OUTER_DEADLINE, server)
         .await
         .expect("serve returns once the schema check fails")
         .expect("server task joins");
@@ -258,7 +260,7 @@ async fn sends_bye_to_open_streams_after_the_drain_and_closes_them() {
     let mut received = Vec::new();
     let mut chunk = [0_u8; 1024];
     while !String::from_utf8_lossy(&received).contains("event: ready") {
-        let read = tokio::time::timeout(Duration::from_secs(5), stream.read(&mut chunk))
+        let read = tokio::time::timeout(OUTER_DEADLINE, stream.read(&mut chunk))
             .await
             .expect("the stream starts")
             .expect("the socket reads");
@@ -270,7 +272,7 @@ async fn sends_bye_to_open_streams_after_the_drain_and_closes_them() {
     trigger
         .send(())
         .expect("server waits for the shutdown future");
-    tokio::time::timeout(Duration::from_secs(10), stream.read_to_end(&mut received))
+    tokio::time::timeout(OUTER_DEADLINE, stream.read_to_end(&mut received))
         .await
         .expect("the stream closes")
         .expect("the socket reads to the end");
@@ -281,7 +283,7 @@ async fn sends_bye_to_open_streams_after_the_drain_and_closes_them() {
         shutdown_at.elapsed() >= Duration::from_millis(900),
         "bye must follow the drain wait"
     );
-    tokio::time::timeout(Duration::from_secs(5), server)
+    tokio::time::timeout(OUTER_DEADLINE, server)
         .await
         .expect("run returns within the grace period")
         .expect("server task joins")
@@ -322,7 +324,7 @@ async fn mounts_the_management_api_on_the_public_listener() {
     trigger
         .send(())
         .expect("server waits for the shutdown future");
-    tokio::time::timeout(Duration::from_secs(5), server)
+    tokio::time::timeout(OUTER_DEADLINE, server)
         .await
         .expect("run returns within the grace period")
         .expect("server task joins")
@@ -363,7 +365,7 @@ impl Running {
         self.trigger
             .send(())
             .expect("server waits for the shutdown future");
-        tokio::time::timeout(Duration::from_secs(10), self.server)
+        tokio::time::timeout(OUTER_DEADLINE, self.server)
             .await
             .expect("serve returns within the grace period")
             .expect("server task joins")
@@ -498,7 +500,7 @@ async fn raw_exchange(addr: SocketAddr, payload: &[u8]) -> Vec<u8> {
             }
         }
     };
-    tokio::time::timeout(Duration::from_secs(5), reading)
+    tokio::time::timeout(OUTER_DEADLINE, reading)
         .await
         .expect("the server closes the connection");
     received
@@ -558,21 +560,47 @@ async fn refuses_a_header_block_over_the_size_limit() {
     running.stop().await;
 }
 
+const STALL_DEADLINE_MARGIN: Duration = Duration::from_secs(5);
+
+fn assert_disconnect_window(elapsed: Duration) {
+    assert!(elapsed >= SHORT_HEADER_TIMEOUT / 2, "{elapsed:?}");
+    assert!(
+        elapsed < SHORT_HEADER_TIMEOUT + STALL_DEADLINE_MARGIN,
+        "{elapsed:?}"
+    );
+}
+
+fn is_closed_by_peer(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::BrokenPipe
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::ConnectionAborted
+    )
+}
+
 async fn closes_after_stalling(addr: SocketAddr, sent: &[u8], pause: Duration) -> Duration {
     let mut stream = TcpStream::connect(addr).await.expect("public accepts");
     let started = std::time::Instant::now();
     for byte in sent {
-        stream
-            .write_all(std::slice::from_ref(byte))
-            .await
-            .expect("the byte is written");
-        tokio::time::sleep(pause).await;
+        match stream.write_all(std::slice::from_ref(byte)).await {
+            Ok(()) => tokio::time::sleep(pause).await,
+            Err(error) => {
+                assert!(is_closed_by_peer(&error), "unexpected write error: {error}");
+                break;
+            }
+        }
     }
     let mut rest = Vec::new();
-    tokio::time::timeout(Duration::from_secs(5), stream.read_to_end(&mut rest))
-        .await
-        .expect("the server disconnects the stalled client")
-        .ok();
+    let read = tokio::time::timeout(
+        SHORT_HEADER_TIMEOUT + STALL_DEADLINE_MARGIN,
+        stream.read_to_end(&mut rest),
+    )
+    .await
+    .expect("the server disconnects the stalled client");
+    if let Err(error) = read {
+        assert!(is_closed_by_peer(&error), "unexpected read error: {error}");
+    }
     started.elapsed()
 }
 
@@ -588,8 +616,7 @@ async fn disconnects_a_client_that_trickles_headers_and_stalls() {
     )
     .await;
 
-    assert!(elapsed >= SHORT_HEADER_TIMEOUT, "{elapsed:?}");
-    assert!(elapsed < SHORT_HEADER_TIMEOUT * 5, "{elapsed:?}");
+    assert_disconnect_window(elapsed);
     running.stop().await;
 }
 
@@ -600,8 +627,7 @@ async fn disconnects_a_client_that_stalls_inside_a_possible_http2_preface() {
 
     let elapsed = closes_after_stalling(running.public, b"P", Duration::from_millis(5)).await;
 
-    assert!(elapsed >= SHORT_HEADER_TIMEOUT, "{elapsed:?}");
-    assert!(elapsed < SHORT_HEADER_TIMEOUT * 5, "{elapsed:?}");
+    assert_disconnect_window(elapsed);
     running.stop().await;
 }
 
@@ -620,7 +646,7 @@ async fn keeps_serving_requests_on_one_connection_and_large_bodies_after_the_lim
             .await
             .expect("the request is written");
         let mut chunk = [0_u8; 4096];
-        let read = tokio::time::timeout(Duration::from_secs(5), stream.read(&mut chunk))
+        let read = tokio::time::timeout(OUTER_DEADLINE, stream.read(&mut chunk))
             .await
             .expect("the server answers")
             .expect("the socket reads");
@@ -647,7 +673,7 @@ const SHORT_WRITE_TIMEOUT: Duration = Duration::from_millis(500);
 const FLOOD_EVENTS: usize = 4000;
 const FLOOD_PADDING: usize = 6000;
 const CLIENT_RECEIVE_BUFFER: u32 = 4096;
-const SHUTDOWN_BUDGET: Duration = Duration::from_secs(4);
+const SHUTDOWN_BUDGET: Duration = Duration::from_secs(30);
 
 #[tokio::test]
 async fn a_peer_that_stops_reading_is_closed_and_does_not_delay_shutdown() {
@@ -677,7 +703,7 @@ async fn a_peer_that_stops_reading_is_closed_and_does_not_delay_shutdown() {
     let mut head = Vec::new();
     let mut chunk = [0_u8; 512];
     while !String::from_utf8_lossy(&head).contains("event: ready") {
-        let read = tokio::time::timeout(Duration::from_secs(5), client.read(&mut chunk))
+        let read = tokio::time::timeout(OUTER_DEADLINE, client.read(&mut chunk))
             .await
             .expect("the stream starts")
             .expect("the stream is readable");
@@ -697,7 +723,7 @@ async fn a_peer_that_stops_reading_is_closed_and_does_not_delay_shutdown() {
             .expect("the notification is sent");
     }
 
-    let closed = tokio::time::timeout(Duration::from_secs(10), async {
+    let closed = tokio::time::timeout(OUTER_DEADLINE, async {
         let mut sink = [0_u8; 65536];
         loop {
             match client.read(&mut sink).await {

@@ -119,10 +119,11 @@ test('the rail collapses to 56 px on a wide screen and the Menu button stays hid
   await expect(page.getByRole('button', { name: 'Menu' })).toBeHidden();
   await page.getByRole('navigation', { name: 'My endpoints' }).getByRole('button', { name: 'Collapse' }).click();
 
-  const width = await page
-    .getByRole('navigation', { name: 'My endpoints' })
-    .evaluate((element) => element.closest('aside')?.getBoundingClientRect().width ?? 0);
-  expect(width).toBe(56);
+  const railWidth = () =>
+    page
+      .getByRole('navigation', { name: 'My endpoints' })
+      .evaluate((element) => element.closest('aside')?.getBoundingClientRect().width ?? 0);
+  await expect.poll(railWidth).toBe(56);
 });
 
 for (const theme of ['Light', 'Dark'] as const) {

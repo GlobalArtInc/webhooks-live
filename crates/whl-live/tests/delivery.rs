@@ -3,8 +3,9 @@ mod support;
 use std::time::{Duration, Instant};
 
 use support::{
-    RETENTION, TestApp, capture_payload, insert_captures, insert_endpoint, insert_forward_job,
-    notify, padded_capture_payload, pipe, serve_http1, terminate_listener_backend,
+    RETENTION, TestApp, WAIT, capture_payload, insert_captures, insert_endpoint,
+    insert_forward_job, notify, padded_capture_payload, pipe, serve_http1,
+    terminate_listener_backend,
 };
 use whl_live::{Hub, ListenerSettings, StreamSettings, spawn_listener_with};
 use whl_store::Store;
@@ -296,14 +297,23 @@ async fn the_liveness_signal_reports_a_listener_that_ended_or_panicked() {
     assert!(running.is_alive());
 
     let store = Store::from_pool(db.pool().clone());
+    let (detonate, detonated) = tokio::sync::oneshot::channel::<()>();
     let doomed = spawn_listener_with(store, Hub::new(4), ListenerSettings::default(), async {
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        let _ = detonated.await;
         panic!("the listener task is made to fail");
     });
     let liveness = doomed.liveness();
     assert!(liveness.is_alive());
+    doomed
+        .wait_listening()
+        .await
+        .expect("the doomed listener starts listening");
+    assert!(liveness.is_alive());
+    detonate
+        .send(())
+        .expect("the doomed listener still waits for the signal");
 
-    tokio::time::timeout(Duration::from_secs(5), liveness.stopped())
+    tokio::time::timeout(WAIT, liveness.stopped())
         .await
         .expect("the panic is reported");
     assert!(!liveness.is_alive());

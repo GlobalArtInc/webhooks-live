@@ -330,7 +330,7 @@ async fn sign_in_comes_back_once_the_identity_provider_does() {
         .expect("the port is free again");
     serve_discovery(listener, &base);
     let mut status = 0;
-    for _ in 0..100 {
+    for _ in 0..300 {
         status = request(public, "GET", "/auth/login")
             .await
             .expect("public answers")

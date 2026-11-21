@@ -126,8 +126,7 @@ test('the 360 px flow lists first, opens the detail full screen, returns with Ba
   const detail = page.getByRole('region', { name: 'Selected capture' });
   await expect(detail).toBeVisible();
   await expect(page.getByRole('button', { name: 'Back' })).toBeVisible();
-  const box = await detail.boundingBox();
-  expect(box?.width).toBe(360);
+  await expect.poll(async () => (await detail.boundingBox())?.width).toBe(360);
   expect(await horizontalOverflow(page)).toBe(0);
 
   await page.getByRole('button', { name: 'Back' }).click();

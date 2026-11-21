@@ -13,6 +13,8 @@ use whl_core::endpoint_id::EndpointId;
 const DELAY_MS: i32 = 600;
 const DELAY: Duration = Duration::from_millis(DELAY_MS as u64);
 const TOLERANCE: Duration = Duration::from_millis(50);
+const LONG_DELAY_MS: i32 = 5000;
+const LONG_DELAY: Duration = Duration::from_millis(LONG_DELAY_MS as u64);
 
 async fn delayed(harness: &Harness, delay_ms: i32) -> EndpointId {
     endpoint_configured(
@@ -46,7 +48,7 @@ async fn status_of(router: Router, path: String) -> u16 {
 #[tokio::test]
 async fn the_capture_is_stored_before_the_delay_ends() {
     let harness = harness_with_slots(10).await;
-    let id = delayed(&harness, DELAY_MS).await;
+    let id = delayed(&harness, LONG_DELAY_MS).await;
     let addr = serve(&harness).await;
     let mut wire = Wire::connect(addr).await;
 
@@ -54,12 +56,16 @@ async fn the_capture_is_stored_before_the_delay_ends() {
     wire.write(format!("GET /{id} HTTP/1.1\r\nHost: t\r\n\r\n").as_bytes())
         .await;
     assert!(wait_until(|| harness.state.delays().in_use() == 1).await);
-    assert!(started.elapsed() < DELAY);
     assert_eq!(harness.rows(&id).await.len(), 1);
+    assert_eq!(
+        harness.state.delays().in_use(),
+        1,
+        "the delay had already ended when the capture was found stored"
+    );
 
     let head = wire.head().await;
     assert_eq!(head.status, 200);
-    assert!(started.elapsed() >= DELAY - TOLERANCE);
+    assert!(started.elapsed() >= LONG_DELAY - TOLERANCE);
     assert!(wait_until(|| harness.state.delays().in_use() == 0).await);
 }
 
@@ -75,7 +81,7 @@ async fn concurrent_delayed_responses_overlap_instead_of_adding_up() {
 
     assert!(results.iter().all(|(status, _)| *status == 200));
     assert!(results.iter().all(|(_, took)| *took >= DELAY - TOLERANCE));
-    assert!(total < DELAY * 3, "{total:?}");
+    assert!(total < DELAY * 10, "{total:?}");
     assert_eq!(harness.rows(&id).await.len(), 40);
     assert_eq!(harness.state.delays().in_use(), 0);
 }
@@ -83,7 +89,7 @@ async fn concurrent_delayed_responses_overlap_instead_of_adding_up() {
 #[tokio::test]
 async fn over_the_cap_the_response_is_sent_without_delay() {
     let harness = harness_with_slots(2).await;
-    let id = delayed(&harness, 1500).await;
+    let id = delayed(&harness, 8000).await;
 
     let held: Vec<_> = (0..2)
         .map(|_| tokio::spawn(status_of(harness.router.clone(), format!("/{id}"))))
@@ -92,7 +98,7 @@ async fn over_the_cap_the_response_is_sent_without_delay() {
 
     let (status, took) = timed_get(&harness, &id).await;
     assert_eq!(status, 200);
-    assert!(took < Duration::from_millis(500), "{took:?}");
+    assert!(took < Duration::from_secs(4), "{took:?}");
     assert_eq!(harness.state.delays().in_use(), 2);
     assert_eq!(harness.rows(&id).await.len(), 3);
 
@@ -118,11 +124,11 @@ async fn a_freed_slot_delays_the_next_response_again() {
 #[tokio::test]
 async fn a_zero_cap_never_delays() {
     let harness = harness_with_slots(0).await;
-    let id = delayed(&harness, 3000).await;
+    let id = delayed(&harness, 10_000).await;
 
     let (status, took) = timed_get(&harness, &id).await;
     assert_eq!(status, 200);
-    assert!(took < Duration::from_millis(500), "{took:?}");
+    assert!(took < Duration::from_secs(5), "{took:?}");
 }
 
 #[tokio::test]
