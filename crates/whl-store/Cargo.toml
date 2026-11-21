@@ -6,6 +6,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+bytes.workspace = true
 migrator.workspace = true
 sea-orm.workspace = true
 serde.workspace = true
@@ -13,9 +14,9 @@ serde_json.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true
 time.workspace = true
+tokio.workspace = true
 tracing.workspace = true
 whl-core.workspace = true
 
 [dev-dependencies]
-tokio.workspace = true
 whl-testkit.workspace = true

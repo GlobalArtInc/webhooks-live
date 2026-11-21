@@ -9,17 +9,19 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use tower_http::trace::TraceLayer;
 use tracing::Span;
-use whl_live::LiveState;
-
 use whl_api::ApiState;
+use whl_capture::CaptureState;
+use whl_live::LiveState;
 
 use crate::readiness::Readiness;
 
-pub fn public(live: LiveState, api: ApiState) -> Router {
+pub fn public(live: LiveState, api: ApiState, capture: CaptureState) -> Router {
+    let ingest = whl_capture::router_with_fallback(capture, whl_web::router());
     let routes = Router::new()
         .merge(whl_live::router(live))
-        .merge(whl_api::router(api));
-    with_tracing(routes.fallback(not_found))
+        .merge(whl_api::router(api))
+        .fallback_service(ingest);
+    with_tracing(routes)
 }
 
 pub fn admin(readiness: Arc<Readiness>) -> Router {

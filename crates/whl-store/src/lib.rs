@@ -1,4 +1,5 @@
 pub mod capture_queries;
+pub mod captures;
 pub mod endpoints;
 mod error;
 mod store;

@@ -12,18 +12,23 @@ path = "src/main.rs"
 [dependencies]
 axum.workspace = true
 clap.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
 mimalloc.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+tower.workspace = true
 tower-http.workspace = true
 tracing.workspace = true
 whl-api.workspace = true
+whl-capture.workspace = true
 whl-core.workspace = true
 whl-live.workspace = true
 whl-store.workspace = true
 whl-telemetry.workspace = true
+whl-web.workspace = true
 
 [dev-dependencies]
-sqlx.workspace = true
 figment = { workspace = true, features = ["test"] }
+sqlx.workspace = true
 whl-testkit.workspace = true

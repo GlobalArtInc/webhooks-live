@@ -1,4 +1,5 @@
 mod error;
+mod public;
 mod readiness;
 mod router;
 mod signal;
@@ -12,11 +13,13 @@ use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 use whl_api::{ApiSettings, ApiState};
+use whl_capture::{CaptureSettings, CaptureState};
 use whl_core::config::Config;
 use whl_live::{HUB_CAPACITY, Hub, LiveState, StreamSettings};
 use whl_store::Store;
 
 pub use error::ServerError;
+pub use public::{HEADER_READ_TIMEOUT, HttpLimits, MAX_HEADER_COUNT, MAX_HEADER_LIST_BYTES};
 pub use signal::shutdown_signal;
 
 use readiness::Readiness;
@@ -30,6 +33,8 @@ pub struct Bound {
     grace: Duration,
     retention: Duration,
     api: ApiSettings,
+    capture: CaptureSettings,
+    http: HttpLimits,
 }
 
 impl Bound {
@@ -41,6 +46,11 @@ impl Bound {
         self.admin_addr
     }
 
+    pub fn with_http_limits(mut self, limits: HttpLimits) -> Self {
+        self.http = limits;
+        self
+    }
+
     pub async fn serve(
         self,
         store: Store,
@@ -50,6 +60,7 @@ impl Bound {
         let state = ApiState::new(store.clone(), self.api.clone());
         tracing::info!(public = %self.public_addr, admin = %self.admin_addr, "listening");
 
+        let capture = CaptureState::new(store.clone(), self.capture)?;
         let (stop_tx, stop_rx) = watch::channel(false);
         let hub = Hub::new(HUB_CAPACITY);
         let live = LiveState::new(
@@ -62,8 +73,12 @@ impl Bound {
             Arc::clone(&hub),
             until_stopped(stop_rx.clone()),
         );
-        let public = axum::serve(self.public, router::public(live.clone(), state))
-            .with_graceful_shutdown(until_stopped(stop_rx.clone()));
+        let public = public::serve(
+            self.public,
+            router::public(live.clone(), state, capture),
+            self.http,
+            until_stopped(stop_rx.clone()),
+        );
         let admin = axum::serve(self.admin, router::admin(Arc::clone(&readiness)))
             .with_graceful_shutdown(until_stopped(stop_rx));
 
@@ -133,6 +148,8 @@ pub async fn bind(config: &Config) -> Result<Bound, ServerError> {
         grace: config.shutdown.grace,
         retention: config.capture.retention,
         api: ApiSettings::from_config(config),
+        capture: CaptureSettings::from_config(config)?,
+        http: HttpLimits::default(),
     })
 }
 
