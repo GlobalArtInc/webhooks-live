@@ -18,20 +18,14 @@ Status: design phase. Nothing is implemented yet.
 | [docs/ui-design.md](docs/ui-design.md) | How the interface looks and behaves: screens, tokens, components, milestones |
 | [docs/licensing.md](docs/licensing.md) | Where webhooks.live comes from, the clean-rewrite rules, dependency licence policy |
 
-## Why it exists
-
-GlobalArt runs an open-source PHP/Angular.js request catcher at `webhooks.globalart.hu`. It rests on an
-end-of-life runtime, needs a separate Node process for live updates, and cannot run more than one replica.
-webhooks.live is a from-scratch rewrite with its own design that the team can maintain and extend. No code is
-carried over from the old project; see [docs/licensing.md](docs/licensing.md).
-
-## Repository layout (planned)
+## Repository layout
 
 ```
-crates/      Rust workspace
-web/         React interface
-docs/        design documents
-deploy/      container image and Helm chart
+crates/       Rust workspace
+web/          React interface
+docs/         design documents
+tools/        helper scripts
+Containerfile container image build
 ```
 
-The final layout is fixed in [docs/architecture.md](docs/architecture.md).
+The Helm chart lives in the GlobalArt helm-charts repository. The layout is described in [docs/architecture.md](docs/architecture.md).
