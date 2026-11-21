@@ -110,6 +110,8 @@ fn endpoint_scope(method: &Method, tail: &str) -> Option<TokenScope> {
         | "/captures/{capture_id}"
         | "/captures/{capture_id}/body"
         | "/captures/{capture_id}/parts/{index}"
+        | "/captures/{capture_id}/rule-runs"
+        | "/rule-runs"
         | "/forward-rules"
         | "/secrets"
         | ALIASES_TAIL
@@ -156,6 +158,8 @@ fn endpoint_role(method: &Method, tail: &str) -> EndpointRole {
         | "/captures/{capture_id}/body"
         | "/captures/{capture_id}/parts/{index}"
         | ALIASES_TAIL
+        | "/captures/{capture_id}/rule-runs"
+        | "/rule-runs"
             if read =>
         {
             EndpointRole::Viewer
@@ -166,6 +170,8 @@ fn endpoint_role(method: &Method, tail: &str) -> EndpointRole {
             EndpointRole::Editor
         }
         "/rules/order" if *method == Method::PUT => EndpointRole::Editor,
+        "/rules/dry-run" if *method == Method::POST => EndpointRole::Editor,
+        "/captures/{capture_id}/rule-runs" if *method == Method::POST => EndpointRole::Editor,
         "/rules/{rule_id}" if matches!(*method, Method::PATCH | Method::DELETE) => {
             EndpointRole::Editor
         }
@@ -247,7 +253,7 @@ mod tests {
     #[test]
     fn every_documented_route_needs_the_role_of_the_api_table() {
         use EndpointRole::{Editor, Owner, Viewer};
-        let table: [(&Method, &str, Requirement); 48] = [
+        let table: [(&Method, &str, Requirement); 49] = [
             (&GET, "/vars", Requirement::Role(Viewer)),
             (&Method::HEAD, "/vars", Requirement::Role(Viewer)),
             (&PUT, "/vars/{name}", Requirement::Role(Editor)),
@@ -269,6 +275,7 @@ mod tests {
             (&PATCH, "/rules/{rule_id}", Requirement::Role(Editor)),
             (&DELETE, "/rules/{rule_id}", Requirement::Role(Editor)),
             (&PUT, "/rules/order", Requirement::Role(Editor)),
+            (&POST, "/rules/dry-run", Requirement::Role(Editor)),
             (&GET, "/notifications", Requirement::Role(Viewer)),
             (&POST, "/notifications", Requirement::Role(Editor)),
             (
@@ -364,6 +371,46 @@ mod tests {
                         "{mode:?} {method} {pattern}"
                     );
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn rule_run_routes_need_a_viewer_to_read_an_editor_to_re_run_and_refuse_write_tokens() {
+        use EndpointRole::{Editor, Viewer};
+        let table: [(&Method, &str, Requirement, TokenPolicy); 3] = [
+            (
+                &GET,
+                "/rule-runs",
+                Requirement::Role(Viewer),
+                TokenPolicy::Scope(TokenScope::Read),
+            ),
+            (
+                &GET,
+                "/captures/{capture_id}/rule-runs",
+                Requirement::Role(Viewer),
+                TokenPolicy::Scope(TokenScope::Read),
+            ),
+            (
+                &POST,
+                "/captures/{capture_id}/rule-runs",
+                Requirement::Role(Editor),
+                TokenPolicy::SessionOnly,
+            ),
+        ];
+        for mode in MODES {
+            for (method, tail, requirement_expected, token_expected) in &table {
+                let pattern = format!("/api/v1/endpoints/{{id}}{tail}");
+                assert_eq!(
+                    requirement(mode, method, &pattern),
+                    *requirement_expected,
+                    "{mode:?} {method} {tail}"
+                );
+                assert_eq!(
+                    token_policy(method, &pattern),
+                    *token_expected,
+                    "{method} {tail}"
+                );
             }
         }
     }

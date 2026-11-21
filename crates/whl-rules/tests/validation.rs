@@ -183,6 +183,18 @@ fn rejects_a_secret_in_a_response_template() {
 }
 
 #[test]
+fn rejects_a_secret_in_a_notify_message() {
+    let rule = one_step(
+        json!({"kind": "notify", "channel_id": CHANNEL, "message": "{{ secret.API_KEY }}"}),
+    );
+    expect_rejected(
+        vec![rule],
+        "rules.0.steps.0.message",
+        RuleErrorCode::NotAllowed,
+    );
+}
+
+#[test]
 fn rejects_a_secret_name_that_is_not_defined() {
     let rule = one_step(
         json!({"kind": "http", "method": "GET", "url": "https://h.example/{{ secret.OTHER }}"}),

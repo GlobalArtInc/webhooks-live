@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use whl_auth::{AccessControl, Caller, Creation, ViewAccess};
+use whl_capture::RulesRuntime;
 use whl_core::endpoint_id::EndpointId;
 use whl_core::tier::{Tier, Tiers};
 use whl_notify::PushService;
@@ -36,6 +37,7 @@ pub struct ApiState {
     pub(crate) email: Option<EmailApi>,
     pub(crate) push: Option<PushService>,
     pub(crate) tiers: Tiers,
+    pub(crate) rules: Option<RulesRuntime>,
 }
 
 impl ApiState {
@@ -60,6 +62,7 @@ impl ApiState {
             email: None,
             push: None,
             tiers: Tiers::default(),
+            rules: None,
         }
     }
 
@@ -123,6 +126,11 @@ impl ApiState {
 
     pub fn with_email(mut self, email: EmailApi) -> Self {
         self.email = Some(email);
+        self
+    }
+
+    pub fn with_rules(mut self, rules: RulesRuntime) -> Self {
+        self.rules = Some(rules);
         self
     }
 

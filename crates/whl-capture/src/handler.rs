@@ -9,11 +9,13 @@ use axum::response::Response;
 use bytes::Bytes;
 use whl_core::endpoint_id::EndpointId;
 use whl_core::status::{HttpStatus, status_override_from_path};
+use whl_rules::MAX_DELAY_MS;
 use whl_store::CaptureAuthRecord;
 use whl_store::captures::{
     CaptureOutcome, CaptureStoreError, Endpoint, EndpointState, NameValue, NewCapture,
     RenderRecord, StoredCapture,
 };
+use whl_store::rule_runs::{RuleRunSeed, RunStart};
 use whl_telemetry::series;
 
 use crate::access::{Admit, admit};
@@ -21,11 +23,12 @@ use crate::body::{ReadFailure, read_body};
 use crate::client_ip::{ForwardedRequest, sanitize_host};
 use crate::form::{FormLimits, parse_form, parse_query};
 use crate::refusal::{Failure, Refusal};
-use crate::response::{Content, ReplyRequest, build_content, build_response, is_preflight};
+use crate::response::{Content, ReplyRequest, Rules, build_ruled, is_preflight};
+use crate::rules::{Disposition, LiveInput, RuleAdmission, RuleFacts, Slot};
 use crate::seams::Admission;
 use crate::state::CaptureState;
 use crate::target::{Target, resolve, route};
-use crate::template::{RenderInput, Rendering, Served};
+use crate::template::{RenderInput, Served};
 use crate::verification::{Presented, verify_capture};
 
 const REDACTED_VALUE: &str = "[redacted]";
@@ -67,7 +70,10 @@ async fn run(state: &CaptureState, request: Request) -> Result<Response, Failure
         Err(error) => return Err(early(store_refusal(&error))),
     };
     match admission.state {
-        EndpointState::Gone => return Err(early(Refusal::Gone(exposed(&id)))),
+        EndpointState::Gone => {
+            state.rules().forget(id.unpack());
+            return Err(early(Refusal::Gone(exposed(&id))));
+        }
         known @ (EndpointState::Live | EndpointState::Full) => {
             let incoming = ReplyRequest {
                 method: &parts.method,
@@ -196,43 +202,106 @@ async fn run(state: &CaptureState, request: Request) -> Result<Response, Failure
                 headers: &parts.headers,
                 via_alias,
             };
-            let response = if endpoint.templated && !is_preflight(&endpoint, &reply) {
-                let response = templated_response(
-                    state,
-                    &endpoint,
-                    &capture,
-                    request,
-                    status_override,
-                    &reply,
-                )
-                .await;
-                drop(reservation);
-                response
+            let preflight = is_preflight(&endpoint, &reply);
+            let sync_run = match capture.rule_run {
+                Some(seed) if seed.start == RunStart::Sync => {
+                    match state.rules().admit(endpoint.id.unpack()) {
+                        RuleAdmission::Granted(slot) => Some(SyncRun::Granted {
+                            seed,
+                            slot,
+                            facts: Box::new(RuleFacts::from_capture(
+                                &request,
+                                &capture,
+                                &endpoint,
+                                state.public_url(),
+                                verification,
+                            )),
+                        }),
+                        RuleAdmission::Full => Some(SyncRun::Refused),
+                        RuleAdmission::Off => None,
+                    }
+                }
+                _ => None,
+            };
+            let (content, rendered) = if endpoint.templated && !preflight {
+                templated_content(state, &endpoint, &capture, request, status_override).await
             } else {
                 drop(request);
-                drop(reservation);
-                build_response(&endpoint, &capture, status_override, &reply)
+                (Content::Configured, RenderedRecord::default())
             };
+            drop(reservation);
+            let disposition = match sync_run {
+                Some(SyncRun::Granted { seed, slot, facts }) => {
+                    state
+                        .rules()
+                        .before_response(
+                            state.store(),
+                            LiveInput {
+                                endpoint: &endpoint,
+                                capture: &capture,
+                                seed,
+                                retention: state.limits().retention,
+                                status_override: status_override.map(|status| status.unpack()),
+                                preflight,
+                                keyring: state.secrets(),
+                            },
+                            *facts,
+                            slot,
+                        )
+                        .await
+                }
+                Some(SyncRun::Refused) => state.rules().refuse(state.store(), capture.id),
+                None => Disposition::Untouched,
+            };
+            let rule_status =
+                matches!(&disposition, Disposition::Applied(draft) if draft.status.is_some());
+            record_rendering(state, &capture, rendered, !rule_status);
+            let (rules, extra_delay) = match &disposition {
+                Disposition::Applied(draft) => (Rules::Applied(draft), draft.delay_ms),
+                Disposition::Failed(code) => (Rules::Failed(*code), 0),
+                Disposition::Untouched => (Rules::None, 0),
+            };
+            let response =
+                build_ruled(&endpoint, &capture, status_override, &reply, content, rules);
             state
                 .delays()
-                .wait(Duration::from_millis(u64::from(endpoint.delay_ms)))
+                .wait(total_delay(endpoint.delay_ms, extra_delay))
                 .await;
             Ok(response)
         }
-        CaptureOutcome::Gone => Err(late(Refusal::Gone(exposed(&id)))),
+        CaptureOutcome::Gone => {
+            state.rules().forget(id.unpack());
+            Err(late(Refusal::Gone(exposed(&id))))
+        }
         CaptureOutcome::Full => Err(late(Refusal::Full(exposed(&id)))),
         CaptureOutcome::OverQuota => Err(late(Refusal::QuotaExceeded(exposed(&id)))),
     }
 }
 
-async fn templated_response(
+enum SyncRun {
+    Granted {
+        seed: RuleRunSeed,
+        slot: Slot,
+        facts: Box<RuleFacts>,
+    },
+    Refused,
+}
+
+fn total_delay(configured: u32, extra: u32) -> Duration {
+    if extra == 0 {
+        return Duration::from_millis(u64::from(configured));
+    }
+    let cap = u32::try_from(MAX_DELAY_MS).unwrap_or(u32::MAX);
+    Duration::from_millis(u64::from(configured.saturating_add(extra).min(cap)))
+}
+
+async fn templated_content(
     state: &CaptureState,
     endpoint: &Endpoint,
     capture: &StoredCapture,
     request: NewCapture,
     status_override: Option<HttpStatus>,
-    reply: &ReplyRequest<'_>,
-) -> Response {
+) -> (Content, RenderedRecord) {
     let input = RenderInput {
         endpoint: endpoint.clone(),
         capture: capture.clone(),
@@ -249,19 +318,33 @@ async fn templated_response(
             "a templated response fell back to the static one"
         );
     }
-    record_rendering(state, capture, &rendering);
+    let record = RenderedRecord {
+        meta: rendering.meta(),
+        status: rendering.rendered_status(),
+    };
     let content = match rendering.served {
         Served::Rendered(parts) => Content::Rendered(parts),
         Served::Fallback(code) => Content::Fallback(code),
     };
-    build_content(endpoint, capture, status_override, reply, content)
+    (content, record)
 }
 
-fn record_rendering(state: &CaptureState, capture: &StoredCapture, rendering: &Rendering) {
-    let status = rendering
-        .rendered_status()
-        .filter(|status| *status != capture.response_status);
-    let meta = rendering.meta();
+#[derive(Default)]
+struct RenderedRecord {
+    meta: Option<serde_json::Value>,
+    status: Option<HttpStatus>,
+}
+
+fn record_rendering(
+    state: &CaptureState,
+    capture: &StoredCapture,
+    rendered: RenderedRecord,
+    keep_status: bool,
+) {
+    let status = rendered
+        .status
+        .filter(|status| keep_status && *status != capture.response_status);
+    let meta = rendered.meta;
     if status.is_none() && meta.is_none() {
         return;
     }

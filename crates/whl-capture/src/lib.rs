@@ -8,6 +8,7 @@ mod form;
 mod handler;
 mod refusal;
 mod response;
+mod rules;
 mod seams;
 mod state;
 mod target;
@@ -27,6 +28,12 @@ pub use client_ip::{ForwardedRequest, Scheme, TrustedProxies};
 pub use delay::{DELAY_SKIPPED_TOTAL, DelaySlots};
 pub use form::{FormLimits, parse_form, parse_query};
 pub use response::{ReplyRequest, build_response};
+pub use rules::{
+    DEFAULT_CACHE_BYTES, DEFAULT_DRY_RUN_CONCURRENCY, DEFAULT_PER_ENDPOINT, DEFAULT_SYNC_BUDGET,
+    DEFAULT_SYNC_CONCURRENCY, DEFAULT_VARIABLES_DEADLINE, DryRunError, DryRunInput, DryRunRules,
+    FactsError, MAX_SYNC_BUDGET, RULE_BODY_BYTES, RuleFacts, RulesError, RulesRuntime,
+    RulesSettings, StoreState, load_rule_variables,
+};
 pub use seams::{Admission, StorageFull};
 pub use state::{
     BodyBudget, BudgetExhausted, CaptureLimits, CaptureSettings, CaptureSource, CaptureState,

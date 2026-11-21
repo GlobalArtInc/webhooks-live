@@ -97,6 +97,14 @@ fn default_text(input: &ComposeInput<'_>, capture: &NotifyCapture) -> String {
 }
 
 fn single_text(input: &ComposeInput<'_>, capture: &NotifyCapture) -> String {
+    if let Some(message) = input
+        .delivery
+        .message
+        .as_deref()
+        .filter(|message| !message.trim().is_empty())
+    {
+        return message.to_owned();
+    }
     let Some(source) = input.delivery.channel.template.as_deref() else {
         return default_text(input, capture);
     };
@@ -198,4 +206,84 @@ fn capture_summary(capture: &NotifyCapture, endpoint: &str) -> Value {
         "forward_state": Value::Null,
         "kind": capture.kind.as_str(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use bytes::Bytes;
+    use time::OffsetDateTime;
+    use whl_store::notify::{ChannelKind, DeliveryChannel};
+    use whl_store::{CaptureKind, Uuid};
+
+    use super::*;
+
+    fn delivery(message: Option<&str>) -> ClaimedDelivery {
+        ClaimedDelivery {
+            id: Uuid::nil(),
+            channel_id: Uuid::nil(),
+            capture_id: Some(Uuid::nil()),
+            kind: DeliveryKind::Single,
+            message: message.map(str::to_owned),
+            attempt: 1,
+            quota_checked: false,
+            window_start: None,
+            suppressed_count: None,
+            channel: DeliveryChannel {
+                kind: ChannelKind::Webhook,
+                enabled: true,
+                config: json!({}),
+                sealed: None,
+                template: None,
+                per_hour: 30,
+                endpoint_id: "ep".to_owned(),
+                endpoint_title: None,
+                owner_id: None,
+                owner_tier: None,
+                creator_net: None,
+                created_by: None,
+            },
+        }
+    }
+
+    fn capture() -> NotifyCapture {
+        NotifyCapture {
+            id: Uuid::nil(),
+            seq: 1,
+            received_at: OffsetDateTime::UNIX_EPOCH,
+            received_text: "1970-01-01T00:00:00.000Z".to_owned(),
+            method: "POST".to_owned(),
+            url: "http://h/x".to_owned(),
+            path: "/x".to_owned(),
+            query_string: String::new(),
+            host: "h".to_owned(),
+            client_ip: "203.0.113.1".to_owned(),
+            content_type: None,
+            headers: Vec::new(),
+            query: Vec::new(),
+            body_size: 0,
+            status_override: None,
+            response_status: 200,
+            kind: CaptureKind::Http,
+            body: Bytes::new(),
+        }
+    }
+
+    fn text_of(delivery: &ClaimedDelivery) -> String {
+        let capture = capture();
+        compose(&ComposeInput {
+            delivery,
+            capture: Some(&capture),
+            public_url: "https://whl.test",
+        })
+        .text
+    }
+
+    #[test]
+    fn a_message_written_by_a_rule_replaces_the_default_text_of_a_single_notification() {
+        assert_eq!(
+            text_of(&delivery(Some("Order 42 arrived"))),
+            "Order 42 arrived"
+        );
+        assert!(text_of(&delivery(None)).starts_with("New http request on endpoint"));
+    }
 }

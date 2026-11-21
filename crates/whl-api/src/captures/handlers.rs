@@ -4,6 +4,7 @@ use axum::http::StatusCode;
 use whl_core::capture_id::CaptureId;
 use whl_core::endpoint_id::EndpointId;
 use whl_store::Uuid;
+use whl_store::rule_exec::RunFilter;
 use whl_store::{CaptureDetail, CaptureError, DeleteOutcome};
 
 use super::cursor::Cursor;
@@ -11,6 +12,8 @@ use super::dto::{CaptureDto, ListDto, SummaryDto};
 use super::query::{ListParams, list_query};
 use crate::error::ApiError;
 use crate::state::ApiState;
+
+const RULE_RUNS_IN_DETAIL: i64 = 10;
 
 impl From<CaptureError> for ApiError {
     fn from(error: CaptureError) -> Self {
@@ -60,7 +63,7 @@ pub async fn latest(
         .latest_capture(&endpoint)
         .await?
         .ok_or(ApiError::CaptureNotFound)?;
-    with_forwards(&state, detail).await.map(Json)
+    with_forwards(&state, &endpoint, detail).await.map(Json)
 }
 
 pub async fn show(
@@ -75,7 +78,7 @@ pub async fn show(
         .get_capture(&endpoint, &capture)
         .await?
         .ok_or(ApiError::CaptureNotFound)?;
-    with_forwards(&state, detail).await.map(Json)
+    with_forwards(&state, &endpoint, detail).await.map(Json)
 }
 
 pub async fn delete(
@@ -111,7 +114,11 @@ pub async fn clear(
     }
 }
 
-async fn with_forwards(state: &ApiState, detail: CaptureDetail) -> Result<CaptureDto, ApiError> {
+async fn with_forwards(
+    state: &ApiState,
+    endpoint: &EndpointId,
+    detail: CaptureDetail,
+) -> Result<CaptureDto, ApiError> {
     let capture = Uuid::try_parse(&detail.summary.id).map_err(|_| {
         ApiError::Internal(whl_store::EndpointError::Invalid {
             id: detail.summary.id.clone(),
@@ -120,7 +127,23 @@ async fn with_forwards(state: &ApiState, detail: CaptureDetail) -> Result<Captur
     })?;
     let forwards = state.store.forward_jobs_for_capture(capture).await?;
     let notifications = state.store.deliveries_for_capture(capture).await?;
-    Ok(CaptureDto::new(detail, &forwards, &notifications))
+    let rule_runs = state
+        .store
+        .list_rule_runs(
+            endpoint,
+            &RunFilter {
+                capture: Some(capture),
+                ..RunFilter::default()
+            },
+            RULE_RUNS_IN_DETAIL,
+        )
+        .await?;
+    Ok(CaptureDto::new(
+        detail,
+        &forwards,
+        &notifications,
+        &rule_runs,
+    ))
 }
 
 async fn live_endpoint(state: &ApiState, endpoint: &EndpointId) -> Result<(), ApiError> {

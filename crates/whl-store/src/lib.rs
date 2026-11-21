@@ -23,6 +23,8 @@ mod members;
 pub mod merge;
 pub mod notify;
 pub mod quota;
+pub mod rule_exec;
+pub mod rule_runs;
 pub mod rules;
 pub mod schedules;
 pub mod secrets;

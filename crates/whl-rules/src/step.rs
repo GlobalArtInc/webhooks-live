@@ -7,7 +7,7 @@ use whl_script::MAX_SOURCE_BYTES as MAX_SCRIPT_BYTES;
 use whl_secrets::SecretName;
 use whl_template::{RenderTarget, SecretPolicy};
 
-use crate::check::{Checker, compile_regex, is_step_name, is_variable_name, join};
+use crate::check::{Checker, is_step_name, is_variable_name, join};
 use crate::error::RuleErrorCode;
 use crate::kind::StepKind;
 use crate::limits::{
@@ -17,6 +17,7 @@ use crate::limits::{
     MAX_TARGET_URL_BYTES,
 };
 use crate::model::{Action, BodySource, Header, S3Content, Step};
+use crate::pattern::PatternUse;
 
 const COMMON_FIELDS: [&str; 2] = ["kind", "continue_on_error"];
 
@@ -211,7 +212,7 @@ fn action(
         StepKind::Forward => forward(checker, map, path)?,
         StepKind::Notify => {
             let channel_id = checker.uuid(map, path, "channel_id").filter(|id| {
-                let known = checker.references.channels.contains(id);
+                let known = checker.knows_channel(id);
                 if !known {
                     checker.fail(
                         join(path, "channel_id"),
@@ -226,7 +227,7 @@ fn action(
                 map,
                 path,
                 "message",
-                Slot::outbound(RenderTarget::Body),
+                Slot::local(RenderTarget::Body),
                 steps,
             );
             Action::Notify {
@@ -461,9 +462,7 @@ fn secret_name(
 ) -> Option<String> {
     let text = checker.required_text(map, path, key)?;
     match SecretName::parse(text) {
-        Ok(name) if checker.references.secrets.contains(name.unpack()) => {
-            Some(name.unpack().to_owned())
-        }
+        Ok(name) if checker.knows_secret(name.unpack()) => Some(name.unpack().to_owned()),
         Ok(_) => {
             checker.fail(
                 join(path, key),
@@ -582,7 +581,7 @@ fn extract(
     let into = run_variable(checker, map, path, "into");
     let selector = match (json_path, regex) {
         (Some(json), None) => {
-            if map.contains_key("group") {
+            if map.get("group").is_some_and(|value| !value.is_null()) {
                 checker.fail(
                     join(path, "group"),
                     RuleErrorCode::NotAllowed,
@@ -593,13 +592,7 @@ fn extract(
             Some(Selector::JsonPath(json.to_owned()))
         }
         (None, Some(pattern)) => {
-            if compile_regex(pattern).is_err() {
-                checker.fail(
-                    join(path, "regex"),
-                    RuleErrorCode::InvalidFormat,
-                    "must be a valid regular expression",
-                );
-            }
+            checker.pattern(&join(path, "regex"), pattern, PatternUse::Extract);
             let group = ranged(checker, map, path, "group", 0, MAX_EXTRACT_GROUP, Some(1))
                 .and_then(|group| u32::try_from(group).ok());
             Some(Selector::Regex(pattern.to_owned(), group?))
@@ -717,7 +710,7 @@ fn forward(checker: &mut Checker, map: &Map<String, Value>, path: &str) -> Optio
     let body_from = body_source(checker, map, path)?;
     match (rule_id, target) {
         (Some(id), None) => {
-            if !checker.references.forward_rules.contains(&id) {
+            if !checker.knows_forward_rule(&id) {
                 checker.fail(
                     join(path, "forward_rule_id"),
                     RuleErrorCode::InvalidFormat,

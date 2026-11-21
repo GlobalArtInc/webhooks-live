@@ -8,6 +8,7 @@ use whl_core::config::Config;
 use whl_core::limiter::Limiters;
 use whl_dns::DnsHandle;
 use whl_notify::{NotifyHandle, NotifyWorker};
+use whl_rules_worker::{RulesHandle, RulesWorker};
 use whl_schedule::{RunnerHandle, ScheduleRunner};
 use whl_store::Store;
 use whl_store::maintenance::{
@@ -48,6 +49,7 @@ pub(crate) struct Workers {
     pub(crate) dns: Option<DnsHandle>,
     pub(crate) schedules: Option<ScheduleRunner>,
     pub(crate) notify: Option<NotifyWorker>,
+    pub(crate) rules: Option<RulesWorker>,
 }
 
 pub(crate) struct Background {
@@ -57,6 +59,7 @@ pub(crate) struct Background {
     dns: Option<DnsHandle>,
     schedules: Option<RunnerHandle>,
     notify: Option<NotifyHandle>,
+    rules: Option<RulesHandle>,
 }
 
 impl Background {
@@ -89,9 +92,11 @@ impl Background {
             dns,
             schedules,
             notify,
+            rules,
         } = workers;
         let schedules = schedules.map(|runner| runner.spawn(until_stopped(stop.clone())));
         let notify = notify.map(|worker| worker.spawn(until_stopped(stop.clone())));
+        let rules = rules.map(|worker| worker.spawn(until_stopped(stop.clone())));
         Self {
             refresher,
             cleanup,
@@ -99,6 +104,7 @@ impl Background {
             dns,
             schedules,
             notify,
+            rules,
         }
     }
 
@@ -120,6 +126,9 @@ impl Background {
         }
         if let Some(mut notify) = self.notify {
             notify.join().await;
+        }
+        if let Some(mut rules) = self.rules {
+            rules.join().await;
         }
     }
 }

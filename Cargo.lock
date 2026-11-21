@@ -5405,6 +5405,7 @@ version = "0.1.0-dev"
 dependencies = [
  "axum",
  "base64 0.22.1",
+ "bytes",
  "futures-util",
  "ipnet",
  "metrics",
@@ -5490,6 +5491,8 @@ dependencies = [
  "tracing",
  "url",
  "whl-core",
+ "whl-rules",
+ "whl-script",
  "whl-secrets",
  "whl-store",
  "whl-telemetry",
@@ -5685,15 +5688,49 @@ name = "whl-rules"
 version = "0.1.0-dev"
 dependencies = [
  "ipnet",
+ "metrics",
  "regex",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+ "time",
+ "tokio",
  "uuid",
  "whl-core",
  "whl-script",
  "whl-secrets",
+ "whl-telemetry",
  "whl-template",
+]
+
+[[package]]
+name = "whl-rules-worker"
+version = "0.1.0-dev"
+dependencies = [
+ "base64 0.22.1",
+ "bytes",
+ "hmac 0.13.0",
+ "http",
+ "metrics",
+ "serde_json",
+ "sha2 0.11.1",
+ "sqlx",
+ "thiserror 2.0.21",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "uuid",
+ "whl-capture",
+ "whl-core",
+ "whl-forward",
+ "whl-rules",
+ "whl-script",
+ "whl-secrets",
+ "whl-store",
+ "whl-telemetry",
+ "whl-template",
+ "whl-testkit",
 ]
 
 [[package]]
@@ -5785,7 +5822,9 @@ dependencies = [
  "whl-live",
  "whl-mail",
  "whl-notify",
+ "whl-rules-worker",
  "whl-schedule",
+ "whl-script",
  "whl-secrets",
  "whl-store",
  "whl-telemetry",

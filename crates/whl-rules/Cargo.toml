@@ -7,12 +7,19 @@ publish.workspace = true
 
 [dependencies]
 ipnet.workspace = true
+metrics.workspace = true
 regex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+time.workspace = true
+tokio.workspace = true
 uuid.workspace = true
 whl-core.workspace = true
 whl-script.workspace = true
 whl-secrets.workspace = true
+whl-telemetry.workspace = true
 whl-template.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

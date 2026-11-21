@@ -11,11 +11,13 @@ use whl_core::capture_id::CaptureId;
 use whl_core::endpoint_id::EndpointId;
 use whl_core::status::HttpStatus;
 use whl_secrets::{KeyId, SealedSecret};
+use whl_telemetry::series::RULE_RUNS_TOTAL;
 use whl_verify::{Verification, Verifier, VerifierDocument};
 
 use crate::access::{AccessSettings, access_from_columns};
 use crate::kind::CaptureKind;
 use crate::quota::EndpointByteCaps;
+use crate::rule_runs::{MAX_HOPS, RuleRunSeed, RunStart, incoming_hop, insert_capture_run};
 use crate::store::Store;
 
 pub const ACQUIRE_TIMEOUT: Duration = Duration::from_secs(1);
@@ -63,7 +65,7 @@ const CLAIM_SLOT: &str = "UPDATE endpoints SET \
          SELECT 1 FROM captures WHERE endpoint_id = $1 AND NOT starred))) \
      RETURNING last_seq, capture_count, COALESCE(max_captures::bigint, $4) AS effective_max, bytes_used, overflow, CASE WHEN endpoints.owner_id IS NULL THEN $5::bigint ELSE COALESCE((SELECT u.endpoint_bytes_cap FROM users u WHERE u.id = endpoints.owner_id), $6::bigint) END AS byte_cap, response_status, response_content_type, \
        response_headers::text AS response_headers, response_body, response_delay_ms, cors, \
-       title, response_templated, response_status_template";
+       title, response_templated, response_status_template, rules_version, rule_count, rules_sync";
 
 const EVICT_FOR_BYTES: &str = "WITH surplus AS ( \
        SELECT bytes_used - $2::bigint AS excess FROM endpoints WHERE id = $1 \
@@ -288,6 +290,7 @@ pub struct StoredCapture {
     pub received_at: OffsetDateTime,
     pub response_status: HttpStatus,
     pub body_size: usize,
+    pub rule_run: Option<RuleRunSeed>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -614,7 +617,15 @@ impl Store {
         let meta = shape.meta.to_string();
         let prepared = Prepared::new(capture, meta)?;
         let tx = self.begin_capture_transaction().await?;
-        let work = execute_capture(tx, capture, prepared, policy, shape, self.byte_caps);
+        let work = execute_capture(
+            tx,
+            capture,
+            prepared,
+            policy,
+            shape,
+            self.byte_caps,
+            self.rules_enabled(),
+        );
         tokio::time::timeout(TRANSACTION_DEADLINE, work)
             .await
             .map_err(|_| CaptureStoreError::DeadlineExceeded)?
@@ -727,6 +738,7 @@ async fn execute_capture(
     policy: CapturePolicy,
     shape: CaptureShape,
     byte_caps: EndpointByteCaps,
+    rules_enabled: bool,
 ) -> Result<CaptureOutcome, CaptureStoreError> {
     let max_captures = i64::from(policy.max_captures);
     attempt!(
@@ -807,6 +819,21 @@ async fn execute_capture(
         row.try_get("byte_cap").map_err(CaptureStoreError::classify)
     );
     let endpoint = attempt!(tx, endpoint_from_row(&row, &capture.endpoint_id));
+    let rules_version: i32 = attempt!(
+        tx,
+        row.try_get("rules_version")
+            .map_err(CaptureStoreError::classify)
+    );
+    let rule_count: i16 = attempt!(
+        tx,
+        row.try_get("rule_count")
+            .map_err(CaptureStoreError::classify)
+    );
+    let rules_sync: bool = attempt!(
+        tx,
+        row.try_get("rules_sync")
+            .map_err(CaptureStoreError::classify)
+    );
 
     let surplus = i64::from(count_after) - effective_max;
     if surplus > 0 {
@@ -893,13 +920,54 @@ async fn execute_capture(
             .map_err(CaptureStoreError::classify)
     );
 
-    if shape.kind == CaptureKind::Http {
+    let hop = incoming_hop(&capture.headers);
+    let hop_blocked = hop >= MAX_HOPS;
+    if hop_blocked && shape.kind == CaptureKind::Http {
+        tracing::info!(
+            capture_id = %id,
+            hop,
+            "rules and forwards are skipped because the capture arrived at the hop limit"
+        );
+        metrics::counter!(RULE_RUNS_TOTAL, "phase" => "capture", "outcome" => "hop_limit")
+            .increment(1);
+    }
+    let runs_rules = rules_enabled
+        && rule_count > 0
+        && !hop_blocked
+        && matches!(
+            shape.kind,
+            CaptureKind::Http | CaptureKind::Email | CaptureKind::Dns
+        );
+    let rule_run = if runs_rules {
+        let start = if rules_sync && shape.kind == CaptureKind::Http {
+            RunStart::Sync
+        } else {
+            RunStart::Queued
+        };
         attempt!(
             tx,
-            crate::forward::insert_rule_jobs(&mut tx, &capture.endpoint_id, id, &capture.method)
+            insert_capture_run(&mut tx, &capture.endpoint_id, id, rules_version, start)
                 .await
                 .map_err(CaptureStoreError::classify)
-        );
+        )
+    } else {
+        None
+    };
+
+    if shape.kind == CaptureKind::Http {
+        if !hop_blocked {
+            attempt!(
+                tx,
+                crate::forward::insert_rule_jobs(
+                    &mut tx,
+                    &capture.endpoint_id,
+                    id,
+                    &capture.method
+                )
+                .await
+                .map_err(CaptureStoreError::classify)
+            );
+        }
         attempt!(
             tx,
             crate::notify::insert_capture_deliveries(
@@ -933,6 +1001,7 @@ async fn execute_capture(
             received_at: capture.received_at,
             response_status,
             body_size: capture.body.len(),
+            rule_run,
         },
     })
 }

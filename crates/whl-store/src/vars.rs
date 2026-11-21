@@ -17,7 +17,7 @@ pub const MAX_VAR_NAME_BYTES: usize = 64;
 const LOAD_VARS: &str = "SELECT name, value::text AS value FROM endpoint_vars \
      WHERE endpoint_id = $1 AND name = ANY($2)";
 
-const BUMP_COUNTER: &str = "UPDATE endpoint_vars SET value = to_jsonb((value::text)::bigint + 1), \
+const BUMP_COUNTER: &str = "UPDATE endpoint_vars SET value = to_jsonb((value::text)::bigint + $4::bigint), \
        updated_at = now() \
      WHERE endpoint_id = $1 AND name = $2 AND value::text ~ '^-?[0-9]{1,18}$' \
        AND EXISTS (SELECT 1 FROM endpoints e WHERE e.id = $1 AND e.deleted_at IS NULL \
@@ -25,9 +25,9 @@ const BUMP_COUNTER: &str = "UPDATE endpoint_vars SET value = to_jsonb((value::te
      RETURNING (value::text)::bigint AS value";
 
 const UPSERT_COUNTER: &str = "INSERT INTO endpoint_vars (endpoint_id, name, value) \
-     VALUES ($1, $2, '1'::jsonb) \
+     VALUES ($1, $2, to_jsonb($3::bigint)) \
      ON CONFLICT (endpoint_id, name) DO UPDATE SET \
-       value = to_jsonb((endpoint_vars.value::text)::bigint + 1), updated_at = now() \
+       value = to_jsonb((endpoint_vars.value::text)::bigint + $3::bigint), updated_at = now() \
      WHERE endpoint_vars.value::text ~ '^-?[0-9]{1,18}$' \
      RETURNING (endpoint_vars.value::text)::bigint AS value";
 
@@ -170,15 +170,28 @@ impl Store {
         let rows = tokio::time::timeout(deadline, work)
             .await
             .map_err(|_| VarStoreError::Deadline(deadline))??;
-        let mut values = BTreeMap::new();
-        for row in &rows {
-            let name: String = row.try_get("name").map_err(classify)?;
-            let text: String = row.try_get("value").map_err(classify)?;
-            let value = serde_json::from_str(&text)
-                .map_err(|error| VarStoreError::Invalid(format!("variable {name}: {error}")))?;
-            values.insert(name, value);
-        }
-        Ok(LoadedVars { values })
+        loaded_from_rows(&rows)
+    }
+
+    pub async fn load_rule_vars(
+        &self,
+        endpoint: &EndpointId,
+        names: &[String],
+        acquire: Duration,
+        deadline: Duration,
+    ) -> Result<LoadedVars, VarStoreError> {
+        let mut connection = tokio::time::timeout(acquire, self.acquire_capture_connection())
+            .await
+            .map_err(|_| VarStoreError::Deadline(acquire))??;
+        let query = sqlx::query(LOAD_VARS)
+            .bind(endpoint.unpack())
+            .bind(names)
+            .fetch_all(&mut *connection);
+        let rows = tokio::time::timeout(deadline, query)
+            .await
+            .map_err(|_| VarStoreError::Deadline(deadline))?
+            .map_err(classify)?;
+        loaded_from_rows(&rows)
     }
 
     pub async fn list_vars(&self, endpoint: &EndpointId) -> Result<Vec<VarRecord>, VarStoreError> {
@@ -264,12 +277,23 @@ impl Store {
         retention: Duration,
         name: &str,
     ) -> Result<IncrementOutcome, VarStoreError> {
+        self.add_to_counter(endpoint, retention, name, 1).await
+    }
+
+    pub async fn add_to_counter(
+        &self,
+        endpoint: &EndpointId,
+        retention: Duration,
+        name: &str,
+        by: i64,
+    ) -> Result<IncrementOutcome, VarStoreError> {
         let bumped = tokio::time::timeout(
             TRANSACTION_DEADLINE,
             sqlx::query(BUMP_COUNTER)
                 .bind(endpoint.unpack())
                 .bind(name)
                 .bind(retention.as_secs_f64())
+                .bind(by)
                 .fetch_optional(self.pool()),
         )
         .await
@@ -290,6 +314,7 @@ impl Store {
         let row = sqlx::query(UPSERT_COUNTER)
             .bind(endpoint.unpack())
             .bind(name)
+            .bind(by)
             .fetch_optional(&mut *tx)
             .await
             .map_err(classify)?;
@@ -301,6 +326,18 @@ impl Store {
             None => Ok(IncrementOutcome::NotACounter),
         }
     }
+}
+
+fn loaded_from_rows(rows: &[PgRow]) -> Result<LoadedVars, VarStoreError> {
+    let mut values = BTreeMap::new();
+    for row in rows {
+        let name: String = row.try_get("name").map_err(classify)?;
+        let text: String = row.try_get("value").map_err(classify)?;
+        let value = serde_json::from_str(&text)
+            .map_err(|error| VarStoreError::Invalid(format!("variable {name}: {error}")))?;
+        values.insert(name, value);
+    }
+    Ok(LoadedVars { values })
 }
 
 async fn var_exists(

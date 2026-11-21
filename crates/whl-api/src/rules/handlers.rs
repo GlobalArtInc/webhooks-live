@@ -135,8 +135,14 @@ async fn commit(
         let current = state.store.list_rules(endpoint).await?;
         let plan = plan(&current, &mutation, limits)?;
         let references = references(state, endpoint).await?;
-        let rules = validate_set_with(&plan.inputs, &references, &scripts, plan.limits)
-            .map_err(|error| ApiError::Validation(violations(error.diagnostics, plan.candidate)))?;
+        let inputs = plan.inputs.clone();
+        let plan_limits = plan.limits;
+        let rules = tokio::task::spawn_blocking(move || {
+            validate_set_with(&inputs, &references, &scripts, plan_limits)
+        })
+        .await
+        .map_err(|_| ApiError::InternalFault("the rule validation did not finish"))?
+        .map_err(|error| ApiError::Validation(violations(error.diagnostics, plan.candidate)))?;
         vet_candidate(state, &rules, plan.candidate).await?;
         let change = change(&plan, &rules)?;
         match state
@@ -302,7 +308,10 @@ fn order_indexes(current: &RuleSet, ids: &[Uuid]) -> Result<Vec<usize>, ApiError
     Ok(indexes)
 }
 
-async fn references(state: &ApiState, endpoint: &EndpointId) -> Result<References, ApiError> {
+pub(super) async fn references(
+    state: &ApiState,
+    endpoint: &EndpointId,
+) -> Result<References, ApiError> {
     let secrets = state
         .store
         .list_secrets(endpoint)
@@ -380,7 +389,7 @@ fn target_violation(field: &str, error: &TargetCheckError) -> FieldViolation {
     }
 }
 
-async fn live_endpoint(state: &ApiState, endpoint: &EndpointId) -> Result<(), ApiError> {
+pub(super) async fn live_endpoint(state: &ApiState, endpoint: &EndpointId) -> Result<(), ApiError> {
     state
         .store
         .get_endpoint(endpoint, state.settings.retention)
@@ -389,7 +398,7 @@ async fn live_endpoint(state: &ApiState, endpoint: &EndpointId) -> Result<(), Ap
         .ok_or(ApiError::EndpointGone)
 }
 
-fn endpoint_id(raw: &str) -> Result<EndpointId, ApiError> {
+pub(super) fn endpoint_id(raw: &str) -> Result<EndpointId, ApiError> {
     EndpointId::parse(raw).map_err(|_| ApiError::NotFound)
 }
 
