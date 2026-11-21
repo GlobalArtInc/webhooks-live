@@ -6,6 +6,7 @@ use whl_auth::AuthError;
 use whl_capture::StateError;
 use whl_core::limiter::LimiterError;
 use whl_forward::{ForwardError, WorkerError};
+use whl_mail::MailSetupError;
 use whl_store::StoreError;
 
 use crate::secrets::SecretsSetupError;
@@ -26,6 +27,8 @@ pub enum ServerError {
     Worker(#[from] WorkerError),
     #[error("cannot set up secrets: {0}")]
     Secrets(#[from] SecretsSetupError),
+    #[error("cannot set up the mail receiver: {0}")]
+    Mail(#[from] MailSetupError),
     #[error("cannot bind the {listener} listener on {addr}: {source}")]
     Bind {
         listener: &'static str,

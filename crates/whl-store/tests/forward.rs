@@ -68,6 +68,10 @@ impl Fixture {
     }
 
     async fn capture(&self) -> CaptureId {
+        self.capture_of(whl_store::CaptureKind::Http).await
+    }
+
+    async fn capture_of(&self, kind: whl_store::CaptureKind) -> CaptureId {
         let id = CaptureId::generate().expect("an id is generated");
         let outcome = self
             .store
@@ -91,6 +95,9 @@ impl Fixture {
                     content_type: Some("text/plain".to_owned()),
                     body: Bytes::from_static(b"hello"),
                     status_override: None,
+                    kind,
+                    meta: serde_json::json!({}),
+                    fixed_status: None,
                 },
                 CapturePolicy {
                     max_captures: 500,
@@ -128,6 +135,21 @@ fn record(job_id: whl_store::Uuid, attempt: i16) -> AttemptRecord {
         response_body: Some(b"ok".to_vec()),
         response_truncated: false,
     }
+}
+
+#[tokio::test]
+async fn an_email_capture_queues_no_forward_job() {
+    let fixture = fixture().await;
+    fixture.rule("http://one.test/a", true, None).await;
+
+    let capture = fixture.capture_of(whl_store::CaptureKind::Email).await;
+
+    let jobs: i64 = sqlx::query_scalar("SELECT count(*) FROM forward_jobs WHERE capture_id = $1")
+        .bind(capture.unpack())
+        .fetch_one(fixture.pool())
+        .await
+        .expect("the jobs are counted");
+    assert_eq!(jobs, 0);
 }
 
 #[tokio::test]

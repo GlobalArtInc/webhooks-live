@@ -110,6 +110,9 @@ impl Fixture {
                     content_type: Some("text/plain".to_owned()),
                     body: Bytes::from_static(body),
                     status_override: None,
+                    kind: whl_store::CaptureKind::Http,
+                    meta: serde_json::json!({}),
+                    fixed_status: None,
                 },
                 CapturePolicy {
                     max_captures: 500,

@@ -7,6 +7,7 @@ pub mod endpoints;
 mod error;
 pub mod forward;
 mod kind;
+pub mod mail;
 pub mod maintenance;
 mod members;
 pub mod secrets;

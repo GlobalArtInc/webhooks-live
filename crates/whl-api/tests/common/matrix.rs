@@ -54,6 +54,9 @@ pub async fn store_capture(store: &Store, endpoint: &str) -> String {
                 content_type: None,
                 body: Default::default(),
                 status_override: None,
+                kind: whl_store::CaptureKind::Http,
+                meta: serde_json::json!({}),
+                fixed_status: None,
             },
             CapturePolicy {
                 max_captures: 500,
@@ -230,6 +233,7 @@ pub fn routes() -> Vec<Route> {
         route(Method::GET, "/captures/latest", "", Viewer, 200),
         route(Method::GET, "/captures/{capture}", "", Viewer, 200),
         route(Method::GET, "/captures/{capture}/body", "", Viewer, 200),
+        route(Method::GET, "/captures/{capture}/parts/0", "", Viewer, 404),
         route(Method::DELETE, "/captures/{capture}", "", Editor, 204),
         route(Method::DELETE, "/captures", "", Editor, 204),
         route(

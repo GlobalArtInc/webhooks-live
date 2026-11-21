@@ -7,6 +7,7 @@ publish.workspace = true
 
 [dependencies]
 bytes.workspace = true
+ipnet.workspace = true
 metrics.workspace = true
 migrator.workspace = true
 sea-orm.workspace = true

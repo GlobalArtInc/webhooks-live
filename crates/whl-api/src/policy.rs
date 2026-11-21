@@ -43,6 +43,7 @@ fn endpoint_role(method: &Method, tail: &str) -> EndpointRole {
         | "/forward-rules"
         | "/captures/{capture_id}"
         | "/captures/{capture_id}/body"
+        | "/captures/{capture_id}/parts/{index}"
             if read =>
         {
             EndpointRole::Viewer
@@ -107,7 +108,7 @@ mod tests {
     #[test]
     fn every_documented_route_needs_the_role_of_the_api_table() {
         use EndpointRole::{Editor, Owner, Viewer};
-        let table: [(&Method, &str, Requirement); 27] = [
+        let table: [(&Method, &str, Requirement); 28] = [
             (&GET, "/secrets", Requirement::Role(Editor)),
             (&Method::HEAD, "/secrets", Requirement::Role(Editor)),
             (&PUT, "/secrets/{name}", Requirement::Role(Editor)),
@@ -136,6 +137,11 @@ mod tests {
             (
                 &GET,
                 "/captures/{capture_id}/body",
+                Requirement::Role(Viewer),
+            ),
+            (
+                &GET,
+                "/captures/{capture_id}/parts/{index}",
                 Requirement::Role(Viewer),
             ),
             (&DELETE, "/captures/{capture_id}", Requirement::Role(Editor)),

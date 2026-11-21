@@ -102,6 +102,8 @@ pub enum ApiError {
     MethodNotAllowed,
     #[error("the capture is not found in this endpoint")]
     CaptureNotFound,
+    #[error("the part is not found in this capture")]
+    PartNotFound,
     #[error("the forward rule is not found in this endpoint")]
     ForwardRuleNotFound,
     #[error("the endpoint already has the maximum number of forward rules")]
@@ -274,6 +276,12 @@ impl IntoResponse for ApiError {
             Self::CaptureNotFound => (
                 StatusCode::NOT_FOUND,
                 "capture_not_found",
+                self.to_string(),
+                None,
+            ),
+            Self::PartNotFound => (
+                StatusCode::NOT_FOUND,
+                "part_not_found",
                 self.to_string(),
                 None,
             ),

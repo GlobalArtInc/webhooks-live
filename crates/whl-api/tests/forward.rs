@@ -46,6 +46,9 @@ mod seed {
                     content_type: None,
                     body: Default::default(),
                     status_override: None,
+                    kind: whl_store::CaptureKind::Http,
+                    meta: serde_json::json!({}),
+                    fixed_status: None,
                 },
                 CapturePolicy {
                     max_captures: 500,

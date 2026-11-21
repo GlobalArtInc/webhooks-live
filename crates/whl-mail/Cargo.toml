@@ -1,0 +1,31 @@
+[package]
+name = "whl-mail"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+bytes.workspace = true
+dashmap.workspace = true
+ipnet.workspace = true
+mail-parser.workspace = true
+metrics.workspace = true
+rustls.workspace = true
+rustls-pki-types.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+smtp-proto.workspace = true
+thiserror.workspace = true
+time.workspace = true
+tokio.workspace = true
+tokio-rustls.workspace = true
+tracing.workspace = true
+whl-core.workspace = true
+whl-store.workspace = true
+whl-telemetry.workspace = true
+
+[dev-dependencies]
+rcgen.workspace = true
+sqlx.workspace = true
+whl-testkit.workspace = true

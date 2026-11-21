@@ -2,6 +2,7 @@ mod body;
 mod cursor;
 mod dto;
 mod handlers;
+mod parts;
 mod query;
 
 use axum::Router;
@@ -19,6 +20,10 @@ pub fn routes() -> Router<ApiState> {
         .route(
             "/endpoints/{id}/captures/{capture_id}/body",
             get(body::download),
+        )
+        .route(
+            "/endpoints/{id}/captures/{capture_id}/parts/{index}",
+            get(parts::download),
         )
         .route(
             "/endpoints/{id}/captures/{capture_id}",

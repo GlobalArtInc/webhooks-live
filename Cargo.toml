@@ -16,6 +16,7 @@ whl-capture = { path = "crates/whl-capture" }
 whl-core = { path = "crates/whl-core" }
 whl-forward = { path = "crates/whl-forward" }
 whl-live = { path = "crates/whl-live" }
+whl-mail = { path = "crates/whl-mail" }
 whl-secrets = { path = "crates/whl-secrets" }
 whl-server = { path = "crates/whl-server" }
 whl-store = { path = "crates/whl-store" }
@@ -73,6 +74,12 @@ rand_chacha = "0.9"
 serde_json_path = { version = "0.7", default-features = false, features = ["functions"] }
 regex = { version = "1", default-features = false, features = ["std", "perf", "unicode"] }
 rhai = { version = "=1.27.0", default-features = false, features = ["std", "sync", "no_module", "no_custom_syntax", "no_closure", "no_optimize", "no_time"] }
+mail-parser = "1.0"
+rcgen = { version = "0.14", default-features = false, features = ["aws_lc_rs", "pem"] }
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "aws_lc_rs"] }
+rustls-pki-types = { version = "1", features = ["std"] }
+smtp-proto = "0.2"
+tokio-rustls = { version = "0.26", default-features = false, features = ["tls12", "aws_lc_rs"] }
 
 [profile.dev]
 debug = 0

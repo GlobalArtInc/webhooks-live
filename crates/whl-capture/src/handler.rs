@@ -9,6 +9,7 @@ use axum::response::Response;
 use bytes::Bytes;
 use whl_core::endpoint_id::{ENDPOINT_ID_LEN, EndpointId};
 use whl_core::status::status_override_from_path;
+use whl_store::CaptureKind;
 use whl_store::captures::{
     CaptureOutcome, CaptureStoreError, EndpointState, NameValue, NewCapture,
 };
@@ -96,6 +97,9 @@ async fn run(state: &CaptureState, request: Request) -> Result<Response, Failure
         content_type,
         body,
         status_override,
+        kind: CaptureKind::Http,
+        meta: serde_json::json!({}),
+        fixed_status: None,
     };
 
     let store = state.store().clone();

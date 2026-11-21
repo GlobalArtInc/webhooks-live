@@ -61,7 +61,7 @@ const INSERT_CAPTURE: &str = "INSERT INTO captures \
      (endpoint_id, seq, id, received_at, method, url, path, host, client_ip, headers, query, \
       form, content_type, body_size, stored_bytes, status_override, response_status, kind, meta) \
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::inet, $10::text::jsonb, $11::text::jsonb, \
-      $12::text::jsonb, $13, $14, $15, $16, $17, $18, '{}'::jsonb)";
+      $12::text::jsonb, $13, $14, $15, $16, $17, $18, $19::text::jsonb)";
 
 const INSERT_BODY: &str =
     "INSERT INTO capture_bodies (capture_id, data, search_text) VALUES ($1, $2, $3)";
@@ -104,7 +104,7 @@ impl CaptureStoreError {
         )
     }
 
-    fn classify(source: sqlx::Error) -> Self {
+    pub(crate) fn classify(source: sqlx::Error) -> Self {
         let unavailable = match &source {
             sqlx::Error::PoolTimedOut
             | sqlx::Error::PoolClosed
@@ -164,6 +164,9 @@ pub struct NewCapture {
     pub content_type: Option<String>,
     pub body: Bytes,
     pub status_override: Option<HttpStatus>,
+    pub kind: CaptureKind,
+    pub meta: serde_json::Value,
+    pub fixed_status: Option<HttpStatus>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -221,6 +224,7 @@ impl NewCapture {
         if let Some(content_type) = &mut self.content_type {
             scrub_string(content_type);
         }
+        scrub_value(&mut self.meta);
         if let Some(form) = &mut self.form {
             scrub_pairs(&mut form.fields);
             for file in &mut form.files {
@@ -258,6 +262,25 @@ impl NewCapture {
 fn scrub_string(text: &mut String) {
     if text.contains(NUL) {
         *text = text.replace(NUL, "\u{FFFD}");
+    }
+}
+
+fn scrub_value(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::String(text) => scrub_string(text),
+        serde_json::Value::Array(items) => items.iter_mut().for_each(scrub_value),
+        serde_json::Value::Object(map) => {
+            if map.keys().any(|key| key.contains(NUL)) {
+                let entries = std::mem::take(map);
+                for (key, mut entry) in entries {
+                    scrub_value(&mut entry);
+                    map.insert(key.replace(NUL, "\u{FFFD}"), entry);
+                }
+            } else {
+                map.values_mut().for_each(scrub_value);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -358,7 +381,7 @@ pub fn capture_event_payload(
             status_override: capture.status_override.map(|status| status.unpack()),
             response_status: response_status.unpack(),
             forward_state: None,
-            kind: CaptureKind::Http.as_str(),
+            kind: capture.kind.as_str(),
         };
         let payload = serde_json::to_string(&Event {
             t: "capture",
@@ -425,7 +448,7 @@ impl Store {
             .map_err(|_| CaptureStoreError::DeadlineExceeded)?
     }
 
-    async fn acquire_capture_connection(
+    pub(crate) async fn acquire_capture_connection(
         &self,
     ) -> Result<PoolConnection<Postgres>, CaptureStoreError> {
         tokio::time::timeout(ACQUIRE_TIMEOUT, self.pool().acquire())
@@ -448,6 +471,7 @@ struct Prepared {
     headers: String,
     query: String,
     form: Option<String>,
+    meta: String,
     search_text: String,
     body_size: i32,
     stored_bytes: i32,
@@ -462,10 +486,12 @@ impl Prepared {
             .as_ref()
             .map(serde_json::to_string)
             .transpose()?;
+        let meta = serde_json::to_string(&capture.meta)?;
         let search_text = capture.search_text();
         let stored = capture.body.len()
             + headers.len()
             + query.len()
+            + meta.len()
             + form.as_ref().map_or(0, String::len)
             + search_text.len();
         Ok(Self {
@@ -474,6 +500,7 @@ impl Prepared {
             headers,
             query,
             form,
+            meta,
             search_text,
         })
     }
@@ -567,7 +594,10 @@ async fn execute_capture(
         );
     }
 
-    let response_status = capture.status_override.unwrap_or(endpoint.status);
+    let response_status = capture
+        .status_override
+        .or(capture.fixed_status)
+        .unwrap_or(endpoint.status);
     let id = capture.id.unpack();
     let override_status = attempt!(
         tx,
@@ -602,7 +632,8 @@ async fn execute_capture(
             .bind(prepared.stored_bytes)
             .bind(override_status)
             .bind(final_status)
-            .bind(CaptureKind::Http.as_str())
+            .bind(capture.kind.as_str())
+            .bind(prepared.meta.as_str())
             .execute(&mut *tx)
             .await
             .map_err(CaptureStoreError::classify)
@@ -619,12 +650,14 @@ async fn execute_capture(
             .map_err(CaptureStoreError::classify)
     );
 
-    attempt!(
-        tx,
-        crate::forward::insert_rule_jobs(&mut tx, &capture.endpoint_id, id, &capture.method)
-            .await
-            .map_err(CaptureStoreError::classify)
-    );
+    if capture.kind == CaptureKind::Http {
+        attempt!(
+            tx,
+            crate::forward::insert_rule_jobs(&mut tx, &capture.endpoint_id, id, &capture.method)
+                .await
+                .map_err(CaptureStoreError::classify)
+        );
+    }
 
     let payload = attempt!(tx, capture_event_payload(&capture, seq, response_status));
     attempt!(
@@ -705,6 +738,9 @@ mod tests {
             content_type: Some(content_type),
             body: Bytes::new(),
             status_override: HttpStatus::new(404),
+            kind: CaptureKind::Http,
+            meta: serde_json::json!({}),
+            fixed_status: None,
         }
     }
 

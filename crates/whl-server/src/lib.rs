@@ -25,6 +25,7 @@ use whl_core::config::{AuthMode, Config};
 use whl_core::limiter::{LimiterSettings, Limiters};
 use whl_forward::WorkerHandle;
 use whl_live::{HUB_CAPACITY, Hub, ListenerHandle, LiveState, StreamSettings};
+use whl_mail::{MailServer, MailSettings};
 use whl_secrets::Keyring;
 use whl_store::Store;
 use whl_telemetry::series;
@@ -63,6 +64,7 @@ pub struct Bound {
     api_limits: ApiLimits,
     background: BackgroundSettings,
     secrets: Option<Arc<Keyring>>,
+    mail: Option<MailSettings>,
 }
 
 impl Bound {
@@ -125,6 +127,14 @@ impl Bound {
         let capture =
             CaptureState::new(store.clone(), self.capture)?.with_limiters(self.limiters.clone());
         let storage_full = capture.storage_full().clone();
+        let mail = match self.mail {
+            Some(settings) => {
+                let flag = storage_full.clone();
+                let settings = settings.with_storage_probe(Arc::new(move || flag.is_full()));
+                Some(MailServer::bind(settings, store.clone()).await?)
+            }
+            None => None,
+        };
         let (stop_tx, stop_rx) = watch::channel(false);
         let background_stop = stop_rx.clone();
         let hub = Hub::new(HUB_CAPACITY);
@@ -155,6 +165,7 @@ impl Bound {
             ready: public_ready,
         });
         let worker_stop = stop_rx.clone();
+        let mail_stop = stop_rx.clone();
         let admin = axum::serve(self.admin, router::admin(Arc::clone(&readiness)))
             .with_graceful_shutdown(until_stopped(stop_rx));
 
@@ -199,6 +210,7 @@ impl Bound {
                     listener,
                     forward: None,
                     background: None,
+                    mail: None,
                 },
             )
             .await;
@@ -212,6 +224,10 @@ impl Bound {
             &background_stop,
         );
         let mut forward = worker.map(|worker| worker.spawn(until_stopped(worker_stop)));
+        let mut mail_task = mail.map(|server| {
+            tracing::info!(addr = %server.local_addr(), "the mail receiver is listening");
+            tokio::spawn(server.serve(mail_stop))
+        });
 
         tokio::select! {
             () = &mut shutdown => {}
@@ -221,6 +237,7 @@ impl Bound {
                 if let Some(forward) = forward.as_mut() {
                     forward.join().await;
                 }
+                join_mail(mail_task.take()).await;
                 background.join().await;
                 listener.join().await;
                 return joined(outcome);
@@ -236,6 +253,7 @@ impl Bound {
                         listener,
                         forward: forward.as_mut(),
                         background: Some(background),
+                        mail: mail_task.take(),
                     },
                 )
                 .await;
@@ -266,6 +284,7 @@ impl Bound {
                 Ok(())
             }
         };
+        join_mail(mail_task.take()).await;
         background.join().await;
         listener.join().await;
         outcome
@@ -307,6 +326,7 @@ pub async fn bind(config: &Config) -> Result<Bound, ServerError> {
         api_limits,
         background: BackgroundSettings::from_config(config),
         secrets,
+        mail: MailSettings::from_config(config)?,
     })
 }
 
@@ -419,6 +439,15 @@ struct ListenerStop<'a> {
     listener: ListenerHandle,
     forward: Option<&'a mut WorkerHandle>,
     background: Option<Background>,
+    mail: Option<JoinHandle<()>>,
+}
+
+async fn join_mail(task: Option<JoinHandle<()>>) {
+    if let Some(task) = task
+        && let Err(error) = task.await
+    {
+        tracing::error!(%error, "the mail receiver ended abnormally");
+    }
 }
 
 async fn fail_listener(
@@ -433,6 +462,7 @@ async fn fail_listener(
         listener,
         mut forward,
         background,
+        mail,
     } = stopping;
     tracing::error!(
         "the notification listener stopped, live updates cannot be delivered, shutting down"
@@ -456,6 +486,7 @@ async fn fail_listener(
             forward.abort();
         }
     }
+    join_mail(mail).await;
     if let Some(background) = background {
         background.join().await;
     }
