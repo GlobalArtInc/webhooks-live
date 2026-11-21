@@ -1,0 +1,1 @@
+ALTER TABLE forward_jobs VALIDATE CONSTRAINT forward_jobs_payload_check;

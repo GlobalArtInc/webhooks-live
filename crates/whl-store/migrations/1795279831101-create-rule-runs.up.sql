@@ -1,5 +1,8 @@
+SET LOCAL lock_timeout = '5s';
+
+ALTER TABLE captures ADD COLUMN rule_state text;
 ALTER TABLE captures
-  ADD COLUMN rule_state text CHECK (rule_state IN ('running', 'succeeded', 'failed'));
+  ADD CONSTRAINT captures_rule_state_check CHECK (rule_state IN ('running', 'succeeded', 'failed')) NOT VALID;
 
 CREATE TABLE rule_runs (
   id              uuid PRIMARY KEY,

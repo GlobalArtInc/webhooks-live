@@ -5,6 +5,7 @@ use sqlx::Row;
 use sqlx::postgres::{PgListener, PgRow};
 use uuid::Uuid;
 use whl_core::endpoint_id::EndpointId;
+use whl_rules::PLAN_VERSION;
 
 use crate::Store;
 use crate::captures::{EVENT_CHANNEL, NOTIFY, SESSION_LIMITS};
@@ -25,14 +26,20 @@ const REAP_ERROR: &str = "internal: the worker stopped before the run finished";
 const CLAIM: &str = "WITH busy AS ( \
        SELECT endpoint_id, count(*)::int4 AS running FROM rule_runs \
        WHERE state = 'running' AND locked_until > now() GROUP BY endpoint_id), \
-     ranked AS ( \
-       SELECT r.id, r.next_attempt_at, \
-         (row_number() OVER (PARTITION BY r.endpoint_id ORDER BY r.next_attempt_at, r.id) \
-           + COALESCE(busy.running, 0))::int4 AS slot \
-       FROM rule_runs r LEFT JOIN busy ON busy.endpoint_id = r.endpoint_id \
+     candidates AS ( \
+       SELECT r.id, r.endpoint_id, r.next_attempt_at FROM rule_runs r \
        WHERE r.attempts < $3::int4 \
          AND ((r.state = 'queued' AND r.next_attempt_at <= now()) \
-           OR (r.state IN ('sync', 'running') AND r.locked_until < now()))), \
+           OR (r.state IN ('sync', 'running') AND r.locked_until < now())) \
+         AND NOT EXISTS ( \
+           SELECT 1 FROM busy b WHERE b.endpoint_id = r.endpoint_id AND b.running >= $2::int4) \
+       ORDER BY r.next_attempt_at, r.id \
+       LIMIT $1::bigint * 32), \
+     ranked AS ( \
+       SELECT c.id, c.next_attempt_at, \
+         (row_number() OVER (PARTITION BY c.endpoint_id ORDER BY c.next_attempt_at, c.id) \
+           + COALESCE(busy.running, 0))::int4 AS slot \
+       FROM candidates c LEFT JOIN busy ON busy.endpoint_id = c.endpoint_id), \
      due AS ( \
        SELECT r.id, r.state AS previous FROM rule_runs r JOIN ranked ON ranked.id = r.id \
        WHERE ranked.slot <= $2::int4 \
@@ -125,12 +132,13 @@ const INSERT_RERUN: &str = "INSERT INTO rule_runs \
        (id, capture_id, endpoint_id, trigger, rules_version, state, plan) \
      SELECT $1::uuid, $2::uuid, $3::text, 'rerun', $4::integer, 'queued', \
        jsonb_build_object( \
-         'version', 1, \
+         'version', $5::integer, \
          'rules', (SELECT COALESCE(jsonb_agg(jsonb_build_object( \
              'id', r.id, 'name', r.name, 'condition', r.condition, 'steps', r.steps) \
              ORDER BY r.position), '[]'::jsonb) \
            FROM rules r WHERE r.endpoint_id = $3::text AND r.enabled), \
          'resume', jsonb_build_object('rule', 0, 'step', 0), \
+         'snapshots', '[]'::jsonb, \
          'deferred', '[]'::jsonb, \
          'payload', 'null'::jsonb) \
      WHERE EXISTS (SELECT 1 FROM rules WHERE endpoint_id = $3::text AND enabled) \
@@ -150,7 +158,7 @@ const FORWARD_RULE_JOB: &str = "INSERT INTO forward_jobs \
      SELECT $1, c.id, r.id, 'rule', r.target_url, COALESCE(r.method, c.method), r.content_type, \
        r.header_allowlist, r.append_path, 'pending', $4 \
      FROM captures c, forward_rules r \
-     WHERE c.id = $2 AND c.endpoint_id = $3 AND r.id = $5 AND r.endpoint_id = $3 \
+     WHERE c.id = $2 AND c.endpoint_id = $3 AND r.id = $5 AND r.endpoint_id = $3 AND r.enabled \
      ON CONFLICT (id) DO NOTHING";
 
 const FORWARD_CUSTOM_JOB: &str = "INSERT INTO forward_jobs \
@@ -338,6 +346,7 @@ pub enum EnqueueOutcome {
     RuleNotFound,
     ChannelNotFound,
     ChannelDisabled,
+    DeliveryExists,
 }
 
 #[derive(Debug)]
@@ -617,7 +626,7 @@ impl Store {
                AND ($2::uuid IS NULL OR capture_id = $2) \
                AND ($3::text IS NULL OR state = $3) \
                AND ($4::uuid IS NULL OR (created_at, id) < \
-                 (SELECT created_at, id FROM rule_runs WHERE id = $4)) \
+                 (SELECT created_at, id FROM rule_runs WHERE id = $4 AND endpoint_id = $1)) \
              ORDER BY created_at DESC, id DESC LIMIT $5",
             run_columns()
         );
@@ -626,11 +635,26 @@ impl Store {
             .bind(filter.capture)
             .bind(filter.state.as_deref())
             .bind(filter.after)
-            .bind(limit.clamp(1, MAX_LISTED_RUNS))
+            .bind(limit.clamp(1, MAX_LISTED_RUNS + 1))
             .fetch_all(self.pool())
             .await
             .map_err(classify)?;
         rows.iter().map(record_from_row).collect()
+    }
+
+    pub async fn rule_run_in_endpoint(
+        &self,
+        endpoint: &EndpointId,
+        run: Uuid,
+    ) -> Result<bool, RuleStoreError> {
+        sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM rule_runs WHERE id = $1 AND endpoint_id = $2)",
+        )
+        .bind(run)
+        .bind(endpoint.unpack())
+        .fetch_one(self.pool())
+        .await
+        .map_err(classify)
     }
 
     pub async fn create_rule_rerun(
@@ -678,11 +702,23 @@ impl Store {
         if existing >= RERUNS_PER_CAPTURE {
             return Ok(RerunOutcome::TooMany);
         }
+        let source_active: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM rule_runs \
+             WHERE capture_id = $1 AND state IN ('sync', 'queued', 'running'))",
+        )
+        .bind(capture)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(classify)?;
+        if source_active {
+            return Ok(RerunOutcome::Active);
+        }
         let inserted = sqlx::query(INSERT_RERUN)
             .bind(id)
             .bind(capture)
             .bind(endpoint.unpack())
             .bind(version)
+            .bind(i32::try_from(PLAN_VERSION).unwrap_or(i32::MAX))
             .execute(&mut *tx)
             .await
             .map_err(classify)?
@@ -748,7 +784,7 @@ impl Store {
         let inserted = match job.rule {
             Some(rule) => {
                 let rule_present: bool = sqlx::query_scalar(
-                    "SELECT EXISTS (SELECT 1 FROM forward_rules WHERE id = $1 AND endpoint_id = $2)",
+                    "SELECT EXISTS (SELECT 1 FROM forward_rules WHERE id = $1 AND endpoint_id = $2 AND enabled)",
                 )
                 .bind(rule)
                 .bind(job.endpoint.unpack())
@@ -848,6 +884,17 @@ impl Store {
                 .execute(&mut *tx)
                 .await
                 .map_err(classify)?;
+        } else {
+            let own: bool = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM notification_deliveries WHERE id = $1)",
+            )
+            .bind(delivery.id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(classify)?;
+            if !own {
+                return Ok(EnqueueOutcome::DeliveryExists);
+            }
         }
         tx.commit().await.map_err(classify)?;
         Ok(EnqueueOutcome::Queued)

@@ -12,7 +12,7 @@ use whl_rules::{
     CompileError, CompiledRules, DriveEnv, Failure, FailureCode, Finished, MAX_LOG_BYTES,
     MAX_REGEX_DFA_BYTES, Machine, MachineInput, Mode, NoState, References, ResponseDraft,
     RuleError, RuleSource, RunView, STATE_STEP_TIMEOUT, StoredRule, drive, fit_entries,
-    load_stored, rule_result_payload, rules_from_plan, timestamp, validate_set,
+    load_stored, rule_result_payload, rules_from_plan, steps_to_value, timestamp, validate_set,
 };
 use whl_script::{DEFAULT_MEMORY_BYTES, EngineLimits, LimitsError, ScriptCompiler, ScriptPool};
 use whl_secrets::Keyring;
@@ -543,6 +543,7 @@ impl RulesRuntime {
                 plan: PlanWrite::Keep,
                 vars: json!({}),
                 log: json!([]),
+                steps: json!({}),
                 response_status: None,
                 capture_status: None,
                 error: None,
@@ -619,6 +620,7 @@ impl RulesRuntime {
             plan,
             vars: Value::Object(finished.vars),
             log: serde_json::to_value(&entries).unwrap_or_else(|_| json!([])),
+            steps: steps_to_value(&finished.steps),
             response_status,
             capture_status,
             error,

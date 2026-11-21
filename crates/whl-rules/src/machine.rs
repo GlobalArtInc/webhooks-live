@@ -209,6 +209,7 @@ pub struct Finished {
     pub response: ResponseDraft,
     pub log: Vec<Entry>,
     pub vars: Map<String, Value>,
+    pub steps: BTreeMap<String, StepData>,
     pub after: AfterPart,
     pub stopped: bool,
 }
@@ -220,6 +221,7 @@ impl Finished {
             response: ResponseDraft::default(),
             log: Vec::new(),
             vars: Map::new(),
+            steps: BTreeMap::new(),
             after: AfterPart::default(),
             stopped: false,
         }
@@ -526,6 +528,7 @@ impl Machine {
             response: std::mem::take(&mut self.response),
             log: std::mem::take(&mut self.log),
             vars: self.vars_map(),
+            steps: self.context.steps.clone(),
             after,
             stopped: self.stopped,
         }))

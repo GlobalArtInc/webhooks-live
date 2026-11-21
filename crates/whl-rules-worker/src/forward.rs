@@ -73,7 +73,7 @@ pub(crate) async fn execute(ctx: &Ctx<'_>, call: &ForwardCall, position: usize) 
         Ok(EnqueueOutcome::RuleNotFound) => failed(
             ctx.scrub,
             FailureCode::Http,
-            "the forward rule does not exist on this endpoint",
+            "the forward rule does not exist on this endpoint or is disabled",
         ),
         Ok(_) => failed(
             ctx.scrub,

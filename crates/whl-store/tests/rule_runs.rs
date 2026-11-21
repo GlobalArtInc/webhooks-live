@@ -160,6 +160,7 @@ fn sync_result(state: SyncState, plan: PlanWrite) -> SyncResult {
         plan,
         vars: json!({"token": "abc"}),
         log: json!([{"rule_id": "r", "rule_name": "n", "matched": true}]),
+        steps: json!({"fetch": {"status": 200}}),
         response_status: Some(202),
         capture_status: Some(202),
         error: None,
@@ -299,6 +300,11 @@ async fn finishing_a_sync_run_records_the_result_on_the_run_and_the_capture_once
     let stored: Value =
         serde_json::from_str(&row.get::<String, _>("plan")).expect("the plan is JSON");
     assert_eq!(stored, plan);
+    let steps: Value = sqlx::query_scalar("SELECT step_results FROM rule_runs")
+        .fetch_one(fixture.db.pool())
+        .await
+        .expect("the step results are readable");
+    assert_eq!(steps, json!({"fetch": {"status": 200}}));
     let (rule_state, status) = fixture.capture_state(&id).await;
     assert_eq!(rule_state.as_deref(), Some("running"));
     assert_eq!(status, 202);

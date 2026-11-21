@@ -181,11 +181,16 @@ async fn the_run_list_refuses_a_bad_limit_state_and_cursor() {
     let limit = fixture.get("/rule-runs?limit=0").await;
     let state = fixture.get("/rule-runs?state=lost").await;
     let cursor = fixture.get("/rule-runs?cursor=not-a-run").await;
+    let foreign = fixture
+        .get("/rule-runs?cursor=0190c3a2-7d1e-7000-8000-0000000000aa")
+        .await;
 
     assert_eq!(limit.status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(state.status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(cursor.status, StatusCode::BAD_REQUEST);
     assert_eq!(cursor.json()["error"]["code"], "invalid_cursor");
+    assert_eq!(foreign.status, StatusCode::BAD_REQUEST);
+    assert_eq!(foreign.json()["error"]["code"], "invalid_cursor");
 }
 
 #[tokio::test]

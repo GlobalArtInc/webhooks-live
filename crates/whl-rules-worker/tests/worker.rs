@@ -495,6 +495,132 @@ async fn a_capture_at_the_hop_limit_never_runs_and_a_rerun_of_it_fails_with_hop_
 }
 
 #[tokio::test]
+async fn a_rerun_of_an_ordinary_capture_runs_the_current_rules_to_success() {
+    let scene = scene().await;
+    let target = Target::status(200).await;
+    scene
+        .add_rule(rule(vec![post("fetch", &target.url("/in"))]), &[])
+        .await;
+    let capture = scene.capture(Vec::new()).await;
+    let worker = start(&scene, loopback_guard(), settings(), None);
+    let original = scene.wait_for_final(&capture).await;
+    assert_eq!(original.state, "succeeded", "{:?}", original.error);
+
+    let created = scene
+        .store
+        .create_rule_rerun(
+            &scene.endpoint,
+            common::RETENTION,
+            capture.unpack(),
+            Uuid::now_v7(),
+        )
+        .await
+        .expect("the rerun is requested");
+    assert!(matches!(created, RerunOutcome::Created(_)), "{created:?}");
+    let rerun = scene.wait_for_rerun(&capture).await;
+    worker.stop().await;
+
+    assert_eq!(rerun.state, "succeeded", "{:?}", rerun.error);
+    assert_eq!(target.hits(), 2);
+}
+
+#[tokio::test]
+async fn a_rerun_is_refused_while_a_run_of_the_capture_is_still_active() {
+    let scene = scene().await;
+    let target = Target::status(200).await;
+    scene
+        .add_rule(rule(vec![post("fetch", &target.url("/in"))]), &[])
+        .await;
+    let capture = scene.capture(Vec::new()).await;
+
+    let refused = scene
+        .store
+        .create_rule_rerun(
+            &scene.endpoint,
+            common::RETENTION,
+            capture.unpack(),
+            Uuid::now_v7(),
+        )
+        .await
+        .expect("the rerun is requested");
+
+    assert!(matches!(refused, RerunOutcome::Active), "{refused:?}");
+    assert_eq!(
+        scene
+            .count("SELECT count(*) FROM rule_runs WHERE trigger = 'rerun'")
+            .await,
+        0
+    );
+}
+
+#[tokio::test]
+async fn a_second_notify_step_to_the_same_channel_fails_instead_of_logging_a_missing_delivery() {
+    let scene = scene().await;
+    let own = channel(&scene, scene.endpoint.unpack()).await;
+    scene
+        .add_rule(
+            rule(vec![
+                json!({"kind": "notify", "channel_id": own.to_string()}),
+                json!({"kind": "notify", "channel_id": own.to_string()}),
+            ]),
+            &[],
+        )
+        .await;
+    let capture = scene.capture(Vec::new()).await;
+    let worker = start(&scene, loopback_guard(), settings(), None);
+
+    let run = scene.wait_for_final(&capture).await;
+    worker.stop().await;
+
+    assert_eq!(run.state, "failed");
+    assert!(
+        run.error
+            .expect("the failure is recorded")
+            .contains("delivery_exists")
+    );
+    assert_eq!(
+        scene
+            .count("SELECT count(*) FROM notification_deliveries")
+            .await,
+        1
+    );
+}
+
+#[tokio::test]
+async fn a_notify_step_never_delivers_for_a_relayed_capture() {
+    let scene = scene().await;
+    let own = channel(&scene, scene.endpoint.unpack()).await;
+    scene
+        .add_rule(
+            rule(vec![
+                json!({"kind": "notify", "channel_id": own.to_string()}),
+            ]),
+            &[],
+        )
+        .await;
+    let capture = scene
+        .capture(vec![header("X-Webhooks-Live-Hop", "1")])
+        .await;
+    let worker = start(&scene, loopback_guard(), settings(), None);
+
+    let run = scene.wait_for_final(&capture).await;
+    worker.stop().await;
+
+    assert_eq!(run.state, "failed");
+    assert!(
+        run.error
+            .expect("the failure is recorded")
+            .starts_with("relayed")
+    );
+    assert_eq!(
+        scene
+            .count("SELECT count(*) FROM notification_deliveries")
+            .await,
+        0
+    );
+}
+
+#[tokio::test]
 async fn a_run_resumes_exactly_at_its_saved_step_with_its_saved_step_results() {
     let scene = scene().await;
     let first = Target::status(200).await;

@@ -11,6 +11,13 @@ const PURPOSE: &str = "notify";
 const STORE_RETRY: Duration = Duration::from_secs(5);
 
 pub(crate) async fn execute(ctx: &Ctx<'_>, call: &NotifyCall, position: usize) -> StepAttempt {
+    if ctx.hop >= 1 {
+        return failed(
+            ctx.scrub,
+            FailureCode::Relayed,
+            "a relayed capture never notifies",
+        );
+    }
     let delivery = StepDelivery {
         id: step_id(ctx.run.id, position),
         endpoint: ctx.endpoint.clone(),
@@ -35,6 +42,11 @@ pub(crate) async fn execute(ctx: &Ctx<'_>, call: &NotifyCall, position: usize) -
         Ok(EnqueueOutcome::ChannelDisabled) => {
             failed(ctx.scrub, FailureCode::Http, "the channel is disabled")
         }
+        Ok(EnqueueOutcome::DeliveryExists) => failed(
+            ctx.scrub,
+            FailureCode::Http,
+            "delivery_exists: a delivery for this channel and capture already exists",
+        ),
         Ok(_) => failed(
             ctx.scrub,
             FailureCode::Internal,
