@@ -9,6 +9,7 @@ pub enum FailureCode {
     Quota,
     Overloaded,
     HopLimit,
+    Relayed,
     Internal,
 }
 
@@ -22,6 +23,7 @@ impl FailureCode {
             Self::Quota => "quota",
             Self::Overloaded => "overloaded",
             Self::HopLimit => "hop_limit",
+            Self::Relayed => "relayed",
             Self::Internal => "internal",
         }
     }

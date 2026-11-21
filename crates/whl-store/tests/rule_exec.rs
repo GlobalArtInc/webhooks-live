@@ -11,8 +11,8 @@ use whl_core::response::ResponseConfig;
 use whl_rules::{Action, Condition, Rule, Step};
 use whl_store::captures::{CaptureOutcome, CapturePolicy, NameValue, NewCapture};
 use whl_store::rule_exec::{
-    ClaimedFrom, ClaimedRun, Disposition, EnqueueOutcome, FinalState, ForwardStepJob, RerunOutcome,
-    RunClaimPolicy, RunFilter, RunSave, SaveOutcome, StepDelivery,
+    ClaimedFrom, ClaimedRun, Disposition, EnqueueOutcome, FinalState, ForwardStepJob,
+    MAX_LISTED_RUNS, RerunOutcome, RunClaimPolicy, RunFilter, RunSave, SaveOutcome, StepDelivery,
 };
 use whl_store::rules::{RuleChange, WriteOutcome};
 use whl_store::{EndpointSettings, Overflow, Store};
@@ -668,4 +668,83 @@ async fn runs_list_newest_first_with_a_cursor_and_a_capture_filter() {
     assert_eq!(rest.len(), 1);
     assert_eq!(rest[0].capture_id, first.unpack());
     assert_eq!(one.len(), 1);
+}
+
+#[tokio::test]
+async fn a_disabled_forward_rule_is_refused_like_a_missing_one() {
+    let fixture = fixture().await;
+    fixture.add_rule(after_rule()).await;
+    let capture = fixture.capture().await;
+    let forward_rule = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO forward_rules (id, endpoint_id, position, enabled, target_url) \
+         VALUES ($1, $2, 0, false, 'https://hooks.example.com/in')",
+    )
+    .bind(forward_rule)
+    .bind(fixture.endpoint.unpack())
+    .execute(fixture.db.pool())
+    .await
+    .expect("the forward rule is inserted");
+
+    let outcome = fixture
+        .store
+        .enqueue_step_forward(&ForwardStepJob {
+            id: Uuid::now_v7(),
+            endpoint: fixture.endpoint.clone(),
+            capture: capture.unpack(),
+            rule: Some(forward_rule),
+            target_url: None,
+            method: None,
+            content_type: None,
+            header_allowlist: Vec::new(),
+            payload: None,
+        })
+        .await
+        .expect("the enqueue runs");
+
+    assert_eq!(outcome, EnqueueOutcome::RuleNotFound);
+    assert_eq!(fixture.count("SELECT count(*) FROM forward_jobs").await, 0);
+}
+
+#[tokio::test]
+async fn the_run_list_reports_one_row_beyond_the_page_cap_and_knows_its_own_cursors() {
+    let fixture = fixture().await;
+    fixture.add_rule(after_rule()).await;
+    let capture = fixture.capture().await;
+    sqlx::query(
+        "INSERT INTO rule_runs (id, capture_id, endpoint_id, trigger, rules_version, state) \
+         SELECT gen_random_uuid(), $1, $2, 'rerun', 1, 'succeeded' FROM generate_series(1, 201)",
+    )
+    .bind(capture.unpack())
+    .bind(fixture.endpoint.unpack())
+    .execute(fixture.db.pool())
+    .await
+    .expect("the runs are inserted");
+
+    let page = fixture
+        .store
+        .list_rule_runs(
+            &fixture.endpoint,
+            &RunFilter::default(),
+            MAX_LISTED_RUNS + 1,
+        )
+        .await
+        .expect("the page is listed");
+    let known = fixture
+        .store
+        .rule_run_in_endpoint(&fixture.endpoint, page[0].id)
+        .await
+        .expect("the cursor is checked");
+    let unknown = fixture
+        .store
+        .rule_run_in_endpoint(&fixture.endpoint, Uuid::now_v7())
+        .await
+        .expect("the cursor is checked");
+
+    assert_eq!(
+        page.len(),
+        usize::try_from(MAX_LISTED_RUNS + 1).unwrap_or(0)
+    );
+    assert!(known);
+    assert!(!unknown);
 }

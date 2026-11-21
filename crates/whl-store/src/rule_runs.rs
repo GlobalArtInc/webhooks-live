@@ -53,7 +53,7 @@ const LOAD_PLAN: &str = "SELECT plan::text AS plan FROM rule_runs WHERE id = $1"
 
 const FINISH_RUN: &str = "WITH prior AS ( \
        SELECT COALESCE(octet_length(plan::text), 0) + octet_length(vars::text) \
-         + octet_length(log::text) AS bytes \
+         + octet_length(log::text) + octet_length(step_results::text) AS bytes \
        FROM rule_runs WHERE id = $1), \
      changed AS ( \
        UPDATE rule_runs SET \
@@ -61,6 +61,7 @@ const FINISH_RUN: &str = "WITH prior AS ( \
          plan = CASE WHEN $3::boolean THEN plan ELSE $4::text::jsonb END, \
          vars = $5::text::jsonb, \
          log = $6::text::jsonb, \
+         step_results = $9::text::jsonb, \
          next_step = 0, \
          response_status = $7::smallint, \
          error = $8::text, \
@@ -69,7 +70,7 @@ const FINISH_RUN: &str = "WITH prior AS ( \
          finished_at = CASE WHEN $2::text IN ('succeeded', 'failed') THEN now() END \
        WHERE id = $1 AND state = 'sync' \
        RETURNING COALESCE(octet_length(plan::text), 0) + octet_length(vars::text) \
-         + octet_length(log::text) AS bytes) \
+         + octet_length(log::text) + octet_length(step_results::text) AS bytes) \
      SELECT (changed.bytes - prior.bytes)::integer AS delta FROM changed, prior";
 
 const FINISH_CAPTURE: &str = "UPDATE captures SET \
@@ -144,6 +145,7 @@ pub struct SyncResult {
     pub plan: PlanWrite,
     pub vars: Value,
     pub log: Value,
+    pub steps: Value,
     pub response_status: Option<u16>,
     pub capture_status: Option<u16>,
     pub error: Option<String>,
@@ -271,6 +273,7 @@ impl Store {
         };
         let vars = serde_json::to_string(&result.vars)?;
         let log = serde_json::to_string(&result.log)?;
+        let steps = serde_json::to_string(&result.steps)?;
         let status = result
             .response_status
             .map(i16::try_from)
@@ -304,6 +307,7 @@ impl Store {
             .bind(log)
             .bind(status)
             .bind(result.error.as_deref())
+            .bind(steps)
             .fetch_optional(&mut *tx)
             .await
             .map_err(CaptureStoreError::classify)?;

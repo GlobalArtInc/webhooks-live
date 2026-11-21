@@ -98,7 +98,13 @@ pub async fn list(
         ));
     }
     let after = match params.cursor.as_deref() {
-        Some(raw) => Some(parse_uuid(raw).ok_or(ApiError::InvalidCursor)?),
+        Some(raw) => {
+            let cursor = parse_uuid(raw).ok_or(ApiError::InvalidCursor)?;
+            if !state.store.rule_run_in_endpoint(&endpoint, cursor).await? {
+                return Err(ApiError::InvalidCursor);
+            }
+            Some(cursor)
+        }
         None => None,
     };
     if let Some(name) = params.state.as_deref()
