@@ -288,7 +288,7 @@ in-memory queue (lost on restart, single replica) and a Redis stream (extra serv
 
 ## 7. Auth
 
-**Decision: `WEBHOOKS_LIVE_AUTH_MODE=open|sso`. In `sso`, OIDC authorization code with PKCE against the operator's
+**Decision: `WEBHOOKS_LIVE_AUTH_MODE=open|sso|mixed`. In `sso` and `mixed`, OIDC authorization code with PKCE against the operator's
 issuer; server-side sessions in Postgres behind an opaque cookie.** Server-side sessions work across replicas
 without shared keys, can be revoked, and keep tokens out of the browser. Rejected: signed JWT cookies
 (no revocation, key rotation across replicas) and keeping the Envoy `SecurityPolicy` (it cannot leave the
@@ -406,8 +406,8 @@ URLs are visible to senders. The release image build fails when `web/dist/index.
 | `WEBHOOKS_LIVE_PUBLIC_URL` | required |
 | `WEBHOOKS_LIVE_DATABASE_URL`, `WEBHOOKS_LIVE_DB_POOL_SIZE` | required, 20. `whl-core` enforces a minimum of 2; use at least 3 in practice, because migrations need 2 connections and the listener holds 1 for its lifetime |
 | `WEBHOOKS_LIVE_LISTEN_ADDR`, `WEBHOOKS_LIVE_ADMIN_ADDR` | `0.0.0.0:8080`, `0.0.0.0:9090` |
-| `WEBHOOKS_LIVE_AUTH_MODE` | `open` |
-| `WEBHOOKS_LIVE_OIDC_ISSUER`, `WEBHOOKS_LIVE_OIDC_CLIENT_ID`, `WEBHOOKS_LIVE_OIDC_CLIENT_SECRET`, `WEBHOOKS_LIVE_OIDC_SCOPES` | required in `sso`; scopes `openid email profile` |
+| `WEBHOOKS_LIVE_AUTH_MODE` | `open`; `open`, `sso` or `mixed` (§17) |
+| `WEBHOOKS_LIVE_OIDC_ISSUER`, `WEBHOOKS_LIVE_OIDC_CLIENT_ID`, `WEBHOOKS_LIVE_OIDC_CLIENT_SECRET`, `WEBHOOKS_LIVE_OIDC_SCOPES` | issuer, client id and secret required in `sso` and `mixed` (the server refuses to start without them); scopes `openid email profile` |
 | `WEBHOOKS_LIVE_OIDC_PROVIDER_NAME` | unset; shown on the sign-in button, the UI uses a neutral label when unset |
 | `WEBHOOKS_LIVE_RING_MODE_ALLOWED` | true; false rejects `overflow: ring` |
 | `WEBHOOKS_LIVE_SESSION_IDLE`, `WEBHOOKS_LIVE_SESSION_MAX` | `12h`, `7d`; the maximum is capped at 90 days and the idle timeout must not exceed it |
@@ -541,8 +541,11 @@ OIDC sign-in. Rejected: two deployments (one `open`, one `sso`), which would spl
 | Aspect | Behaviour |
 |---|---|
 | `Caller` | `Anonymous { ip }`, `Session { user, ip }`, `Token { user, token, ip }`. Resolved once per request by an extractor in `whl-auth`; handlers ask `role_on(endpoint)`, which feeds the existing `decide_access`. A token's role is further capped by its scopes (§19). |
-| Claim | `UPDATE endpoints SET owner_id = $user WHERE id = $1 AND owner_id IS NULL AND deleted_at IS NULL`; zero rows answers 409 `already_owned`. A view password is dropped on claim (roles replace it). |
-| Creator network | Anonymous endpoints store `creator_net` (/24 for IPv4, /56 for IPv6) for per-network counts. |
+| Claim | `POST /api/v1/endpoints/{id}/claim`, signed in, `mixed` only. One transaction locks the live endpoint row (`FOR UPDATE`) and, while `owner_id IS NULL`, requires the proof below, then sets `owner_id = $user`, clears `creator_net` and deletes any `endpoint_members` rows. Two parallel claims: the row lock lets exactly one win. Answers: 403 `sign_in_required` (anonymous caller), 403 `claim_refused` (proof fails), 409 `already_owned` (the caller is the owner or a member), 410 `endpoint_gone` (unknown, expired, deleted, or owned by someone else: a stranger learns nothing about owned endpoints). A view password is dropped on claim (roles replace it). |
+| Claim proof | The caller holds the id, is signed in, the caller's client address (resolved like the rate limiter, trusted proxies only) lies in the stored `creator_net`, and the endpoint was created less than 24 hours ago (`CLAIM_WINDOW`, a constant of `whl-api`). A missing stored network or an unknown caller address refuses. |
+| Member routes | In `mixed`, `/members` routes need a signed-in owner of an owned endpoint: anonymous callers get 403 `sign_in_required`, a signed-in caller on an ownerless endpoint gets 409 `claim_required`, so no member row can exist before ownership. |
+| Listing | `GET /api/v1/endpoints` lists the owned and shared endpoints of the signed-in user; ownerless endpoints are never listed. Anonymous callers: 403 `sign_in_required`. |
+| Creator network | Anonymous endpoints created in `mixed` store `creator_net` (/24 for IPv4, /56 for IPv6, IPv4-mapped addresses count as IPv4), never the address itself; endpoints created by a signed-in user and endpoints created in `open` store none. `creator_net` is cleared when the endpoint is claimed. |
 | `open`, `sso` | Unchanged. `sso` behaves as `mixed` without anonymous creation. |
 
 Tiers are named limit sets in the config file (`[tiers.<name>]`); `anonymous` and `member` are built in, an

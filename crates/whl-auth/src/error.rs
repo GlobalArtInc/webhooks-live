@@ -8,7 +8,7 @@ const LONG_RETRY_AFTER: &str = "30";
 
 #[derive(Debug, thiserror::Error)]
 pub enum AuthError {
-    #[error("{key} is required when WEBHOOKS_LIVE_AUTH_MODE is sso")]
+    #[error("{key} is required when WEBHOOKS_LIVE_AUTH_MODE is sso or mixed")]
     MissingConfig { key: &'static str },
     #[error("WEBHOOKS_LIVE_OIDC_ISSUER must use https, or http only for a loopback host: {issuer}")]
     InsecureIssuer { issuer: String },
@@ -78,6 +78,10 @@ impl From<AuthStoreError> for LoginFailure {
 pub enum AuthRejection {
     #[error("sign in to use this route")]
     Unauthenticated,
+    #[error("sign in to use this feature")]
+    SignInRequired,
+    #[error("the endpoint has no owner yet, claim it first")]
+    ClaimRequired,
     #[error("the Origin of this request is not the public origin")]
     CsrfRejected,
     #[error("this route needs sso mode")]
@@ -148,6 +152,8 @@ impl IntoResponse for AuthRejection {
     fn into_response(self) -> Response {
         let (status, code) = match self {
             Self::Unauthenticated => (StatusCode::UNAUTHORIZED, "unauthenticated"),
+            Self::SignInRequired => (StatusCode::FORBIDDEN, "sign_in_required"),
+            Self::ClaimRequired => (StatusCode::CONFLICT, "claim_required"),
             Self::CsrfRejected => (StatusCode::FORBIDDEN, "csrf_rejected"),
             Self::NotAvailableInMode => (StatusCode::NOT_FOUND, "not_available_in_mode"),
             Self::MethodNotAllowed => (StatusCode::METHOD_NOT_ALLOWED, "method_not_allowed"),

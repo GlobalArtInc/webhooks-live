@@ -45,6 +45,7 @@ impl From<&UserRecord> for UserDto {
 #[derive(Serialize)]
 struct AuthDto {
     provider_name: Option<String>,
+    sign_in_available: bool,
 }
 
 #[derive(Serialize)]
@@ -69,11 +70,12 @@ impl InstanceDto {
     pub fn new(settings: &ApiSettings, access: &AccessControl, user: Option<&UserRecord>) -> Self {
         Self {
             version: env!("CARGO_PKG_VERSION"),
-            auth_mode: if access.is_sso() { "sso" } else { "open" },
+            auth_mode: access.mode().as_str(),
             user: user.map(UserDto::from),
             public_url: settings.public_url.clone(),
             auth: AuthDto {
                 provider_name: access.provider_name().map(str::to_owned),
+                sign_in_available: access.sign_in_available(),
             },
             limits: LimitsDto {
                 max_captures: settings.max_captures,

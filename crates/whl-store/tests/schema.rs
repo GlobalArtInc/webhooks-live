@@ -15,11 +15,12 @@ const TABLES: [&str; 10] = [
     "users",
 ];
 
-const KEY_INDEXES: [&str; 7] = [
+const KEY_INDEXES: [&str; 8] = [
     "users_email",
     "sessions_expires",
     "endpoints_owner",
     "endpoints_deleted",
+    "endpoints_creator_net",
     "endpoint_members_user",
     "forward_jobs_due",
     "forward_jobs_capture",
@@ -186,6 +187,7 @@ async fn schema_has_the_tables_and_key_indexes_of_the_architecture() {
 }
 
 const KIND_MIGRATION: &str = "AddCaptureKinds1795254376505";
+const CREATOR_NET_MIGRATION: &str = "AddEndpointCreatorNet1795254378101";
 const ENDPOINT_ID: &str = "7k2m9q4xw8c1d5f3h6j0n2p4";
 
 async fn insert_endpoint_with_captures(pool: &PgPool, count: i64) {
@@ -235,6 +237,40 @@ async fn existing_captures_read_as_http_with_an_empty_meta_after_a_round_trip() 
             .await
             .expect("captures are read");
     assert_eq!(rows, vec![("http".to_owned(), "{}".to_owned()); 2]);
+}
+
+#[tokio::test]
+async fn the_creator_network_migration_keeps_endpoints_and_leaves_existing_ones_unrecorded() {
+    let db = TestDb::new().await;
+    let store = Store::from_pool(db.pool().clone());
+    let reverted = store
+        .migrate_down()
+        .await
+        .expect("the newest migration takes back")
+        .expect("a migration was applied");
+    assert_eq!(reverted, CREATOR_NET_MIGRATION);
+    sqlx::query("INSERT INTO endpoints (id) VALUES ($1)")
+        .bind(ENDPOINT_ID)
+        .execute(db.pool())
+        .await
+        .expect("the endpoint is inserted");
+
+    store
+        .migrate_up()
+        .await
+        .expect("the creator network migration applies over existing endpoints");
+    let net: Option<String> =
+        sqlx::query_scalar("SELECT creator_net::text FROM endpoints WHERE id = $1")
+            .bind(ENDPOINT_ID)
+            .fetch_one(db.pool())
+            .await
+            .expect("the column exists");
+    assert_eq!(net, None);
+    sqlx::query("UPDATE endpoints SET creator_net = '203.0.113.0/24' WHERE id = $1")
+        .bind(ENDPOINT_ID)
+        .execute(db.pool())
+        .await
+        .expect("a network is stored");
 }
 
 #[tokio::test]

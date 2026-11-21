@@ -51,6 +51,19 @@ const ENDPOINT_ROLE_SQL: &str = "SELECT CASE WHEN e.owner_id = $2 THEN 'owner' E
         AND e.last_active_at > now() - make_interval(secs => $3) \
         AND (e.owner_id = $2 OR m.user_id IS NOT NULL)";
 
+const ENDPOINT_STANDING_SQL: &str = "SELECT e.owner_id IS NOT NULL AS owned, \
+        CASE WHEN e.owner_id IS NULL OR e.owner_id = $2 THEN 'owner' ELSE m.role END AS role \
+    FROM endpoints e \
+    LEFT JOIN endpoint_members m ON m.endpoint_id = e.id AND m.user_id = $2 \
+    WHERE e.id = $1 AND e.deleted_at IS NULL \
+        AND e.last_active_at > now() - make_interval(secs => $3)";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EndpointStanding {
+    pub owned: bool,
+    pub role: Option<EndpointRole>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum EndpointRole {
     Viewer,
@@ -297,5 +310,32 @@ impl Store {
         EndpointRole::parse(&text)
             .map(Some)
             .ok_or_else(|| AuthStoreError::Invalid(format!("unknown endpoint role {text:?}")))
+    }
+
+    pub async fn endpoint_standing(
+        &self,
+        endpoint: &EndpointId,
+        user_id: Option<Uuid>,
+        retention: Duration,
+    ) -> Result<Option<EndpointStanding>, AuthStoreError> {
+        let row = sqlx::query(ENDPOINT_STANDING_SQL)
+            .bind(endpoint.unpack())
+            .bind(user_id)
+            .bind(retention.as_secs_f64())
+            .fetch_optional(self.pool())
+            .await
+            .map_err(classify)?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let owned: bool = row.try_get("owned").map_err(classify)?;
+        let text: Option<String> = row.try_get("role").map_err(classify)?;
+        let role = match text {
+            Some(text) => Some(EndpointRole::parse(&text).ok_or_else(|| {
+                AuthStoreError::Invalid(format!("unknown endpoint role {text:?}"))
+            })?),
+            None => None,
+        };
+        Ok(Some(EndpointStanding { owned, role }))
     }
 }

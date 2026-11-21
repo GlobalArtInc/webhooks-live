@@ -54,7 +54,7 @@ async fn list(
     State(state): State<ApiState>,
     Path(raw_id): Path<String>,
 ) -> Result<Json<MemberListDto>, ApiError> {
-    ensure_sso(&state)?;
+    ensure_users(&state)?;
     let endpoint = endpoint_id(&raw_id)?;
     live_endpoint(&state, &endpoint).await?;
     let members = state.store.list_members(&endpoint).await?;
@@ -68,7 +68,7 @@ async fn set(
     Path(raw_id): Path<String>,
     RawBody(body): RawBody,
 ) -> Result<Json<MemberDto>, ApiError> {
-    ensure_sso(&state)?;
+    ensure_users(&state)?;
     let endpoint = endpoint_id(&raw_id)?;
     let input = parse_member_input(&body)?;
     let outcome = state
@@ -96,7 +96,7 @@ async fn remove(
     State(state): State<ApiState>,
     Path((raw_id, raw_user)): Path<(String, String)>,
 ) -> Result<StatusCode, ApiError> {
-    ensure_sso(&state)?;
+    ensure_users(&state)?;
     let endpoint = endpoint_id(&raw_id)?;
     let user = Uuid::try_parse(&raw_user)
         .ok()
@@ -113,8 +113,8 @@ async fn remove(
     }
 }
 
-fn ensure_sso(state: &ApiState) -> Result<(), ApiError> {
-    if state.access.is_sso() {
+fn ensure_users(state: &ApiState) -> Result<(), ApiError> {
+    if state.access.has_users() {
         Ok(())
     } else {
         Err(ApiError::NotAvailableInMode)

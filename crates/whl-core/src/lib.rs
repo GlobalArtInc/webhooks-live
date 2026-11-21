@@ -2,6 +2,7 @@ pub mod capture_id;
 pub mod client_ip;
 pub mod config;
 pub mod content_type;
+pub mod creator_net;
 pub mod duration;
 pub mod endpoint_id;
 pub mod entropy;

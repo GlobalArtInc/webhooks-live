@@ -21,6 +21,7 @@ whl-store.workspace = true
 whl-telemetry.workspace = true
 
 [dev-dependencies]
+futures-util.workspace = true
 sha2.workspace = true
 sqlx.workspace = true
 tokio.workspace = true

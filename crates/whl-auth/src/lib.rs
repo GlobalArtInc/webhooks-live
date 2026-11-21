@@ -22,7 +22,7 @@ pub use access::{Decision, decide_access};
 pub use cookies::{CookiePolicy, LoginCookie};
 pub use current_user::CurrentUser;
 pub use error::{AccessDenied, AuthError, AuthRejection, LoginFailure};
-pub use gate::{Access, AccessControl, Caller, Requirement};
+pub use gate::{Access, AccessControl, AccessMode, Caller, Creation, Requirement};
 pub use origin::{OriginCheck, OriginCheckService};
 pub use provider::CLOCK_LEEWAY;
 pub use return_to::sanitize as sanitize_return_to;

@@ -1,5 +1,6 @@
 mod body;
 mod captures;
+mod claim;
 mod dto;
 mod error;
 mod forward;
@@ -18,7 +19,7 @@ use axum::extract::DefaultBodyLimit;
 use axum::http::{HeaderValue, header};
 use axum::middleware::{from_fn_with_state, map_response};
 use axum::response::Response;
-use axum::routing::get;
+use axum::routing::{get, post};
 
 pub use forward::ForwardSettings;
 pub use limit::{ApiLimits, enforce_rate_limit};
@@ -39,6 +40,7 @@ pub fn router(state: ApiState) -> Router {
                 .patch(handlers::update)
                 .delete(handlers::delete),
         )
+        .route("/endpoints/{id}/claim", post(claim::claim))
         .merge(members::routes())
         .merge(captures::routes())
         .merge(forward::routes());

@@ -138,6 +138,13 @@ pub struct AuthConfig {
 pub enum AuthMode {
     Open,
     Sso,
+    Mixed,
+}
+
+impl AuthMode {
+    pub fn needs_oidc(self) -> bool {
+        matches!(self, Self::Sso | Self::Mixed)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -227,6 +234,7 @@ pub enum Problem {
     MissingRequired(&'static str),
     InvalidRequired(&'static str),
     MissingForSso(&'static str),
+    MissingForMixed(&'static str),
     PoolSizeTooSmall,
 }
 
@@ -238,6 +246,10 @@ impl fmt::Display for Problem {
             Self::MissingForSso(key) => write!(
                 f,
                 "{ENV_PREFIX}{key} is required when {ENV_PREFIX}AUTH_MODE is sso"
+            ),
+            Self::MissingForMixed(key) => write!(
+                f,
+                "{ENV_PREFIX}{key} is required when {ENV_PREFIX}AUTH_MODE is mixed"
             ),
             Self::PoolSizeTooSmall => write!(
                 f,
@@ -278,11 +290,9 @@ fn figment_problems(figment: &Figment) -> Vec<Problem> {
     check_required::<Url>(figment, "PUBLIC_URL", "public_url", &mut problems);
     check_required::<DatabaseUrl>(figment, "DATABASE_URL", "database.url", &mut problems);
 
-    let sso = figment
-        .extract_inner::<AuthMode>("auth.mode")
-        .is_ok_and(|mode| mode == AuthMode::Sso);
-    if sso {
-        problems.extend(sso_problems(
+    if let Ok(mode) = figment.extract_inner::<AuthMode>("auth.mode") {
+        problems.extend(oidc_problems(
+            mode,
             figment.contains("auth.oidc.issuer"),
             figment.contains("auth.oidc.client_id"),
             figment.contains("auth.oidc.client_secret"),
@@ -295,7 +305,17 @@ fn figment_problems(figment: &Figment) -> Vec<Problem> {
     problems
 }
 
-fn sso_problems(issuer: bool, client_id: bool, client_secret: bool) -> Vec<Problem> {
+fn oidc_problems(
+    mode: AuthMode,
+    issuer: bool,
+    client_id: bool,
+    client_secret: bool,
+) -> Vec<Problem> {
+    let missing = match mode {
+        AuthMode::Open => return Vec::new(),
+        AuthMode::Sso => Problem::MissingForSso,
+        AuthMode::Mixed => Problem::MissingForMixed,
+    };
     [
         (issuer, "OIDC_ISSUER"),
         (client_id, "OIDC_CLIENT_ID"),
@@ -303,7 +323,7 @@ fn sso_problems(issuer: bool, client_id: bool, client_secret: bool) -> Vec<Probl
     ]
     .into_iter()
     .filter(|(present, _)| !present)
-    .map(|(_, key)| Problem::MissingForSso(key))
+    .map(|(_, key)| missing(key))
     .collect()
 }
 
@@ -358,14 +378,13 @@ impl Config {
     pub fn validate(&self) -> Result<(), ConfigError> {
         let mut problems = Vec::new();
 
-        if self.auth.mode == AuthMode::Sso {
-            let oidc = &self.auth.oidc;
-            problems.extend(sso_problems(
-                oidc.issuer.is_some(),
-                oidc.client_id.is_some(),
-                oidc.client_secret.is_some(),
-            ));
-        }
+        let oidc = &self.auth.oidc;
+        problems.extend(oidc_problems(
+            self.auth.mode,
+            oidc.issuer.is_some(),
+            oidc.client_id.is_some(),
+            oidc.client_secret.is_some(),
+        ));
         problems.extend(pool_size_problem(self.database.pool_size));
 
         if problems.is_empty() {

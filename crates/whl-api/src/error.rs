@@ -108,8 +108,12 @@ pub enum ApiError {
     ForwardingDisabled,
     #[error("the cursor is malformed or does not match the order and filters")]
     InvalidCursor,
-    #[error("this route needs sso mode")]
+    #[error("this route needs sso or mixed mode")]
     NotAvailableInMode,
+    #[error("the endpoint already has an owner")]
+    AlreadyOwned,
+    #[error("the endpoint cannot be claimed from here")]
+    ClaimRefused,
     #[error("nobody with a verified email address has signed in with that email")]
     UserNotFound,
     #[error("the user is not a member of this endpoint")]
@@ -279,6 +283,18 @@ impl IntoResponse for ApiError {
             Self::NotAvailableInMode => (
                 StatusCode::FORBIDDEN,
                 "not_available_in_mode",
+                self.to_string(),
+                None,
+            ),
+            Self::AlreadyOwned => (
+                StatusCode::CONFLICT,
+                "already_owned",
+                self.to_string(),
+                None,
+            ),
+            Self::ClaimRefused => (
+                StatusCode::FORBIDDEN,
+                "claim_refused",
                 self.to_string(),
                 None,
             ),

@@ -6,6 +6,7 @@ use sqlx::query::Query;
 use sqlx::types::Uuid;
 use sqlx::{Postgres, Row};
 use time::OffsetDateTime;
+use whl_core::creator_net::CreatorNet;
 use whl_core::endpoint_id::EndpointId;
 use whl_core::entropy::IdGenerationError;
 use whl_core::header::HeaderInput;
@@ -115,14 +116,37 @@ impl Store {
         settings: &EndpointSettings,
         retention: Duration,
     ) -> Result<EndpointRecord, EndpointError> {
+        self.insert_endpoint(owner, None, settings, retention).await
+    }
+
+    pub async fn create_endpoint_from_network(
+        &self,
+        creator_net: Option<&CreatorNet>,
+        settings: &EndpointSettings,
+        retention: Duration,
+    ) -> Result<EndpointRecord, EndpointError> {
+        self.insert_endpoint(None, creator_net, settings, retention)
+            .await
+    }
+
+    async fn insert_endpoint(
+        &self,
+        owner: Option<Uuid>,
+        creator_net: Option<&CreatorNet>,
+        settings: &EndpointSettings,
+        retention: Duration,
+    ) -> Result<EndpointRecord, EndpointError> {
         let id = EndpointId::generate()?;
         let sql = format!(
             "INSERT INTO endpoints (id, title, response_status, response_content_type, \
-             response_headers, response_body, response_delay_ms, cors, overflow, owner_id) \
-             VALUES ($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9, $10) RETURNING {COLUMNS}"
+             response_headers, response_body, response_delay_ms, cors, overflow, owner_id, \
+             creator_net) \
+             VALUES ($1, $2, $3, $4, $5::text::jsonb, $6, $7, $8, $9, $10, $11::text::cidr) \
+             RETURNING {COLUMNS}"
         );
         let row = bind_settings(sqlx::query(&sql).bind(id.unpack()), settings)?
             .bind(owner)
+            .bind(creator_net.map(ToString::to_string))
             .fetch_one(self.pool())
             .await
             .map_err(classify)?;

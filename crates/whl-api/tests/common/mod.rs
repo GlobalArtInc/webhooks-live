@@ -1,9 +1,13 @@
 #![allow(dead_code)]
 
+pub mod matrix;
+
+use std::net::SocketAddr;
 use std::time::Duration;
 
 use axum::Router;
 use axum::body::Body;
+use axum::extract::ConnectInfo;
 use axum::http::{HeaderMap, Method, Request, StatusCode, header};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -11,6 +15,7 @@ use tower::ServiceExt;
 use url::Url;
 use whl_api::{ApiLimits, ApiSettings, ApiState};
 use whl_auth::{AccessControl, AuthSettings, AuthState, OidcClient, SessionLimits};
+use whl_core::client_ip::TrustedProxies;
 use whl_store::{Store, Uuid, VerifiedIdentity};
 use whl_testkit::TestDb;
 
@@ -136,6 +141,18 @@ pub struct SsoHarness {
 }
 
 pub async fn sso_harness() -> SsoHarness {
+    build_with_users(false, TrustedProxies::default()).await
+}
+
+pub async fn mixed_harness() -> SsoHarness {
+    build_with_users(true, TrustedProxies::default()).await
+}
+
+pub async fn mixed_harness_behind(proxies: TrustedProxies) -> SsoHarness {
+    build_with_users(true, proxies).await
+}
+
+async fn build_with_users(mixed: bool, proxies: TrustedProxies) -> SsoHarness {
     let db = TestDb::new().await;
     let store = Store::from_pool(db.pool().clone());
     let issuer = Url::parse("https://sso.test").expect("the issuer URL parses");
@@ -156,8 +173,13 @@ pub async fn sso_harness() -> SsoHarness {
     .expect("the settings are valid")
     .with_provider_name("Test SSO");
     let auth = AuthState::new(store.clone(), settings).expect("the auth state builds");
-    let state = ApiState::new(store.clone(), api_settings())
-        .with_access(AccessControl::sso(auth, RETENTION));
+    let access = if mixed {
+        AccessControl::mixed(auth, RETENTION)
+    } else {
+        AccessControl::sso(auth, RETENTION)
+    }
+    .with_proxies(proxies);
+    let state = ApiState::new(store.clone(), api_settings()).with_access(access);
     SsoHarness {
         db,
         app: whl_api::router(state),
@@ -201,11 +223,37 @@ impl SsoHarness {
         uri: &str,
         body: &str,
     ) -> Reply {
+        self.send_from(actor, None, method, uri, body).await
+    }
+
+    pub async fn send_from(
+        &self,
+        actor: Option<&Actor>,
+        peer: Option<&str>,
+        method: Method,
+        uri: &str,
+        body: &str,
+    ) -> Reply {
+        self.send_with(actor, peer, &[], method, uri, body).await
+    }
+
+    pub async fn send_with(
+        &self,
+        actor: Option<&Actor>,
+        peer: Option<&str>,
+        extra: &[(&str, &str)],
+        method: Method,
+        uri: &str,
+        body: &str,
+    ) -> Reply {
         let mut builder = Request::builder().method(method).uri(uri);
         if let Some(actor) = actor {
             builder = builder.header(header::COOKIE, &actor.cookie);
         }
-        let request = if body.is_empty() {
+        for (name, value) in extra {
+            builder = builder.header(*name, *value);
+        }
+        let mut request = if body.is_empty() {
             builder.body(Body::empty())
         } else {
             builder
@@ -213,7 +261,24 @@ impl SsoHarness {
                 .body(Body::from(body.to_owned()))
         }
         .expect("the request is valid");
+        if let Some(peer) = peer {
+            let address = SocketAddr::new(peer.parse().expect("a valid peer address"), 40000);
+            request.extensions_mut().insert(ConnectInfo(address));
+        }
         send(&self.app, request).await
+    }
+
+    pub async fn anonymous_endpoint(
+        &self,
+        network: Option<&whl_core::creator_net::CreatorNet>,
+    ) -> String {
+        self.store
+            .create_endpoint_from_network(network, &resolve_defaults(), RETENTION)
+            .await
+            .expect("the endpoint is stored")
+            .id
+            .unpack()
+            .to_owned()
     }
 
     pub async fn endpoint_for(&self, owner: &Actor) -> String {

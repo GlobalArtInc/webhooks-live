@@ -33,7 +33,7 @@ Status: **done** merged and live on webhooks.live; **in progress** partly merged
 | 16 | Per-IP and per-endpoint rate limits, capture cap, storage cap | in progress (M9 fixes) | spec A1–A4, arch §8 | M9 |
 | 17 | OIDC sign-in | done | arch §7 | M8 |
 | 18 | Ownership, roles on routes, sharing with viewer and editor | in progress | spec §8, arch §7 | M8 |
-| 19 | Mixed mode: anonymous use plus optional sign-in on one instance | planned | spec Q1–Q4 | M17 |
+| 19 | Mixed mode: anonymous use plus optional sign-in on one instance | in progress | spec Q1–Q4 | M17 |
 | 20 | Identity tiers and quotas for costly features | planned | spec Q5–Q9, arch §17 | M18 |
 | 21 | Capture kinds (HTTP, email, DNS, scheduled) in one list and stream | planned | spec CK1–CK4, arch §20 | M16 |
 | 22 | Response templating from request data, random ids, counters | planned | spec T1–T9, arch §21 | M28, M29 |

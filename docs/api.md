@@ -60,7 +60,7 @@ Field `code` is a closed list:
 | 401 | `unauthenticated` | `sso`, no valid session |
 | 403 | `csrf_rejected` | Origin check failed |
 | 403 | `forbidden` | Role too low (viewer tries to edit, editor tries to delete the endpoint) |
-| 403 | `not_available_in_mode` | Route needs `sso` (listing, members) |
+| 403 | `not_available_in_mode` | Route needs `sso` or `mixed` (listing, members, claim) |
 | 404 | `capture_not_found` | Capture id unknown in this endpoint |
 | 404 | `forward_rule_not_found` | Rule id unknown in this endpoint |
 | 404 | `user_not_found` | `PUT .../members` with an email nobody has signed in with |
@@ -298,9 +298,10 @@ also emits `endpoint_updated` on the stream.
 | Field | Type | Notes |
 |---|---|---|
 | `version` | string | Build version of the server binary |
-| `auth_mode` | `"open"` \| `"sso"` | Access mode |
+| `auth_mode` | `"open"` \| `"sso"` \| `"mixed"` | Access mode |
 | `user` | User \| null | Signed-in user; `null` when anonymous or in `open`. Never answers 401 |
 | `public_url` | string | Base of capture URLs |
+| `auth.sign_in_available` | boolean | `true` once OIDC discovery has succeeded (`sso`, `mixed`); `false` in `open` and while the identity provider is unreachable |
 | `auth.provider_name` | string \| null | Sign-in button label from `WEBHOOKS_LIVE_OIDC_PROVIDER_NAME`; `null` when not configured or in `open`, the UI then uses a neutral label |
 | `limits.*` | integer | Instance limits; `max_body_bytes` is the capture body limit |
 | `features.ring_mode_allowed` | boolean | Whether `overflow: ring` is accepted |
@@ -496,6 +497,8 @@ a row below extends them.
 | 401 | `wrong_password` | Unlock with a wrong password |
 | 403 | `sign_in_required` | Person-only feature, anonymous caller |
 | 403 | `session_required` | Route refuses tokens |
+| 403 | `claim_refused` | Claim without the proof of architecture §17 |
+| 409 | `claim_required` | `mixed`: member routes on an endpoint that has no owner yet |
 | 403 | `insufficient_scope` | Token scope or endpoint limit too narrow |
 | 403 | `tier_not_allowed` | Feature not in the caller's tier (`error.limit.name` names it) |
 | 404 | `rule_not_found`, `secret_not_found`, `var_not_found`, `channel_not_found`, `schedule_not_found`, `template_not_found`, `folder_not_found`, `token_not_found`, `alias_not_found`, `part_not_found`, `rule_run_not_found`, `email_address_not_found`, `subscription_not_found`, `sent_request_not_found` | Unknown id in its scope |
@@ -551,7 +554,7 @@ a row below extends them.
 | Method, path | Role | Request | Success |
 |---|---|---|---|
 | `GET /api/v1/usage` | any | – | 200 Usage |
-| `POST /api/v1/endpoints/{id}/claim` | signed in, `mixed` | – | 200 Endpoint; 409 `already_owned` |
+| `POST /api/v1/endpoints/{id}/claim` | signed in, `mixed` | – | 200 Endpoint with `my_role: "owner"`; 403 `sign_in_required`, 403 `claim_refused` (caller outside the creating network, endpoint older than 24 hours, or no recorded network), 409 `already_owned` (caller is the owner or a member), 410 `endpoint_gone` (including an endpoint owned by someone else) |
 
 Usage: `{tier: string, items: [{name: string, window: "hour" | "day" | "total", used: integer, max: integer, resets_at: timestamp | null}]}`.
 Names: `endpoints`, `storage_bytes`, `outbound`, `notifications`, `email_notifications`, `exports`, `imports`,

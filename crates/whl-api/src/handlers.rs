@@ -2,7 +2,7 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use whl_auth::{Access, AuthRejection, Caller};
+use whl_auth::{Access, Caller, Creation};
 use whl_core::endpoint_id::EndpointId;
 use whl_store::{EndpointRole, UserRecord};
 
@@ -26,10 +26,7 @@ pub async fn create(
     caller: Caller,
     RawBody(body): RawBody,
 ) -> Result<Response, ApiError> {
-    let owner = caller.user();
-    if state.access.is_sso() && owner.is_none() {
-        return Err(AuthRejection::Unauthenticated.into());
-    }
+    let creation = state.access.creation(&caller)?;
     let parsed = parse_endpoint_input(&body, true)?;
     let settings = resolve(
         &state.settings,
@@ -38,16 +35,27 @@ pub async fn create(
         parsed.violations,
     )
     .map_err(ApiError::Validation)?;
-    let record = state
-        .store
-        .create_endpoint_owned(
-            owner.map(|user| user.id),
-            &settings,
-            state.settings.retention,
-        )
-        .await?;
+    let record = match &creation {
+        Creation::Owned(user) => {
+            state
+                .store
+                .create_endpoint_owned(Some(*user), &settings, state.settings.retention)
+                .await?
+        }
+        Creation::Anonymous { network } => {
+            state
+                .store
+                .create_endpoint_from_network(network.as_ref(), &settings, state.settings.retention)
+                .await?
+        }
+    };
+    let owner = caller.user();
     let location = format!("/api/v1/endpoints/{}", record.id.unpack());
-    let role = owner.map(|_| EndpointRole::Owner);
+    let role = match creation {
+        Creation::Owned(_) => Some(EndpointRole::Owner),
+        Creation::Anonymous { .. } if state.access.is_mixed() => Some(EndpointRole::Owner),
+        Creation::Anonymous { .. } => None,
+    };
     Ok((
         StatusCode::CREATED,
         [(header::LOCATION, location)],
@@ -121,7 +129,7 @@ pub async fn delete(
 }
 
 async fn owner_of(state: &ApiState, id: &EndpointId) -> Result<Option<UserRecord>, ApiError> {
-    if !state.access.is_sso() {
+    if !state.access.has_users() {
         return Ok(None);
     }
     Ok(state.store.endpoint_owner(id).await?)

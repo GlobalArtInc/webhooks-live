@@ -454,3 +454,73 @@ fn env_keys_reach_their_fields() {
     assert_eq!(config.shutdown.drain, Duration::from_millis(300));
     assert_eq!(config.log, "debug");
 }
+
+#[test]
+fn mixed_without_oidc_keys_reports_all_missing_keys_at_once() {
+    let error = load(&with_required(&[("WEBHOOKS_LIVE_AUTH_MODE", "mixed")]))
+        .expect_err("mixed needs OIDC keys");
+
+    assert_eq!(
+        problems_of(error),
+        [
+            Problem::MissingForMixed("OIDC_ISSUER"),
+            Problem::MissingForMixed("OIDC_CLIENT_ID"),
+            Problem::MissingForMixed("OIDC_CLIENT_SECRET"),
+        ]
+    );
+}
+
+#[test]
+fn a_missing_mixed_key_names_the_mode_in_its_message() {
+    let error = load(&with_required(&[
+        ("WEBHOOKS_LIVE_AUTH_MODE", "mixed"),
+        ("WEBHOOKS_LIVE_OIDC_ISSUER", "https://issuer.example.test"),
+        ("WEBHOOKS_LIVE_OIDC_CLIENT_ID", "webhooks"),
+    ]))
+    .expect_err("the client secret is missing");
+
+    assert_eq!(
+        error.to_string(),
+        "invalid configuration: WEBHOOKS_LIVE_OIDC_CLIENT_SECRET is required when WEBHOOKS_LIVE_AUTH_MODE is mixed"
+    );
+}
+
+#[test]
+fn mixed_with_oidc_keys_loads() {
+    let config = load(&with_required(&[
+        ("WEBHOOKS_LIVE_AUTH_MODE", "mixed"),
+        ("WEBHOOKS_LIVE_OIDC_ISSUER", "https://issuer.example.test"),
+        ("WEBHOOKS_LIVE_OIDC_CLIENT_ID", "webhooks"),
+        ("WEBHOOKS_LIVE_OIDC_CLIENT_SECRET", "secret"),
+    ]))
+    .expect("all OIDC keys are present");
+
+    assert_eq!(config.auth.mode, AuthMode::Mixed);
+    assert!(config.auth.mode.needs_oidc());
+    assert!(!AuthMode::Open.needs_oidc());
+}
+
+#[test]
+fn validate_reports_the_oidc_keys_of_a_built_mixed_config() {
+    let mut config = load(&with_required(&[])).expect("defaults are valid");
+    config.auth.mode = AuthMode::Mixed;
+
+    let error = config.validate().expect_err("mixed keys are missing");
+
+    assert_eq!(
+        problems_of(error),
+        [
+            Problem::MissingForMixed("OIDC_ISSUER"),
+            Problem::MissingForMixed("OIDC_CLIENT_ID"),
+            Problem::MissingForMixed("OIDC_CLIENT_SECRET"),
+        ]
+    );
+}
+
+#[test]
+fn an_unknown_auth_mode_is_refused() {
+    let error = load(&with_required(&[("WEBHOOKS_LIVE_AUTH_MODE", "hybrid")]))
+        .expect_err("the mode is unknown");
+
+    assert!(matches!(error, ConfigError::Load(_)), "{error:?}");
+}

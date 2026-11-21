@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use openidconnect::{ClientId, ClientSecret, IssuerUrl, RedirectUrl, Scope};
 use url::{Host, Url};
-use whl_core::config::{AuthMode, Config};
+use whl_core::config::Config;
 
 use crate::error::AuthError;
 
@@ -56,7 +56,7 @@ pub struct AuthSettings {
 
 impl AuthSettings {
     pub fn from_config(config: &Config) -> Result<Option<Self>, AuthError> {
-        if config.auth.mode != AuthMode::Sso {
+        if !config.auth.mode.needs_oidc() {
             return Ok(None);
         }
         let oidc = &config.auth.oidc;

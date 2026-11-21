@@ -483,3 +483,95 @@ async fn sso_mode_without_oidc_keys_is_rejected_by_the_configuration() {
         assert!(text.contains(key), "{text}");
     }
 }
+
+fn mixed_env(issuer: &str) -> Vec<(&str, &str)> {
+    let mut env = sso_env(issuer);
+    env[0] = ("WEBHOOKS_LIVE_AUTH_MODE", "mixed");
+    env
+}
+
+#[tokio::test]
+async fn mixed_mode_serves_anonymous_callers_and_gates_owned_endpoints_over_a_real_socket() {
+    let db = TestDb::new().await;
+    let issuer = discovery_stub().await;
+    let config = try_load_config(db.url(), &mixed_env(&issuer)).expect("the configuration loads");
+    let store = Store::connect(&config.database).await.expect("connects");
+    let (owner_id, owner) = session_for(&store, "own", "owner@example.test").await;
+    let retention = Duration::from_secs(3600);
+    let owned = store
+        .create_endpoint_owned(Some(owner_id), &endpoint_settings(), retention)
+        .await
+        .expect("the endpoint is created");
+    let owned_id = owned.id.unpack().to_owned();
+    let bound = whl_server::bind(&config).await.expect("binds");
+    let (public, admin) = (bound.public_addr(), bound.admin_addr());
+    let (trigger, stop) = oneshot::channel::<()>();
+    let server = tokio::spawn(bound.serve(store, async {
+        let _ = stop.await;
+    }));
+    wait_ready(admin).await;
+
+    let instance = request(public, "GET", "/api/v1/instance")
+        .await
+        .expect("public answers");
+    let instance: Value = serde_json::from_str(&instance.body).expect("a JSON body");
+    assert_eq!(instance["auth_mode"], "mixed");
+    assert_eq!(instance["auth"]["sign_in_available"], true);
+
+    let created = request(public, "POST", "/api/v1/endpoints")
+        .await
+        .expect("public answers");
+    assert_eq!(created.status, 201, "anonymous creation keeps working");
+    let created: Value = serde_json::from_str(&created.body).expect("a JSON body");
+    let anonymous_id = created["id"].as_str().expect("an id").to_owned();
+    let recorded: Option<String> =
+        sqlx::query_scalar("SELECT creator_net::text FROM endpoints WHERE id = $1")
+            .bind(&anonymous_id)
+            .fetch_one(db.pool())
+            .await
+            .expect("the endpoint row exists");
+    assert_eq!(recorded.as_deref(), Some("127.0.0.0/24"));
+
+    let login = request(public, "GET", "/auth/login")
+        .await
+        .expect("public answers");
+    assert_eq!(login.status, 302);
+
+    let anonymous_stream = format!("/api/v1/endpoints/{anonymous_id}/stream");
+    let owned_stream = format!("/api/v1/endpoints/{owned_id}/stream");
+    let open_door = request_with(public, "GET", &anonymous_stream, &[], true)
+        .await
+        .expect("public answers");
+    let closed_door = request_with(public, "GET", &owned_stream, &[], true)
+        .await
+        .expect("public answers");
+    let owner_door = request_with(public, "GET", &owned_stream, &[("Cookie", &owner)], true)
+        .await
+        .expect("public answers");
+    assert_eq!(open_door.status, 200);
+    assert_eq!(closed_door.status, 410);
+    assert_eq!(owner_door.status, 200);
+
+    let capture = request(public, "POST", &format!("/{owned_id}"))
+        .await
+        .expect("public answers");
+    assert_eq!(
+        capture.status, 200,
+        "capture URLs stay public on owned endpoints"
+    );
+
+    let _ = trigger.send(());
+    server.await.expect("joins").expect("stops cleanly");
+}
+
+#[tokio::test]
+async fn mixed_mode_without_oidc_keys_is_rejected_by_the_configuration() {
+    let db = TestDb::new().await;
+    let error = try_load_config(db.url(), &[("WEBHOOKS_LIVE_AUTH_MODE", "mixed")])
+        .expect_err("the configuration is incomplete");
+    let text = error.to_string();
+    for key in ["OIDC_ISSUER", "OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET"] {
+        assert!(text.contains(key), "{text}");
+    }
+    assert!(text.contains("mixed"), "{text}");
+}

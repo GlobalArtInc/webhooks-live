@@ -2,6 +2,7 @@ pub mod auth;
 pub mod capture_body;
 pub mod capture_queries;
 pub mod captures;
+mod claim;
 pub mod endpoints;
 mod error;
 pub mod forward;
@@ -12,12 +13,14 @@ mod store;
 pub mod stream;
 
 pub use auth::{
-    AuthStoreError, EndpointRole, LoginRecord, SessionLifetime, UserRecord, VerifiedIdentity,
+    AuthStoreError, EndpointRole, EndpointStanding, LoginRecord, SessionLifetime, UserRecord,
+    VerifiedIdentity,
 };
 pub use capture_queries::{
     CaptureBody, CaptureDetail, CaptureError, CaptureFilter, CaptureForm, CapturePage,
     CaptureQuery, DeleteOutcome, FormFile, NameValue, Order, StatusFilter,
 };
+pub use claim::{ClaimOutcome, ClaimRefusal};
 pub use endpoints::{EndpointError, EndpointRecord, EndpointSettings, Overflow};
 pub use error::StoreError;
 pub use kind::CaptureKind;

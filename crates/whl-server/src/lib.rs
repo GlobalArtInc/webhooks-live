@@ -19,7 +19,7 @@ use whl_api::{ApiLimits, ApiSettings, ApiState, ForwardSettings};
 use whl_auth::{AccessControl, AuthSettings, AuthState, DiscoveryBackoff};
 use whl_capture::{CaptureSettings, CaptureState};
 use whl_core::client_ip::TrustedProxies;
-use whl_core::config::Config;
+use whl_core::config::{AuthMode, Config};
 use whl_core::limiter::{LimiterSettings, Limiters};
 use whl_forward::WorkerHandle;
 use whl_live::{HUB_CAPACITY, Hub, ListenerHandle, LiveState, StreamSettings};
@@ -50,6 +50,8 @@ pub struct Bound {
     forward: ForwardRuntime,
     http: HttpLimits,
     auth: Option<AuthSettings>,
+    auth_mode: AuthMode,
+    proxies: TrustedProxies,
     limiters: Limiters,
     api_limits: ApiLimits,
     background: BackgroundSettings,
@@ -89,10 +91,16 @@ impl Bound {
             Some(auth) => {
                 readiness.set_auth_unavailable(true);
                 metrics::gauge!(series::AUTH_AVAILABLE).set(0.0);
-                AccessControl::sso(auth.clone(), self.retention)
+                match self.auth_mode {
+                    AuthMode::Mixed => AccessControl::mixed(auth.clone(), self.retention),
+                    AuthMode::Open | AuthMode::Sso => {
+                        AccessControl::sso(auth.clone(), self.retention)
+                    }
+                }
             }
             None => AccessControl::open(),
-        };
+        }
+        .with_proxies(self.proxies.clone());
         let state = ApiState::new(store.clone(), self.api.clone())
             .with_access(access)
             .with_limits(self.api_limits.clone())
@@ -252,10 +260,8 @@ pub async fn bind(config: &Config) -> Result<Bound, ServerError> {
     let (public, public_addr) = bind_listener("public", config.listen_addr).await?;
     let (admin, admin_addr) = bind_listener("admin", config.admin_addr).await?;
     let limiters = Limiters::new(&LimiterSettings::from_config(&config.rate))?;
-    let api_limits = ApiLimits::new(
-        limiters.clone(),
-        TrustedProxies::new(config.trusted_proxies.clone()),
-    );
+    let proxies = TrustedProxies::new(config.trusted_proxies.clone());
+    let api_limits = ApiLimits::new(limiters.clone(), proxies.clone());
 
     Ok(Bound {
         public,
@@ -270,6 +276,8 @@ pub async fn bind(config: &Config) -> Result<Bound, ServerError> {
         forward: ForwardRuntime::from_config(config)?,
         http: HttpLimits::default(),
         auth: AuthSettings::from_config(config)?,
+        auth_mode: config.auth.mode,
+        proxies,
         limiters,
         api_limits,
         background: BackgroundSettings::from_config(config),

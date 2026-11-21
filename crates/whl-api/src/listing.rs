@@ -33,7 +33,7 @@ pub async fn list(
     caller: Caller,
     Query(params): Query<ListParams>,
 ) -> Result<Json<EndpointListDto>, ApiError> {
-    if !state.access.is_sso() {
+    if !state.access.has_users() {
         return Err(ApiError::NotAvailableInMode);
     }
     let user = caller.user().ok_or(AuthRejection::Unauthenticated)?;
