@@ -6,6 +6,7 @@ import {
   notFound,
   type RouterHistory,
 } from '@tanstack/react-router';
+import { DevEditorsScreen } from '../routes/dev/DevEditorsScreen';
 import { DevTokensScreen } from '../routes/dev/DevTokensScreen';
 import { DiffScreen } from '../routes/diff/DiffScreen';
 import { CaptureScreen } from '../routes/capture/CaptureScreen';
@@ -148,6 +149,11 @@ const devRoutes = import.meta.env.DEV
         getParentRoute: () => rootRoute,
         path: '/dev/tokens',
         component: DevTokensScreen,
+      }),
+      createRoute({
+        getParentRoute: () => rootRoute,
+        path: '/dev/editors',
+        component: DevEditorsScreen,
       }),
     ]
   : [];
