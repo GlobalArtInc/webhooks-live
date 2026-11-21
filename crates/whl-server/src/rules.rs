@@ -3,9 +3,7 @@ use std::sync::Arc;
 use whl_capture::RulesSettings;
 use whl_core::config::Config;
 use whl_forward::{GuardConfig, GuardedClient, Hardening};
-use whl_rules_worker::{
-    DENIED_PORTS, MAX_ATTEMPTS_LIMIT, OutboundLimits, RulesWorker, WorkerSettings,
-};
+use whl_rules_worker::{DENIED_PORTS, MAX_ATTEMPTS_LIMIT, RulesWorker, WorkerSettings};
 use whl_script::{PoolConfig, ScriptPool, allocator_installed};
 use whl_secrets::Keyring;
 use whl_store::Store;
@@ -59,19 +57,12 @@ impl RulesRuntimeSetup {
                 },
                 ..GuardConfig::default()
             };
-            let anonymous = config.tiers.anonymous();
-            let member = config.tiers.member();
-            let limits = OutboundLimits {
-                endpoint_per_hour: anonymous.limits().outbound_per_endpoint_hour.unwrap_or(0),
-                network_per_day: anonymous.limits().outbound_per_network_day.unwrap_or(0),
-                user_per_hour: member.limits().outbound_per_user_hour.unwrap_or(0),
-            };
             let mut worker_settings = WorkerSettings::new(
                 config.public_url.as_str().trim_end_matches('/'),
                 config.capture.retention,
                 usize::try_from(rules.workers).unwrap_or(usize::MAX),
                 config.forward.max_attempts.clamp(1, MAX_ATTEMPTS_LIMIT),
-                limits,
+                config.tiers.clone(),
             );
             worker_settings.script_memory_bytes = memory;
             Some(WorkerParts {

@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use thiserror::Error;
+use whl_core::tier::Tiers;
 use whl_forward::RetryPolicy;
 use whl_script::DEFAULT_MEMORY_BYTES;
 
@@ -19,27 +20,6 @@ pub const DENIED_PORTS: [u16; 18] = [
     22, 23, 25, 110, 143, 465, 587, 993, 995, 2375, 2376, 3306, 5432, 6379, 9100, 10250, 11211,
     27017,
 ];
-
-const DEFAULT_ENDPOINT_PER_HOUR: u32 = 200;
-const DEFAULT_NETWORK_PER_DAY: u32 = 1000;
-const DEFAULT_USER_PER_HOUR: u32 = 2000;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct OutboundLimits {
-    pub endpoint_per_hour: u32,
-    pub network_per_day: u32,
-    pub user_per_hour: u32,
-}
-
-impl Default for OutboundLimits {
-    fn default() -> Self {
-        Self {
-            endpoint_per_hour: DEFAULT_ENDPOINT_PER_HOUR,
-            network_per_day: DEFAULT_NETWORK_PER_DAY,
-            user_per_hour: DEFAULT_USER_PER_HOUR,
-        }
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum SettingsError {
@@ -64,7 +44,7 @@ pub struct WorkerSettings {
     pub runs_per_endpoint: i32,
     pub max_outbound_steps: usize,
     pub retry: RetryPolicy,
-    pub limits: OutboundLimits,
+    pub tiers: Tiers,
     pub public_url: String,
     pub retention: Duration,
     pub script_memory_bytes: usize,
@@ -76,7 +56,7 @@ impl WorkerSettings {
         retention: Duration,
         concurrency: usize,
         max_attempts: u32,
-        limits: OutboundLimits,
+        tiers: Tiers,
     ) -> Self {
         Self {
             concurrency,
@@ -86,7 +66,7 @@ impl WorkerSettings {
             runs_per_endpoint: DEFAULT_RUNS_PER_ENDPOINT,
             max_outbound_steps: MAX_OUTBOUND_STEPS_PER_RUN,
             retry: RetryPolicy::new(max_attempts),
-            limits,
+            tiers,
             public_url: public_url.into(),
             retention,
             script_memory_bytes: DEFAULT_MEMORY_BYTES,
