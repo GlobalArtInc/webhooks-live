@@ -3,7 +3,8 @@ import type { Rule } from '../../src/api/rulesTypes';
 import type { FieldError } from '../../src/api/types';
 import { simulateDryRun } from '../../src/features/rules/tester/fixtureEngine';
 import { TESTER_CAPTURES } from '../../src/features/rules/tester/fixtures';
-import { SCRIPT_META_FIXTURE, fixtureValidate } from '../../src/features/rules/script/fixtures';
+import { fixtureValidate } from '../../src/features/rules/script/fixtures';
+import { SCRIPT_META_ANSWER } from './scriptMeta';
 import type { DraftRuleInput } from '../../src/features/rules/tester/types';
 import { endpointFixture } from '../../src/test/fixtures/endpoint';
 import { instanceFixture, PUBLIC_URL } from '../../src/test/fixtures/instance';
@@ -130,7 +131,7 @@ export async function mockRuleEditorApi(page: Page): Promise<RuleEditorApiState>
     } else if (method === 'GET' && path === `/endpoints/${ENDPOINT_ID}/rule-runs`) {
       await json(route, 200, { items: [recordedRun()], next_cursor: null });
     } else if (method === 'GET' && path === '/script/meta') {
-      await json(route, 200, SCRIPT_META_FIXTURE);
+      await json(route, 200, SCRIPT_META_ANSWER);
     } else if (method === 'POST' && path === '/script/validate') {
       const body = request.postDataJSON() as { source: string };
       await json(route, 200, { diagnostics: fixtureValidate(body.source) });

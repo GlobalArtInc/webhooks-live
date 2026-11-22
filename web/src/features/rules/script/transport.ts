@@ -28,6 +28,13 @@ function readErrorFields(text: string): ErrorFields {
   };
 }
 
+function readRetryAfter(value: string | null): number | null {
+  if (value === null || !/^\d+$/.test(value.trim())) {
+    return null;
+  }
+  return Number(value.trim());
+}
+
 async function failure(response: Response): Promise<ApiError> {
   const text = await response.text().catch(() => '');
   const fields = readErrorFields(text);
@@ -36,7 +43,7 @@ async function failure(response: Response): Promise<ApiError> {
     code: fields.code,
     message: fields.message ?? `Request failed with status ${response.status}`,
     details: [],
-    retryAfter: null,
+    retryAfter: readRetryAfter(response.headers.get('Retry-After')),
   });
 }
 

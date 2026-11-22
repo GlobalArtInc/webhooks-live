@@ -1,0 +1,584 @@
+{
+  "name": "rhai",
+  "keywords": [
+    "let",
+    "const",
+    "if",
+    "else",
+    "switch",
+    "while",
+    "loop",
+    "do",
+    "until",
+    "for",
+    "in",
+    "fn",
+    "return",
+    "break",
+    "continue",
+    "throw",
+    "try",
+    "catch",
+    "true",
+    "false"
+  ],
+  "functions": [
+    {
+      "name": "json_parse",
+      "signature": "json_parse(text: string) -> any",
+      "doc": "Parses JSON text into maps, arrays and scalars; fails on invalid or oversized JSON.",
+      "parameters": [
+        {
+          "name": "text",
+          "type": "string"
+        }
+      ],
+      "returns": "any"
+    },
+    {
+      "name": "json_stringify",
+      "signature": "json_stringify(value: any) -> string",
+      "doc": "Writes a value as compact JSON text.",
+      "parameters": [
+        {
+          "name": "value",
+          "type": "any"
+        }
+      ],
+      "returns": "string"
+    },
+    {
+      "name": "base64_encode",
+      "signature": "base64_encode(text: string) -> string",
+      "doc": "Encodes text as standard base64.",
+      "parameters": [
+        {
+          "name": "text",
+          "type": "string"
+        }
+      ],
+      "returns": "string"
+    },
+    {
+      "name": "base64_decode",
+      "signature": "base64_decode(text: string) -> string",
+      "doc": "Decodes standard base64 into UTF-8 text; fails on anything else.",
+      "parameters": [
+        {
+          "name": "text",
+          "type": "string"
+        }
+      ],
+      "returns": "string"
+    },
+    {
+      "name": "hex",
+      "signature": "hex(text: string) -> string",
+      "doc": "Returns the UTF-8 bytes of the text as lowercase hex.",
+      "parameters": [
+        {
+          "name": "text",
+          "type": "string"
+        }
+      ],
+      "returns": "string"
+    },
+    {
+      "name": "sha256",
+      "signature": "sha256(text: string) -> string",
+      "doc": "Returns the SHA-256 digest of the text as lowercase hex.",
+      "parameters": [
+        {
+          "name": "text",
+          "type": "string"
+        }
+      ],
+      "returns": "string"
+    },
+    {
+      "name": "hmac_sha256",
+      "signature": "hmac_sha256(key: string, text: string) -> string",
+      "doc": "Returns the HMAC-SHA256 of the text under the key as lowercase hex.",
+      "parameters": [
+        {
+          "name": "key",
+          "type": "string"
+        },
+        {
+          "name": "text",
+          "type": "string"
+        }
+      ],
+      "returns": "string"
+    },
+    {
+      "name": "regex_match",
+      "signature": "regex_match(pattern: string, text: string) -> bool",
+      "doc": "True when the regular expression matches somewhere in the text.",
+      "parameters": [
+        {
+          "name": "pattern",
+          "type": "string"
+        },
+        {
+          "name": "text",
+          "type": "string"
+        }
+      ],
+      "returns": "bool"
+    },
+    {
+      "name": "regex_captures",
+      "signature": "regex_captures(pattern: string, text: string) -> array",
+      "doc": "Returns the capture groups of the first match, group 0 first and () for a group that did not take part; empty when nothing matches.",
+      "parameters": [
+        {
+          "name": "pattern",
+          "type": "string"
+        },
+        {
+          "name": "text",
+          "type": "string"
+        }
+      ],
+      "returns": "array"
+    },
+    {
+      "name": "uuid",
+      "signature": "uuid() -> string",
+      "doc": "Returns a random UUID.",
+      "parameters": [],
+      "returns": "string"
+    },
+    {
+      "name": "random_int",
+      "signature": "random_int(low: int, high: int) -> int",
+      "doc": "Returns a random integer from low to high, both included.",
+      "parameters": [
+        {
+          "name": "low",
+          "type": "int"
+        },
+        {
+          "name": "high",
+          "type": "int"
+        }
+      ],
+      "returns": "int"
+    },
+    {
+      "name": "now",
+      "signature": "now() -> string",
+      "doc": "Returns the capture time as an RFC 3339 timestamp.",
+      "parameters": [],
+      "returns": "string"
+    },
+    {
+      "name": "replace",
+      "signature": "replace(text: string, find: string, substitute: string)",
+      "doc": "Replaces every occurrence of find in the text variable itself; call it as text.replace(find, substitute).",
+      "parameters": [
+        {
+          "name": "text",
+          "type": "string"
+        },
+        {
+          "name": "find",
+          "type": "string"
+        },
+        {
+          "name": "substitute",
+          "type": "string"
+        }
+      ],
+      "returns": null
+    },
+    {
+      "name": "pad",
+      "signature": "pad(text: string, length: int, padding: string)",
+      "doc": "Pads the text variable itself up to length characters with padding; call it as text.pad(length, padding).",
+      "parameters": [
+        {
+          "name": "text",
+          "type": "string"
+        },
+        {
+          "name": "length",
+          "type": "int"
+        },
+        {
+          "name": "padding",
+          "type": "string"
+        }
+      ],
+      "returns": null
+    },
+    {
+      "name": "len",
+      "signature": "len(value: any) -> int",
+      "doc": "Returns the length of a string, array or map.",
+      "parameters": [
+        {
+          "name": "value",
+          "type": "any"
+        }
+      ],
+      "returns": "int"
+    },
+    {
+      "name": "contains",
+      "signature": "contains(value: any, item: any) -> bool",
+      "doc": "True when a string holds the text, an array the item or a map the key.",
+      "parameters": [
+        {
+          "name": "value",
+          "type": "any"
+        },
+        {
+          "name": "item",
+          "type": "any"
+        }
+      ],
+      "returns": "bool"
+    },
+    {
+      "name": "starts_with",
+      "signature": "starts_with(text: string, prefix: string) -> bool",
+      "doc": "True when the text starts with the prefix.",
+      "parameters": [
+        {
+          "name": "text",
+          "type": "string"
+        },
+        {
+          "name": "prefix",
+          "type": "string"
+        }
+      ],
+      "returns": "bool"
+    },
+    {
+      "name": "ends_with",
+      "signature": "ends_with(text: string, suffix: string) -> bool",
+      "doc": "True when the text ends with the suffix.",
+      "parameters": [
+        {
+          "name": "text",
+          "type": "string"
+        },
+        {
+          "name": "suffix",
+          "type": "string"
+        }
+      ],
+      "returns": "bool"
+    },
+    {
+      "name": "trim",
+      "signature": "trim(text: string)",
+      "doc": "Removes whitespace from both ends of the text variable itself.",
+      "parameters": [
+        {
+          "name": "text",
+          "type": "string"
+        }
+      ],
+      "returns": null
+    },
+    {
+      "name": "to_upper",
+      "signature": "to_upper(text: string) -> string",
+      "doc": "Returns the text in upper case.",
+      "parameters": [
+        {
+          "name": "text",
+          "type": "string"
+        }
+      ],
+      "returns": "string"
+    },
+    {
+      "name": "to_lower",
+      "signature": "to_lower(text: string) -> string",
+      "doc": "Returns the text in lower case.",
+      "parameters": [
+        {
+          "name": "text",
+          "type": "string"
+        }
+      ],
+      "returns": "string"
+    },
+    {
+      "name": "split",
+      "signature": "split(text: string, separator: string) -> array",
+      "doc": "Splits the text at every separator.",
+      "parameters": [
+        {
+          "name": "text",
+          "type": "string"
+        },
+        {
+          "name": "separator",
+          "type": "string"
+        }
+      ],
+      "returns": "array"
+    },
+    {
+      "name": "sub_string",
+      "signature": "sub_string(text: string, start: int, length: int) -> string",
+      "doc": "Returns length characters of the text from start.",
+      "parameters": [
+        {
+          "name": "text",
+          "type": "string"
+        },
+        {
+          "name": "start",
+          "type": "int"
+        },
+        {
+          "name": "length",
+          "type": "int"
+        }
+      ],
+      "returns": "string"
+    },
+    {
+      "name": "to_string",
+      "signature": "to_string(value: any) -> string",
+      "doc": "Converts a value to text.",
+      "parameters": [
+        {
+          "name": "value",
+          "type": "any"
+        }
+      ],
+      "returns": "string"
+    },
+    {
+      "name": "parse_int",
+      "signature": "parse_int(text: string) -> int",
+      "doc": "Parses a whole number; fails when the text is not one.",
+      "parameters": [
+        {
+          "name": "text",
+          "type": "string"
+        }
+      ],
+      "returns": "int"
+    },
+    {
+      "name": "parse_float",
+      "signature": "parse_float(text: string) -> float",
+      "doc": "Parses a decimal number; fails when the text is not one.",
+      "parameters": [
+        {
+          "name": "text",
+          "type": "string"
+        }
+      ],
+      "returns": "float"
+    },
+    {
+      "name": "keys",
+      "signature": "keys(map: map) -> array",
+      "doc": "Returns the keys of a map.",
+      "parameters": [
+        {
+          "name": "map",
+          "type": "map"
+        }
+      ],
+      "returns": "array"
+    },
+    {
+      "name": "values",
+      "signature": "values(map: map) -> array",
+      "doc": "Returns the values of a map.",
+      "parameters": [
+        {
+          "name": "map",
+          "type": "map"
+        }
+      ],
+      "returns": "array"
+    },
+    {
+      "name": "push",
+      "signature": "push(list: array, item: any)",
+      "doc": "Appends an item to the array variable itself.",
+      "parameters": [
+        {
+          "name": "list",
+          "type": "array"
+        },
+        {
+          "name": "item",
+          "type": "any"
+        }
+      ],
+      "returns": null
+    },
+    {
+      "name": "pop",
+      "signature": "pop(list: array) -> any",
+      "doc": "Removes and returns the last item of the array variable itself.",
+      "parameters": [
+        {
+          "name": "list",
+          "type": "array"
+        }
+      ],
+      "returns": "any"
+    },
+    {
+      "name": "print",
+      "signature": "print(value: any)",
+      "doc": "Writes a line to the run log, 4 KiB in total.",
+      "parameters": [
+        {
+          "name": "value",
+          "type": "any"
+        }
+      ],
+      "returns": null
+    }
+  ],
+  "variables": [
+    {
+      "name": "request",
+      "type": "map",
+      "doc": "The captured request. Read-only."
+    },
+    {
+      "name": "request.method",
+      "type": "string",
+      "doc": "The HTTP method, upper case."
+    },
+    {
+      "name": "request.path",
+      "type": "string",
+      "doc": "The request path after the endpoint id."
+    },
+    {
+      "name": "request.segments",
+      "type": "array",
+      "doc": "The path segments after the endpoint id."
+    },
+    {
+      "name": "request.query",
+      "type": "map",
+      "doc": "Query parameters by name; the first value of each."
+    },
+    {
+      "name": "request.headers",
+      "type": "map",
+      "doc": "Request headers by lower-case name; the first value of each."
+    },
+    {
+      "name": "request.form",
+      "type": "map",
+      "doc": "Form fields by name; the first value of each."
+    },
+    {
+      "name": "request.body",
+      "type": "string",
+      "doc": "The body as text, the first 64 KiB; parse JSON with json_parse(request.body)."
+    },
+    {
+      "name": "request.ip",
+      "type": "string",
+      "doc": "The sender's address."
+    },
+    {
+      "name": "request.content_type",
+      "type": "string",
+      "doc": "The request's content type."
+    },
+    {
+      "name": "request.kind",
+      "type": "string",
+      "doc": "How the capture arrived: http, email, dns or schedule."
+    },
+    {
+      "name": "request.meta",
+      "type": "map",
+      "doc": "Extra facts of the capture by name, such as the sender of an email."
+    },
+    {
+      "name": "request.signature",
+      "type": "string",
+      "doc": "The result of signature verification: valid, invalid or missing."
+    },
+    {
+      "name": "request.capture",
+      "type": "map",
+      "doc": "The capture."
+    },
+    {
+      "name": "request.capture.id",
+      "type": "string",
+      "doc": "The capture id."
+    },
+    {
+      "name": "request.capture.seq",
+      "type": "int",
+      "doc": "The capture's sequence number."
+    },
+    {
+      "name": "request.capture.received_at",
+      "type": "string",
+      "doc": "When the capture arrived, as an RFC 3339 timestamp."
+    },
+    {
+      "name": "request.endpoint",
+      "type": "map",
+      "doc": "The endpoint."
+    },
+    {
+      "name": "request.endpoint.id",
+      "type": "string",
+      "doc": "The endpoint id."
+    },
+    {
+      "name": "request.endpoint.url",
+      "type": "string",
+      "doc": "The endpoint's capture URL."
+    },
+    {
+      "name": "request.endpoint.title",
+      "type": "string",
+      "doc": "The endpoint's title, empty when it has none."
+    },
+    {
+      "name": "request.store",
+      "type": "map",
+      "doc": "The endpoint's persistent variables by name."
+    },
+    {
+      "name": "request.counter",
+      "type": "map",
+      "doc": "The endpoint's persistent counters by name."
+    },
+    {
+      "name": "vars",
+      "type": "map",
+      "doc": "Run variables. Changes leave the script only through the returned map."
+    }
+  ],
+  "limits": {
+    "max_source_bytes": 16384,
+    "memory_bytes": 33554432,
+    "before_response": {
+      "max_operations": 100000,
+      "max_time_ms": 100
+    },
+    "after_response": {
+      "max_operations": 1000000,
+      "max_time_ms": 1000
+    }
+  },
+  "reference_url": "/docs/api/script_meta"
+}

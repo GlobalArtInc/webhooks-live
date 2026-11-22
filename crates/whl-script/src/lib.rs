@@ -2,6 +2,7 @@
 
 mod alloc;
 mod cache;
+mod catalogue;
 mod compiled;
 mod convert;
 mod engine;
@@ -23,6 +24,9 @@ mod tests;
 
 pub use alloc::{CountingAlloc, MemoryWindow, allocator_installed, memory_exceeded};
 pub use cache::{CacheConfig, CacheStats, ScriptCache};
+pub use catalogue::{
+    FUNCTIONS, FunctionDoc, KEYWORDS, LANGUAGE_NAME, ParameterDoc, VARIABLES, VariableDoc,
+};
 pub use compiled::{CompiledScript, ScriptCompiler, ScriptHash};
 pub use env::{MonotonicClock, RandomSeed, RandomSource, SeededRandom, SystemClock};
 pub use error::{

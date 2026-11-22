@@ -28,6 +28,7 @@ mod resolve;
 mod routing;
 mod rules;
 mod schedules;
+mod script;
 mod secrets;
 mod settings;
 mod state;
@@ -83,6 +84,7 @@ fn api_routes() -> Routes {
         .merge(import::routes())
         .merge(forward::routes())
         .merge(rules::routes())
+        .merge(script::routes())
         .merge(schedules::routes())
         .merge(notify::routes())
         .merge(push::routes())

@@ -2,7 +2,7 @@ import { EditorView } from '@codemirror/view';
 import { waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { attachEnhancements } from './enhance';
-import { SCRIPT_META_FIXTURE } from './fixtures';
+import { SCRIPT_META_FIXTURE } from './metaFixture';
 import type { EnhancementConfig } from './types';
 
 const PLAIN: EnhancementConfig = { meta: null, fullHeight: false };

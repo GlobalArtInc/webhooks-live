@@ -17,6 +17,7 @@ use crate::import::{IMPORT_COOLDOWN, ImportCooldown, import_slots};
 use crate::limit::ApiLimits;
 use crate::notify::{EmailApi, NotifyApiSettings};
 use crate::schedules::ScheduleSettings;
+use crate::script::SCRIPT_CHECK_SLOTS;
 use crate::settings::{ApiSettings, DEFAULT_ALIAS_QUARANTINE};
 use crate::templating::PreviewSlots;
 
@@ -40,6 +41,7 @@ pub struct ApiState {
     pub(crate) tiers: Tiers,
     pub(crate) rules: Option<RulesRuntime>,
     pub(crate) previews: PreviewSlots,
+    pub(crate) script_checks: PreviewSlots,
 }
 
 impl ApiState {
@@ -66,11 +68,17 @@ impl ApiState {
             tiers: Tiers::default(),
             rules: None,
             previews: PreviewSlots::default(),
+            script_checks: PreviewSlots::new(SCRIPT_CHECK_SLOTS),
         }
     }
 
     pub fn with_preview_slots(mut self, slots: usize) -> Self {
         self.previews = PreviewSlots::new(slots);
+        self
+    }
+
+    pub fn with_script_check_slots(mut self, slots: usize) -> Self {
+        self.script_checks = PreviewSlots::new(slots);
         self
     }
 

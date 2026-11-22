@@ -38,6 +38,8 @@ pub fn requirement(mode: AccessMode, method: &Method, pattern: &str) -> Requirem
             Requirement::SignedIn
         }
         "/send" | "/send/history" | "/send/history/{sent_id}" => Requirement::Anyone,
+        "/script/meta" | "/script/validate" if mode == AccessMode::Sso => Requirement::SignedIn,
+        "/script/meta" | "/script/validate" => Requirement::Anyone,
         IMPORT_PATH => Requirement::SignedIn,
         "/endpoints" if mode == AccessMode::Mixed && *method == Method::POST => Requirement::Anyone,
         "/endpoints" => Requirement::SignedIn,
@@ -553,6 +555,32 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    #[test]
+    fn the_script_routes_need_sign_in_only_in_sso_mode_and_refuse_every_token() {
+        for (method, pattern) in [
+            (&GET, "/api/v1/script/meta"),
+            (&POST, "/api/v1/script/validate"),
+        ] {
+            assert_eq!(
+                requirement(AccessMode::Sso, method, pattern),
+                Requirement::SignedIn,
+                "{pattern}"
+            );
+            for mode in [AccessMode::Open, AccessMode::Mixed] {
+                assert_eq!(
+                    requirement(mode, method, pattern),
+                    Requirement::Anyone,
+                    "{mode:?} {pattern}"
+                );
+            }
+            assert_eq!(
+                token_policy(method, pattern),
+                TokenPolicy::SessionOnly,
+                "{pattern}"
+            );
         }
     }
 

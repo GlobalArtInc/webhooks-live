@@ -315,3 +315,80 @@ fn the_clock_is_read_at_most_every_sixteenth_operation() {
     }
     assert_eq!(clock.reads.load(Ordering::SeqCst), 100);
 }
+
+fn compile_on_small_stack(source: String) -> (Result<(), usize>, Duration) {
+    std::thread::Builder::new()
+        .stack_size(512 * 1024)
+        .spawn(move || {
+            let compiler = ScriptCompiler::new(EngineLimits::default()).expect("limits are valid");
+            let started = std::time::Instant::now();
+            let outcome = compiler
+                .compile(&source)
+                .map(|_| ())
+                .map_err(|error| error.diagnostics.len());
+            (outcome, started.elapsed())
+        })
+        .expect("the thread starts")
+        .join()
+        .expect("the compiler does not overflow the stack")
+}
+
+#[test]
+fn hostile_sources_are_refused_or_compiled_quickly_without_overflowing_a_small_stack() {
+    let limit = EngineLimits::default().max_source_bytes;
+    let sources = [
+        "(".repeat(limit),
+        "[".repeat(limit),
+        "#{a:".repeat(limit / 4),
+        "{".repeat(limit),
+        "if true {".repeat(limit / 9),
+        "!".repeat(limit),
+        "-".repeat(limit),
+        format!("let a = {};", "1+".repeat(limit / 2 - 8) + "1"),
+        format!("let a = {}1;", "a.".repeat(limit / 2 - 16)),
+        format!("let a = \"{}\";", "x".repeat(limit - 16)),
+        "fn f(a){}\n".repeat(limit / 10),
+        "let a = 1;\n".repeat(limit / 11),
+        "\u{0}".repeat(limit),
+        "\"".repeat(limit),
+        "/*".repeat(limit / 2),
+        format!(
+            "{}1{}",
+            "(".repeat(limit / 2 - 1),
+            ")".repeat(limit / 2 - 1)
+        ),
+        format!(
+            "{}1{}",
+            "[".repeat(limit / 2 - 1),
+            "]".repeat(limit / 2 - 1)
+        ),
+        format!(
+            "{}1{}",
+            "{".repeat(limit / 2 - 1),
+            "}".repeat(limit / 2 - 1)
+        ),
+    ];
+    for source in sources {
+        let label: String = source.chars().take(12).collect();
+        assert!(source.len() <= limit, "{label}");
+        let (outcome, elapsed) = compile_on_small_stack(source);
+        assert!(elapsed < Duration::from_secs(2), "{label}: {elapsed:?}");
+        if let Err(count) = outcome {
+            assert!(count >= 1, "{label}");
+        }
+    }
+    let balanced = format!(
+        "{}1{}",
+        "(".repeat(limit / 2 - 1),
+        ")".repeat(limit / 2 - 1)
+    );
+    assert_eq!(compile_on_small_stack(balanced).0, Err(1));
+}
+
+#[test]
+fn a_source_over_the_limit_is_refused_before_it_is_parsed() {
+    let limit = EngineLimits::default().max_source_bytes;
+    let (outcome, elapsed) = compile_on_small_stack("(".repeat(limit + 1));
+    assert_eq!(outcome, Err(1));
+    assert!(elapsed < Duration::from_millis(200), "{elapsed:?}");
+}

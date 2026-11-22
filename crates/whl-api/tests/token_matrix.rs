@@ -146,6 +146,23 @@ async fn in_mixed_mode_a_token_is_the_owner_of_an_ownerless_endpoint_except_on_p
 }
 
 #[tokio::test]
+async fn the_script_routes_refuse_every_token_whatever_its_scopes() {
+    let harness = sso_harness().await;
+    let cast = cast(&harness).await;
+    let minted = mint(&harness, &cast.owner, &ALL_SCOPES, None).await;
+    for (method, uri, body) in [
+        (Method::GET, "/api/v1/script/meta", ""),
+        (Method::POST, "/api/v1/script/validate", r#"{"source":"1"}"#),
+    ] {
+        let reply = harness
+            .send_bearer(&minted.token, method.clone(), uri, body)
+            .await;
+        assert_eq!(reply.status, StatusCode::FORBIDDEN, "{method} {uri}");
+        assert_eq!(error_code(&reply), "session_required", "{method} {uri}");
+    }
+}
+
+#[tokio::test]
 async fn a_token_stream_ends_when_the_token_is_revoked_or_the_membership_is_lost() {
     let harness = sso_harness().await;
     let cast = cast(&harness).await;

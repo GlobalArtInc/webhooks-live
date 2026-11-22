@@ -4,7 +4,8 @@ import { I18nextProvider } from 'react-i18next';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { editorCount } from '../../diff/testDom';
 import { createI18nInstance } from '../../../i18n/setup';
-import { SCRIPT_META_FIXTURE, SCRIPT_RUNTIME_DIAGNOSTIC, fixtureValidate } from './fixtures';
+import { SCRIPT_RUNTIME_DIAGNOSTIC, fixtureValidate } from './fixtures';
+import { SCRIPT_META_FIXTURE } from './metaFixture';
 import { ScriptStepEditor, type ScriptStepEditorProps } from './ScriptStepEditor';
 import type { ScriptTransport } from './types';
 

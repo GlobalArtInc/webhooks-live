@@ -19,6 +19,7 @@ pub(super) fn area_docs() -> Vec<Document> {
         crate::quota::UsageDoc::openapi(),
         crate::rules::RulesDoc::openapi(),
         crate::schedules::SchedulesDoc::openapi(),
+        crate::script::ScriptDoc::openapi(),
         crate::secrets::SecretsDoc::openapi(),
         super::streams::StreamsDoc::openapi(),
         crate::templating::TemplatingDoc::openapi(),

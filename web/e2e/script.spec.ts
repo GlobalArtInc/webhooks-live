@@ -57,6 +57,28 @@ test.describe('script editor', () => {
     await expect(section.locator('.cm-lintRange-error')).toHaveCount(0);
   });
 
+  test('a diagnostic in the exact shape the server answers marks its line and offers Go', async ({ page }) => {
+    const { editor } = await openSample(page);
+    const section = page.getByRole('region', { name: 'Step card' });
+    await page.route('**/api/v1/script/validate', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          diagnostics: [
+            { severity: 'error', code: 'syntax', message: "Unexpected ';'", line: 2, column: 9, length: 1 },
+          ],
+        }),
+      }),
+    );
+
+    await editor.fill('let a = 1;\nlet b = ;');
+
+    await expect(section.getByText('Errors 1', { exact: true })).toBeVisible();
+    await expect(section.locator('.cm-lintRange-error').first()).toBeVisible();
+    await expect(section.getByRole('button', { name: "Go to line 2, column 9: Unexpected ';'" })).toBeVisible();
+  });
+
   test('completion lists the catalogue functions from the server meta and inserts a call', async ({ page }) => {
     const { editor } = await openSample(page);
 
@@ -79,13 +101,13 @@ test.describe('script editor', () => {
     await page.keyboard.press('Backspace');
     await page.keyboard.type('sha256(request.path)');
     await page.keyboard.press('Enter');
-    await page.keyboard.type('request.json');
+    await page.keyboard.type('request.body');
     const lines = page.locator('.cm-line');
     await lines.filter({ hasText: 'sha256(' }).hover({ position: { x: 20, y: 8 } });
     await expect(page.locator('.cm-tooltip', { hasText: 'sha256(text: string) -> string' })).toBeVisible();
     await expect(page.locator('.cm-tooltip', { hasText: 'SHA-256 digest' })).toBeVisible();
 
-    await lines.filter({ hasText: /^request\.json$/ }).hover({ position: { x: 20, y: 8 } });
+    await lines.filter({ hasText: /^request\.body$/ }).hover({ position: { x: 20, y: 8 } });
     await expect(page.locator('.cm-tooltip', { hasText: 'request: map' })).toBeVisible();
   });
 

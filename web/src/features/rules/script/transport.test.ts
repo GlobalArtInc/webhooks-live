@@ -1,7 +1,7 @@
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../../../api/client';
-import { SCRIPT_META_FIXTURE } from './fixtures';
+import { SCRIPT_META_ANSWER, SCRIPT_META_FIXTURE } from './metaFixture';
 import { SCRIPT_META_URL, SCRIPT_VALIDATE_URL, scriptHandlers } from './scriptMocks';
 import { httpScriptTransport } from './transport';
 
@@ -17,7 +17,7 @@ afterEach(() => {
 
 describe('httpScriptTransport', () => {
   it('reads the language meta with a GET that carries the abort signal', async () => {
-    const fetchMock = stubFetch(Response.json(SCRIPT_META_FIXTURE));
+    const fetchMock = stubFetch(Response.json(SCRIPT_META_ANSWER));
     const controller = new AbortController();
 
     await expect(httpScriptTransport.loadMeta(controller.signal)).resolves.toEqual(SCRIPT_META_FIXTURE);
@@ -54,6 +54,21 @@ describe('httpScriptTransport', () => {
     expect(failure).toMatchObject({ status: 503, code: 'feature_disabled', message: 'Scripts are off' });
   });
 
+  it('carries Retry-After of a busy answer on the ApiError', async () => {
+    stubFetch(
+      Response.json(
+        { error: { code: 'rate_limited', message: 'busy' } },
+        { status: 429, headers: { 'Retry-After': '1' } },
+      ),
+    );
+
+    const failure = await httpScriptTransport
+      .validate('x', new AbortController().signal)
+      .catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({ status: 429, retryAfter: 1 });
+  });
+
   it('refuses an answer that breaks the contract', async () => {
     stubFetch(Response.json({ diagnostics: [{ line: 0 }] }));
 
@@ -75,13 +90,13 @@ describe('script mock handlers', () => {
   it('serve the meta and validate a source like the server fixture does', async () => {
     const origin = window.location.origin;
     const meta = await fetch(`${origin}${SCRIPT_META_URL}`).then((response) => response.json());
-    expect(meta).toEqual(SCRIPT_META_FIXTURE);
+    expect(meta).toEqual(SCRIPT_META_ANSWER);
 
     const validated = await fetch(`${origin}${SCRIPT_VALIDATE_URL}`, {
       method: 'POST',
       body: JSON.stringify({ source: 'let a = 1 +' }),
     }).then((response) => response.json());
-    expect(validated.diagnostics[0]).toMatchObject({ line: 1, code: 'script_invalid' });
+    expect(validated.diagnostics[0]).toMatchObject({ line: 1, code: 'syntax' });
 
     const refused = await fetch(`${origin}${SCRIPT_VALIDATE_URL}`, { method: 'POST', body: JSON.stringify({}) });
     expect(refused.status).toBe(400);

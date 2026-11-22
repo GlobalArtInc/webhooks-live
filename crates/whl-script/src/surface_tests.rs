@@ -484,3 +484,234 @@ fn degenerate_arguments_never_hang_or_outrun_the_deadline_on_any_registered_func
     assert!(uncovered.is_empty(), "uncovered: {uncovered:?}");
     assert_eq!(pool.stats().stuck_workers, 0);
 }
+
+const KEYWORD_SAMPLE: &str = "let a = 1; const b = 2; fn f(x) { return x; } \
+    if true { } else { } if false { } \
+    switch a { 1 => (), _ => () } \
+    while false { break; } loop { break; } \
+    do { } while false; do { } until true; \
+    for i in 0..2 { continue; } \
+    try { throw 1; } catch (e) { }";
+
+#[test]
+fn every_documented_function_is_registered_with_the_documented_number_of_parameters() {
+    let registered = signatures(&full_engine());
+    let mut seen = BTreeSet::new();
+    for documented in crate::FUNCTIONS {
+        assert!(
+            seen.insert(documented.name),
+            "{} is documented twice",
+            documented.name
+        );
+        assert!(
+            registered.iter().any(|signature| {
+                signature.name == documented.name
+                    && signature.parameters.len() == documented.parameters.len()
+            }),
+            "{} has no registered form with {} parameters",
+            documented.name,
+            documented.parameters.len()
+        );
+        assert!(
+            !documented.doc.is_empty() && documented.doc.chars().count() <= 200,
+            "{} needs a one-line doc",
+            documented.name
+        );
+    }
+}
+
+#[test]
+fn every_host_function_the_engine_registers_beyond_the_packages_is_documented() {
+    let limits = EngineLimits::default();
+    let before: BTreeSet<String> = signatures(&build_engine(&limits))
+        .into_iter()
+        .map(|signature| signature.name)
+        .collect();
+    let host: BTreeSet<String> = signatures(&full_engine())
+        .into_iter()
+        .map(|signature| signature.name)
+        .filter(|name| !before.contains(name))
+        .collect();
+    let documented: BTreeSet<String> = crate::FUNCTIONS
+        .iter()
+        .map(|function| function.name.to_owned())
+        .collect();
+    let missing: Vec<&String> = host.difference(&documented).collect();
+    assert!(
+        missing.is_empty(),
+        "undocumented host functions: {missing:?}"
+    );
+    assert!(host.len() >= 12, "{host:?}");
+}
+
+#[test]
+fn the_keywords_compile_in_one_program_and_none_is_a_disabled_symbol() {
+    let compiler = ScriptCompiler::new(EngineLimits::default()).expect("limits are valid");
+    compiler
+        .compile(KEYWORD_SAMPLE)
+        .expect("the sample program compiles");
+    for keyword in crate::KEYWORDS {
+        assert!(
+            KEYWORD_SAMPLE
+                .split(|character: char| !character.is_alphanumeric() && character != '_')
+                .any(|word| word == *keyword),
+            "{keyword} is not used by the sample program"
+        );
+        assert!(
+            !crate::engine::DISABLED_SYMBOLS.contains(keyword),
+            "{keyword} is disabled"
+        );
+    }
+}
+
+#[test]
+fn the_documented_variables_start_at_the_two_scope_roots() {
+    let roots: BTreeSet<&str> = crate::VARIABLES
+        .iter()
+        .map(|variable| variable.name.split('.').next().unwrap_or(""))
+        .collect();
+    assert_eq!(
+        roots,
+        BTreeSet::from([
+            crate::engine::REQUEST_VARIABLE,
+            crate::engine::VARS_VARIABLE
+        ])
+    );
+    let names: BTreeSet<&str> = crate::VARIABLES
+        .iter()
+        .map(|variable| variable.name)
+        .collect();
+    assert_eq!(names.len(), crate::VARIABLES.len());
+}
+
+struct OrderExample {
+    function: &'static str,
+    values: &'static [(&'static str, &'static str)],
+    in_place: bool,
+    expected: &'static str,
+}
+
+const ORDER_EXAMPLES: &[OrderExample] = &[
+    OrderExample {
+        function: "hmac_sha256",
+        values: &[("key", "\"key\""), ("text", "\"text\"")],
+        in_place: false,
+        expected: "\"6afa9046a9579cad143a384c1b564b9a250d27d6f6a63f9f20bf3a7594c9e2c6\"",
+    },
+    OrderExample {
+        function: "regex_match",
+        values: &[("pattern", "\"^a\""), ("text", "\"abc\"")],
+        in_place: false,
+        expected: "true",
+    },
+    OrderExample {
+        function: "regex_captures",
+        values: &[("pattern", "\"(a)(b)\""), ("text", "\"xab\"")],
+        in_place: false,
+        expected: "[\"ab\", \"a\", \"b\"]",
+    },
+    OrderExample {
+        function: "replace",
+        values: &[
+            ("text", "\"abc\""),
+            ("find", "\"b\""),
+            ("substitute", "\"X\""),
+        ],
+        in_place: true,
+        expected: "\"aXc\"",
+    },
+    OrderExample {
+        function: "pad",
+        values: &[("text", "\"a\""), ("length", "3"), ("padding", "\"-\"")],
+        in_place: true,
+        expected: "\"a--\"",
+    },
+    OrderExample {
+        function: "random_int",
+        values: &[("low", "5"), ("high", "5")],
+        in_place: false,
+        expected: "5",
+    },
+    OrderExample {
+        function: "starts_with",
+        values: &[("text", "\"abc\""), ("prefix", "\"ab\"")],
+        in_place: false,
+        expected: "true",
+    },
+    OrderExample {
+        function: "ends_with",
+        values: &[("text", "\"abc\""), ("suffix", "\"bc\"")],
+        in_place: false,
+        expected: "true",
+    },
+    OrderExample {
+        function: "contains",
+        values: &[("value", "\"abc\""), ("item", "\"b\"")],
+        in_place: false,
+        expected: "true",
+    },
+    OrderExample {
+        function: "split",
+        values: &[("text", "\"a,b\""), ("separator", "\",\"")],
+        in_place: false,
+        expected: "[\"a\", \"b\"]",
+    },
+    OrderExample {
+        function: "sub_string",
+        values: &[("text", "\"abcdef\""), ("start", "1"), ("length", "2")],
+        in_place: false,
+        expected: "\"bc\"",
+    },
+    OrderExample {
+        function: "push",
+        values: &[("list", "[1]"), ("item", "2")],
+        in_place: true,
+        expected: "[1, 2]",
+    },
+];
+
+fn literal_of(example: &OrderExample, parameter: &str) -> &'static str {
+    example
+        .values
+        .iter()
+        .find(|(name, _)| *name == parameter)
+        .map(|(_, literal)| *literal)
+        .unwrap_or_else(|| panic!("{} has no value for {parameter}", example.function))
+}
+
+#[test]
+fn the_documented_parameter_order_gives_the_documented_result_in_the_real_engine() {
+    let engine = full_engine();
+    for example in ORDER_EXAMPLES {
+        let documented = crate::FUNCTIONS
+            .iter()
+            .find(|function| function.name == example.function)
+            .unwrap_or_else(|| panic!("{} is not documented", example.function));
+        assert_eq!(documented.parameters.len(), example.values.len());
+        let arguments: Vec<&str> = documented
+            .parameters
+            .iter()
+            .map(|parameter| literal_of(example, parameter.name))
+            .collect();
+        let script = if example.in_place {
+            format!(
+                "let v = {}; v.{}({}); v == {}",
+                arguments[0],
+                example.function,
+                arguments[1..].join(", "),
+                example.expected
+            )
+        } else {
+            format!(
+                "{}({}) == {}",
+                example.function,
+                arguments.join(", "),
+                example.expected
+            )
+        };
+        let outcome = engine
+            .eval::<bool>(&script)
+            .unwrap_or_else(|error| panic!("{script}: {error}"));
+        assert!(outcome, "{script}");
+    }
+}

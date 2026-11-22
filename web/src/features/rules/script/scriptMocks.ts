@@ -1,5 +1,6 @@
 import { http, HttpResponse, type HttpHandler } from 'msw';
-import { SCRIPT_META_FIXTURE, fixtureValidate } from './fixtures';
+import { fixtureValidate } from './fixtures';
+import { SCRIPT_META_ANSWER } from './metaFixture';
 
 export const SCRIPT_META_URL = '/api/v1/script/meta';
 
@@ -10,7 +11,7 @@ interface ValidateBody {
 }
 
 export const scriptHandlers: HttpHandler[] = [
-  http.get(SCRIPT_META_URL, () => HttpResponse.json(SCRIPT_META_FIXTURE)),
+  http.get(SCRIPT_META_URL, () => HttpResponse.json(SCRIPT_META_ANSWER)),
   http.post(SCRIPT_VALIDATE_URL, async ({ request }) => {
     const body = (await request.json()) as ValidateBody;
     if (typeof body.source !== 'string') {

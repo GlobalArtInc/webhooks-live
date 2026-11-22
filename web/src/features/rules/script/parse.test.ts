@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_DIAGNOSTICS } from './constants';
-import { SCRIPT_META_FIXTURE } from './fixtures';
+import { SCRIPT_META_FIXTURE } from './metaFixture';
 import { ScriptContractError, parseScriptDiagnostics, parseScriptMeta } from './parse';
 
 function diagnostic(overrides: Record<string, unknown> = {}): Record<string, unknown> {

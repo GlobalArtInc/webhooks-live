@@ -2629,6 +2629,197 @@
         "required": ["schedule_id", "queued_at"],
         "type": "object"
       },
+      "ScriptDiagnostic": {
+        "type": "object",
+        "required": ["severity", "code", "message", "line", "column", "length"],
+        "properties": {
+          "code": {
+            "type": "string",
+            "example": "unexpected_end"
+          },
+          "column": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 1
+          },
+          "length": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 1
+          },
+          "line": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 1
+          },
+          "message": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "example": "error",
+            "pattern": "^(error|warning)$"
+          }
+        }
+      },
+      "ScriptFunction": {
+        "type": "object",
+        "required": ["name", "signature", "doc", "parameters"],
+        "properties": {
+          "doc": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "example": "sha256"
+          },
+          "parameters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScriptParameter"
+            }
+          },
+          "returns": {
+            "type": ["string", "null"],
+            "example": "string"
+          },
+          "signature": {
+            "type": "string",
+            "example": "sha256(text: string) -> string"
+          }
+        }
+      },
+      "ScriptLimits": {
+        "type": "object",
+        "required": ["max_source_bytes", "memory_bytes", "before_response", "after_response"],
+        "properties": {
+          "after_response": {
+            "$ref": "#/components/schemas/ScriptPhaseLimits"
+          },
+          "before_response": {
+            "$ref": "#/components/schemas/ScriptPhaseLimits"
+          },
+          "max_source_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "memory_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          }
+        }
+      },
+      "ScriptMeta": {
+        "type": "object",
+        "required": ["name", "keywords", "functions", "variables", "limits", "reference_url"],
+        "properties": {
+          "functions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScriptFunction"
+            }
+          },
+          "keywords": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "limits": {
+            "$ref": "#/components/schemas/ScriptLimits"
+          },
+          "name": {
+            "type": "string",
+            "example": "rhai"
+          },
+          "reference_url": {
+            "type": "string",
+            "example": "/docs/api/script_meta"
+          },
+          "variables": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScriptVariable"
+            }
+          }
+        }
+      },
+      "ScriptParameter": {
+        "type": "object",
+        "required": ["name", "type"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "text"
+          },
+          "type": {
+            "type": "string",
+            "example": "string"
+          }
+        }
+      },
+      "ScriptPhaseLimits": {
+        "type": "object",
+        "required": ["max_operations", "max_time_ms"],
+        "properties": {
+          "max_operations": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          },
+          "max_time_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1
+          }
+        }
+      },
+      "ScriptValidateInput": {
+        "type": "object",
+        "required": ["source"],
+        "properties": {
+          "phase": {
+            "type": ["string", "null"],
+            "example": "before",
+            "pattern": "^(before|after)$"
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 16384
+          }
+        }
+      },
+      "ScriptValidation": {
+        "type": "object",
+        "required": ["diagnostics"],
+        "properties": {
+          "diagnostics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScriptDiagnostic"
+            }
+          }
+        }
+      },
+      "ScriptVariable": {
+        "type": "object",
+        "required": ["name", "type", "doc"],
+        "properties": {
+          "doc": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "example": "request.method"
+          },
+          "type": {
+            "type": "string",
+            "example": "string"
+          }
+        }
+      },
       "Secret": {
         "properties": {
           "created_at": {
@@ -12382,6 +12573,125 @@
         "tags": ["Push"]
       }
     },
+    "/script/meta": {
+      "get": {
+        "tags": ["Script"],
+        "summary": "The catalogue of the script step language",
+        "description": "What the script editor offers: `name` of the language (Rhai), `keywords`, `functions` (`name`, `signature`, a one-line `doc`, `parameters` with `name` and `type`, and `returns`, null when nothing is returned), `variables` (the names a script can read, with dotted paths such as `request.method`, a `type` and a `doc`) and the `limits` that stop a script: source size, memory, and per phase (`before_response`, `after_response`) the operation count and the time. The time is the longest a single run may take in that phase (100 ms before the response, 1 s after it, the engine's ceilings for every tier); a run also stops earlier when the rest of the response budget is shorter. The lists are the engine's own tables, checked against its registered functions by tests, so they cannot drift. `reference_url` is the reference page of the language. Needs no endpoint: any caller who may use the application (in `sso` a signed-in one) may read it; session only: a Bearer token answers 403 `session_required`.",
+        "operationId": "script_meta",
+        "responses": {
+          "200": {
+            "description": "The language catalogue",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScriptMeta"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "`session_required`: a Bearer token was used",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {}
+        ]
+      }
+    },
+    "/script/validate": {
+      "post": {
+        "tags": ["Script"],
+        "summary": "Check a script source without running it",
+        "description": "Compiles `source` (at most 16 KiB; `phase` is `before` or `after` and is accepted for the editor, compiling does not depend on it) with the engine and limits a rule save uses, and never runs it. A source that does not compile is a 200 whose `diagnostics` list each problem with `severity` (always `error`), `code` (`syntax`, `unexpected_end`, `disabled_feature`, `expression_too_deep`, `too_many_functions`, `literal_too_large`, `undefined_variable`, `assignment_to_constant`, `invalid_function`, `invalid_literal`), `message`, and `line`, `column` and `length` (1-based, in characters) of the offending text; a clean source answers an empty list. A source over 16 KiB answers 422 `validation_failed` (field `source`, code `too_long`). Needs no endpoint: any caller who may use the application (in `sso` a signed-in one); session only: a Bearer token answers 403 `session_required`. At most 4 checks run at once on a replica, more answer 429 `rate_limited` with `Retry-After: 1`; a check that does not finish within 2 seconds answers 500 `internal_error`.",
+        "operationId": "script_validate",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScriptValidateInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The diagnostics, empty when the source compiles",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScriptValidation"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthenticated"
+          },
+          "403": {
+            "description": "`session_required`: a Bearer token was used; `csrf_rejected`: the Origin check failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "422": {
+            "description": "`validation_failed` (see `error.fields`): `source` is required, a string of at most 16 KiB; `phase` is `before` or `after`; unknown fields are `not_allowed`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {}
+        ]
+      }
+    },
     "/send": {
       "post": {
         "description": "Sends the request and answers the response in the same call. In `open` and `mixed` anyone may send; in `sso` a session is needed. A token needs the `send` scope. The composer must be on, else 404 `not_found`.\n\n`method` is GET, HEAD, POST, PUT, PATCH, DELETE or OPTIONS, in any case. `url` is an absolute `http` or `https` URL without user information, at most 2048 bytes. A `body` is `{encoding, data}`: `encoding` is `utf8` or `base64`, and the decoded body is at most 1 MiB. A capture URL of this instance (`/<endpoint id>/...` on the public host) is delivered inside the instance and `capture_id` names the capture; other URLs of this instance are refused. Private and reserved addresses are refused unless the operator's forward allow list covers them.\n\nA delivery that fails is still 200: `status` is null and `error` is `<code>: <detail>`, with the codes `timeout`, `refused_target`, `refused_redirect`, `dns_failure`, `connect_timeout`, `hop_timeout`, `total_timeout`, `too_many_redirects`, `transport`, `configuration` and `local_delivery`. `timeout_ms` defaults to 15000 and may not exceed it. Redirects are followed only with `follow_redirects: true`, at most 5. `Host`, `Content-Length`, `Transfer-Encoding`, `Connection` and the other hop-by-hop headers, `Forwarded`, `X-Forwarded-*`, `X-Real-IP`, `X-Client-IP`, `True-Client-IP`, `CF-Connecting-IP`, and any name starting with `Proxy-` or `X-Webhooks-Live-` answer 422 `not_allowed`.\n\nEach send is charged to the `outbound` quota: a signed-in caller per hour, an anonymous caller per network per day and, with `endpoint_id`, per endpoint per hour. A request that arrives with `X-Webhooks-Live-Hop` of 3 or more answers 422 `hop_limit`; each delivery carries the next count, so loops through the instance stop. A send by a signed-in caller, and an anonymous send with `endpoint_id`, is kept in the history.",
@@ -13364,6 +13674,10 @@
     {
       "description": "Cron-timed outbound requests of an endpoint; needs accounts",
       "name": "Schedules"
+    },
+    {
+      "name": "Script",
+      "description": "The script step language: its catalogue for the editor and a compile-only check of a draft source"
     },
     {
       "description": "Encrypted secret values an endpoint's rules and integrations reference by name; values are write-only",

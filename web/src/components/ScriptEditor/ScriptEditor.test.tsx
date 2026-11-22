@@ -3,7 +3,7 @@ import { I18nextProvider } from 'react-i18next';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { editorCount } from '../../features/diff/testDom';
 import type { EditorDiagnostic } from '../../features/editor/types';
-import { SCRIPT_META_FIXTURE } from '../../features/rules/script/fixtures';
+import { SCRIPT_META_FIXTURE } from '../../features/rules/script/metaFixture';
 import { createI18nInstance } from '../../i18n/setup';
 import { ScriptEditor, type ScriptEditorProps } from './ScriptEditor';
 
@@ -47,7 +47,7 @@ describe('ScriptEditor', () => {
 
     const link = screen.getByRole('link', { name: /Language reference/ });
     expect(link.textContent).toContain('(opens in a new tab)');
-    expect(link.getAttribute('href')).toBe('/docs/scripting');
+    expect(link.getAttribute('href')).toBe(SCRIPT_META_FIXTURE.reference_url);
     expect(link.getAttribute('target')).toBe('_blank');
     expect(link.getAttribute('rel')).toBe('noopener noreferrer');
   });

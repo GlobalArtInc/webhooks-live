@@ -6,7 +6,8 @@ import {
   scriptCompletionEntries,
   scriptCompletionSource,
 } from './catalogue';
-import { SCRIPT_META_FIXTURE, fixtureValidate } from './fixtures';
+import { fixtureValidate } from './fixtures';
+import { SCRIPT_META_FIXTURE } from './metaFixture';
 
 const QUERY = { prefix: '', insideTemplate: false, explicit: true };
 
@@ -24,7 +25,10 @@ describe('completion entries', () => {
 
   it('adds variable paths and keywords after the functions', () => {
     const entries = scriptCompletionEntries(SCRIPT_META_FIXTURE);
-    expect(entries.find((entry) => entry.label === 'request.json')).toMatchObject({ kind: 'variable', detail: 'any' });
+    expect(entries.find((entry) => entry.label === 'request.body')).toMatchObject({
+      kind: 'variable',
+      detail: 'string',
+    });
     expect(entries.find((entry) => entry.label === 'let')).toMatchObject({ kind: 'keyword' });
     expect(entries.length).toBe(
       SCRIPT_META_FIXTURE.functions.length + SCRIPT_META_FIXTURE.variables.length + SCRIPT_META_FIXTURE.keywords.length,
@@ -33,7 +37,7 @@ describe('completion entries', () => {
 });
 
 describe('findHoverTarget', () => {
-  const line = 'let digest = sha256(request.json.id);';
+  const line = 'let digest = sha256(request.body.length);';
 
   it('documents a called function over exactly its name', () => {
     const target = findHoverTarget(line, line.indexOf('sha256') + 2, SCRIPT_META_FIXTURE);
@@ -44,13 +48,13 @@ describe('findHoverTarget', () => {
   it('documents the hovered segment of a dotted variable and not the segment after it', () => {
     const request = findHoverTarget(line, line.indexOf('request') + 1, SCRIPT_META_FIXTURE);
     expect(request?.entry.title).toBe('request');
-    const json = findHoverTarget(line, line.indexOf('json') + 1, SCRIPT_META_FIXTURE);
-    expect(json?.entry).toMatchObject({ title: 'request.json', detail: 'any' });
-    expect(line.slice(json?.from, json?.to)).toBe('json');
+    const body = findHoverTarget(line, line.indexOf('body') + 1, SCRIPT_META_FIXTURE);
+    expect(body?.entry).toMatchObject({ title: 'request.body', detail: 'string' });
+    expect(line.slice(body?.from, body?.to)).toBe('body');
   });
 
   it('shows nothing for unknown names, keywords, plain words and the gaps between words', () => {
-    expect(findHoverTarget(line, line.indexOf('id)') + 1, SCRIPT_META_FIXTURE)).toBeNull();
+    expect(findHoverTarget(line, line.indexOf('length') + 1, SCRIPT_META_FIXTURE)).toBeNull();
     expect(findHoverTarget(line, 1, SCRIPT_META_FIXTURE)).toBeNull();
     expect(findHoverTarget(line, line.indexOf('digest') + 1, SCRIPT_META_FIXTURE)).toBeNull();
     expect(findHoverTarget(line, line.indexOf(' = ') + 1, SCRIPT_META_FIXTURE)).toBeNull();
@@ -81,12 +85,12 @@ describe('limits and fixtures', () => {
 
   it('marks the line of a trailing operator and a disabled symbol', () => {
     expect(fixtureValidate('let a = 1;\nlet b = a +')).toEqual([
-      expect.objectContaining({ line: 2, column: 11, code: 'script_invalid', severity: 'error' }),
+      expect.objectContaining({ line: 2, column: 11, code: 'syntax', severity: 'error' }),
     ]);
     expect(fixtureValidate('let a = eval("1");')[0]).toMatchObject({
       line: 1,
       column: 9,
-      code: 'script_symbol_disabled',
+      code: 'disabled_feature',
     });
     expect(fixtureValidate('let a = 1;')).toEqual([]);
   });

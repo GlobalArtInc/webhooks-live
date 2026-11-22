@@ -1,5 +1,6 @@
 import type { Page, Route } from '@playwright/test';
-import { SCRIPT_META_FIXTURE, fixtureValidate } from '../../src/features/rules/script/fixtures';
+import { fixtureValidate } from '../../src/features/rules/script/fixtures';
+import { SCRIPT_META_ANSWER } from './scriptMeta';
 
 export const SLOW_MARKER = 'slowmark';
 
@@ -42,7 +43,7 @@ export async function mockScriptApi(page: Page): Promise<ScriptApiState> {
       });
       return;
     }
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(SCRIPT_META_FIXTURE) });
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(SCRIPT_META_ANSWER) });
   });
 
   await page.route('**/api/v1/script/validate', async (route) => {
