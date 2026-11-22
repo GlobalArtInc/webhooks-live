@@ -495,8 +495,18 @@ impl LiveApp {
 
 impl LiveApp {
     pub async fn open_bearer(&self, token: &str, endpoint: &str) -> Sse {
+        self.open_bearer_uri(token, &format!("/api/v1/endpoints/{endpoint}/stream"))
+            .await
+    }
+
+    pub async fn open_inbox_bearer(&self, token: &str, query: &str) -> Sse {
+        self.open_bearer_uri(token, &format!("/api/v1/inbox/stream?{query}"))
+            .await
+    }
+
+    async fn open_bearer_uri(&self, token: &str, uri: &str) -> Sse {
         let request = Request::builder()
-            .uri(format!("/api/v1/endpoints/{endpoint}/stream"))
+            .uri(uri)
             .header(header::AUTHORIZATION, format!("Bearer {token}"))
             .body(Body::empty())
             .expect("the request is valid");
