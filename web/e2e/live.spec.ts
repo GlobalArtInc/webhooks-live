@@ -22,7 +22,7 @@ const ENDPOINT_PATH = `/e/${ENDPOINT_ID}`;
 const LIST_NAME = 'Captures';
 const ROW_HEIGHT_PX = 36;
 const SERIES_LENGTH = 200;
-const BASE_TITLE = 'webhooks.live';
+const ENDPOINT_TITLE = `Endpoint ${ENDPOINT_ID.slice(0, 3)}…${ENDPOINT_ID.slice(-2)} — webhooks.live`;
 const ORIGINAL_ICON = '/favicon.svg';
 
 interface LiveRig {
@@ -283,18 +283,18 @@ test('a deleted capture leaves the list and an endpoint deletion shows the gone 
 
 test('the title and the favicon carry the unread count while the tab is hidden', async ({ page }) => {
   const rig = await openLive(page, 3);
-  await expect(page).toHaveTitle(BASE_TITLE);
+  await expect(page).toHaveTitle(ENDPOINT_TITLE);
   await setTabHidden(page, true);
 
   await arrive(page, rig, 4);
   await arrive(page, rig, 5);
 
-  await expect(page).toHaveTitle(`(2) ${BASE_TITLE}`);
+  await expect(page).toHaveTitle(`(2) ${ENDPOINT_TITLE}`);
   await expect(page.locator('link[rel~="icon"]')).toHaveAttribute('href', /^data:image\/png/);
 
   await setTabHidden(page, false);
 
-  await expect(page).toHaveTitle(BASE_TITLE);
+  await expect(page).toHaveTitle(ENDPOINT_TITLE);
   await expect(page.locator('link[rel~="icon"]')).toHaveAttribute('href', ORIGINAL_ICON);
 });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { collapsesRail, showsEndpointRail } from './rail';
+import { collapsesRail, fillsViewport, showsEndpointRail } from './rail';
 
 describe('showsEndpointRail', () => {
   it('shows the rail on home, my endpoints and every endpoint route', () => {
@@ -23,5 +23,17 @@ describe('collapsesRail', () => {
     expect(collapsesRail('/e/0123456789abcdefghjkmnpq/settings/rules')).toBe(false);
     expect(collapsesRail('/e/0123456789abcdefghjkmnpq/settings/general')).toBe(false);
     expect(collapsesRail('/e/0123456789abcdefghjkmnpq')).toBe(false);
+  });
+});
+
+describe('fillsViewport', () => {
+  it('fills the window on the capture list and a selected capture only', () => {
+    expect(fillsViewport('/e/0123456789abcdefghjkmnpq')).toBe(true);
+    expect(fillsViewport('/e/0123456789abcdefghjkmnpq/')).toBe(true);
+    expect(fillsViewport('/e/0123456789abcdefghjkmnpq/c/0193a1c2-7e4b-7c11-9a2f-3b5d1e0f4a21')).toBe(true);
+    expect(fillsViewport('/e/0123456789abcdefghjkmnpq/settings')).toBe(false);
+    expect(fillsViewport('/e/0123456789abcdefghjkmnpq/unlock')).toBe(false);
+    expect(fillsViewport('/e/0123456789abcdefghjkmnpq/diff/a/b')).toBe(false);
+    expect(fillsViewport('/endpoints')).toBe(false);
   });
 });

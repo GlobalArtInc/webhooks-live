@@ -50,6 +50,11 @@ async function openFilteredEndpoint(page: Page, initial: Capture[], path: string
   return state;
 }
 
+async function openFilterOptions(page: Page, count: number): Promise<void> {
+  await page.getByRole('button', { name: `Filters (${count})` }).click();
+  await expect(page.getByRole('dialog', { name: 'Filter options' })).toBeVisible();
+}
+
 async function arrive(page: Page, state: CaptureApiState, capture: Capture): Promise<void> {
   state.captures.push(capture);
   await pushStreamEvent(page, 'capture', { ...summaryOf(capture), endpoint_id: ENDPOINT_ID }, String(capture.seq));
@@ -74,6 +79,7 @@ test('a filtered link reopens the same list with its chips pressed', async ({ pa
   const state = await openFilteredEndpoint(page, methodSeries(6), `${ENDPOINT_PATH}?method=GET`);
 
   await expect(listboxOf(page).getByRole('option')).toHaveCount(3);
+  await openFilterOptions(page, 1);
   await expect(page.getByRole('button', { name: 'GET', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('button', { name: 'POST', exact: true })).toHaveAttribute('aria-pressed', 'false');
   expect(state.listRequests.some((search) => search.includes('method=GET'))).toBe(true);
@@ -108,7 +114,7 @@ test('arrivals that do not match are counted instead of inserted, and Show all b
   await expect(page.getByText('hidden by filters')).toHaveCount(0);
 });
 
-test('the narrow layout keeps the filter options behind the Filters disclosure', async ({ page }) => {
+test('the narrow layout keeps the filter options in a sheet behind the Filters button', async ({ page }) => {
   await page.setViewportSize(NARROW);
   await openFilteredEndpoint(page, methodSeries(6), `${ENDPOINT_PATH}?method=GET`);
 
@@ -117,7 +123,7 @@ test('the narrow layout keeps the filter options behind the Filters disclosure',
   await expect(page.getByRole('button', { name: 'POST', exact: true })).toBeHidden();
 
   await toggle.click();
-  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByRole('dialog', { name: 'Filter options' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'GET', exact: true })).toHaveAttribute('aria-pressed', 'true');
 });
 

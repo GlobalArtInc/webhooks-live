@@ -8,13 +8,15 @@ import { TokensLink } from '../../features/tokens/TokensLink';
 import { UsageLink } from '../../features/usage/UsageLink';
 import { StatePage } from '../../components/StatePage/StatePage';
 import { requiresSignIn, signInHref } from '../signIn';
+import { useDocumentTitle } from '../useDocumentTitle';
 import { AppShell } from './AppShell';
-import { collapsesRail, showsEndpointRail } from './rail';
+import { collapsesRail, fillsViewport, showsEndpointRail } from './rail';
 
 export function ShellLayout() {
   const instance = useInstance();
   const location = useLocation();
   const navigate = useNavigate();
+  useDocumentTitle(location.pathname);
 
   useShortcutHandlers({
     newEndpoint: () => {
@@ -49,7 +51,13 @@ export function ShellLayout() {
   }
 
   return (
-    <AppShell resetKey={location.href} header={header} rail={rail} collapseRail={collapsesRail(location.pathname)}>
+    <AppShell
+      resetKey={location.href}
+      header={header}
+      rail={rail}
+      collapseRail={collapsesRail(location.pathname)}
+      fill={fillsViewport(location.pathname)}
+    >
       {content}
     </AppShell>
   );

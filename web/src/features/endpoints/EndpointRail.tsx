@@ -7,6 +7,10 @@ import { CreateErrorNotice } from './CreateErrorNotice';
 import { useCreateAndOpen } from './useCreateAndOpen';
 import styles from './EndpointRail.module.css';
 
+const EXPAND_GLYPH = '»';
+const NEW_GLYPH = '+';
+const COMPOSE_GLYPH = '✎';
+
 export function EndpointRail() {
   const { t } = useTranslation();
   const { create, isPending, error } = useCreateAndOpen();
@@ -15,7 +19,7 @@ export function EndpointRail() {
   const listId = useId();
 
   return (
-    <nav aria-labelledby={headingId} className={styles.rail}>
+    <nav aria-labelledby={headingId} className={styles.rail} data-collapsed={collapsed ? 'true' : undefined}>
       <div className={styles.head}>
         <h2 id={headingId} className={styles.heading}>
           {t('wl.home.rail.heading')}
@@ -27,7 +31,14 @@ export function EndpointRail() {
           aria-controls={listId}
           onClick={toggleCollapsed}
         >
-          {collapsed ? t('wl.home.rail.expand') : t('wl.home.rail.collapse')}
+          {collapsed ? (
+            <>
+              <span aria-hidden="true">{EXPAND_GLYPH}</span>
+              <span className={styles.srOnly}>{t('wl.home.rail.expand')}</span>
+            </>
+          ) : (
+            t('wl.home.rail.collapse')
+          )}
         </button>
       </div>
       <button
@@ -37,13 +48,28 @@ export function EndpointRail() {
         disabled={isPending}
         onClick={() => create({})}
       >
-        {isPending ? t('wl.home.create.busy') : t('wl.home.rail.new')}
+        {collapsed ? (
+          <span aria-hidden="true">{NEW_GLYPH}</span>
+        ) : isPending ? (
+          t('wl.home.create.busy')
+        ) : (
+          t('wl.home.rail.new')
+        )}
       </button>
       {error !== null && !isPending && <CreateErrorNotice error={error} onRetry={() => create({})} />}
       <Link to="/send" className={styles.link} activeProps={{ className: styles.active }}>
-        {t('wl.composer.rail')}
+        {collapsed ? (
+          <>
+            <span aria-hidden="true">{COMPOSE_GLYPH}</span>
+            <span className={styles.srOnly}>{t('wl.composer.rail')}</span>
+          </>
+        ) : (
+          t('wl.composer.rail')
+        )}
       </Link>
-      <FolderRail listId={listId} />
+      <div className={styles.folders} hidden={collapsed}>
+        <FolderRail listId={listId} />
+      </div>
     </nav>
   );
 }

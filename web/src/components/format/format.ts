@@ -10,11 +10,6 @@ interface RelativeScale {
   seconds: number;
 }
 
-interface ByteScale {
-  unit: 'byte' | 'kilobyte' | 'megabyte' | 'gigabyte';
-  size: number;
-}
-
 const RELATIVE_SCALES: readonly RelativeScale[] = [
   { unit: 'day', seconds: SECONDS_PER_DAY },
   { unit: 'hour', seconds: SECONDS_PER_HOUR },
@@ -23,13 +18,10 @@ const RELATIVE_SCALES: readonly RelativeScale[] = [
 
 const SECOND_SCALE: RelativeScale = { unit: 'second', seconds: 1 };
 
-const BYTE_SCALES: readonly ByteScale[] = [
-  { unit: 'gigabyte', size: 1e9 },
-  { unit: 'megabyte', size: 1e6 },
-  { unit: 'kilobyte', size: 1e3 },
-];
-
-const PLAIN_BYTE_SCALE: ByteScale = { unit: 'byte', size: 1 };
+const BYTES_PER_STEP = 1024;
+const BYTE_UNITS: readonly string[] = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+const ROUNDING_CEILING = BYTES_PER_STEP - 0.05;
+const CLOCK_SKEW_TOLERANCE_MS = 5 * 60 * MILLISECONDS_PER_SECOND;
 
 export function formatAbsoluteTime(iso: string, locale: string, utc = false): string {
   const time = Date.parse(iso);
@@ -46,7 +38,7 @@ export function formatAbsoluteTime(iso: string, locale: string, utc = false): st
 
 export function formatTimestamp(iso: string, now: number, locale: string, display: TimeDisplay): string {
   return display === 'relative'
-    ? formatRelativeTime(iso, now, locale)
+    ? formatElapsedTime(iso, now, locale)
     : formatAbsoluteTime(iso, locale, display === 'utc');
 }
 
@@ -61,12 +53,27 @@ export function formatRelativeTime(iso: string, now: number, locale: string): st
   return new Intl.RelativeTimeFormat(locale, { numeric: 'auto' }).format(value, scale.unit);
 }
 
+export function formatElapsedTime(iso: string, now: number, locale: string): string {
+  const time = Date.parse(iso);
+  if (Number.isNaN(time)) {
+    return iso;
+  }
+  const ahead = time - now;
+  const shown = ahead > 0 && ahead <= CLOCK_SKEW_TOLERANCE_MS ? now : time;
+  return formatRelativeTime(new Date(shown).toISOString(), now, locale);
+}
+
 export function formatByteSize(bytes: number, locale: string): string {
-  const scale = BYTE_SCALES.find((entry) => bytes >= entry.size) ?? PLAIN_BYTE_SCALE;
-  return new Intl.NumberFormat(locale, {
-    style: 'unit',
-    unit: scale.unit,
-    unitDisplay: 'narrow',
-    maximumFractionDigits: 1,
-  }).format(bytes / scale.size);
+  let value = bytes;
+  let index = 0;
+  while (value >= ROUNDING_CEILING && index < BYTE_UNITS.length - 1) {
+    value /= BYTES_PER_STEP;
+    index += 1;
+  }
+  const unit = BYTE_UNITS[index] ?? 'B';
+  if (index === 0) {
+    return `${new Intl.NumberFormat(locale).format(bytes)} ${unit}`;
+  }
+  const number = new Intl.NumberFormat(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(value);
+  return `${number} ${unit}`;
 }

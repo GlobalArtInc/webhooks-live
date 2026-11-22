@@ -31,6 +31,10 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+function openOptions(label = 'Filters (0)'): void {
+  fireEvent.click(screen.getByRole('button', { name: label }));
+}
+
 describe('FilterBar', () => {
   it('sends the text query only after the typing pause ends', () => {
     const props = renderBar();
@@ -48,6 +52,7 @@ describe('FilterBar', () => {
 
   it('toggles a kind chip in and out of the kind list and reports its state', () => {
     const props = renderBar({}, { kind: 'email' });
+    openOptions('Filters (1)');
     const email = screen.getByRole('button', { name: 'Email' });
 
     expect(email.getAttribute('aria-pressed')).toBe('true');
@@ -59,6 +64,7 @@ describe('FilterBar', () => {
 
   it('toggles a method chip in and out of the method list and reports its state', () => {
     const props = renderBar({}, { method: 'GET' });
+    openOptions('Filters (1)');
     const get = screen.getByRole('button', { name: 'GET' });
     const post = screen.getByRole('button', { name: 'POST' });
 

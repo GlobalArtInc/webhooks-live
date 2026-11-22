@@ -136,7 +136,7 @@ Narrow (360 px), list first; the capture URL stays visible because it is the mos
 |---|---|---|---|
 | My endpoints | Rail | Left drawer | `[=]` drawer and `/endpoints` |
 | Capture URL | Full, header | Full, header | Middle-truncated id, Copy button |
-| Filters | Inline chip row | Popover | Bottom sheet |
+| Filters | Popover from `Filters (n)` next to the search (the inline chip block took a third of the list height) | Popover | Bottom sheet |
 | Expiry and capacity | Header text | `[...]` menu | `[...]` menu |
 | Configuration | Workspace route, side section nav (section 15) | Workspace route, section tabs | Section list, then full-screen section |
 | Pager | List footer | List footer | Detail footer (newer/older) |
@@ -199,7 +199,7 @@ Copy-as menu (`[Copy v]`, `y` copies curl directly):
 
 | Item | Output |
 |---|---|
-| curl | POSIX shell, every value single-quoted with `'\''` escaping; always `--globoff`, `--path-as-is` and the URL passed with `--url`; `HEAD` uses `--head`. Text bodies under 64 KiB: `--data-binary '<body>'`. Binary bodies, text with control characters, and text of 64 KiB or more: `printf '<octal escapes, printable ASCII kept literal>' \| curl ... --data-binary @-` (POSIX `\ooo`, `%` as `%%`), self-contained. Bodies above 256 KiB: `--data-binary @capture-<short id>.bin` plus a Download raw button. Control characters in header values or the URL are written as `"$(printf '\ooo')"` words; a header with more than 8 of them is skipped and reported. Headers curl sets itself and hop-by-hop headers are omitted |
+| curl | POSIX shell, every value single-quoted with `'\''` escaping; always `--globoff`, `--path-as-is` and the URL passed with `--url`; `HEAD` uses `--head`. Text bodies under 64 KiB: `--data-raw '<body>'` (never `--data-binary`, which would read a body that starts with `@` as a file name). Binary bodies, text with control characters, and text of 64 KiB or more: `printf '<octal escapes, printable ASCII kept literal>' \| curl ... --data-binary @-` (POSIX `\ooo`, `%` as `%%`), self-contained. Bodies above 256 KiB: `--data-binary @capture-<short id>.bin` plus a Download raw button. Control characters in header values or the URL are written as `"$(printf '\ooo')"` words; a header with more than 8 of them is skipped and reported. Headers curl sets itself, hop-by-hop headers and the headers the edge proxy adds (`x-forwarded-*`, `x-envoy-*`, `x-request-id`, `x-endpoint-id`) are omitted, and stay in the headers table |
 | HAR | HAR 1.2 log with one entry built from the capture; the response block carries the answered status and the endpoint's current response configuration, which may differ from what was served at capture time |
 | JSON | Full capture as JSON |
 | URL | Captured URL |

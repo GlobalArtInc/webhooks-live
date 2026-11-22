@@ -81,3 +81,50 @@
   background: var(--color-accent-soft);
   border-left-color: var(--color-accent);
 }
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.folders[hidden] {
+  display: none;
+}
+
+.rail[data-collapsed='true'] {
+  justify-items: center;
+  padding: var(--space-3) var(--space-1);
+}
+
+.rail[data-collapsed='true'] .heading {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.rail[data-collapsed='true'] .head {
+  justify-content: center;
+}
+
+.rail[data-collapsed='true'] .toggle,
+.rail[data-collapsed='true'] .create,
+.rail[data-collapsed='true'] .link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0;
+  text-align: center;
+}
+
+.rail[data-collapsed='true'] .link {
+  border-left: 0;
+}

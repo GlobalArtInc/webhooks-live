@@ -1,20 +1,20 @@
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { restoreFavicon, showFaviconBadge, tabTitle } from './tabBadge';
+import { setUnreadTitle } from '../../app/pageTitle';
+import { restoreFavicon, showFaviconBadge } from './tabBadge';
 
 export function useTabBadge(count: number): void {
   const { t } = useTranslation();
 
   useEffect(() => {
-    const base = document.title;
-    document.title = tabTitle(base, count, (unread, title) => t('wl.live.title.unread', { count: unread, title }));
+    setUnreadTitle(count > 0 ? (title) => t('wl.live.title.unread', { count, title }) : null);
     if (count > 0) {
       showFaviconBadge(count);
     } else {
       restoreFavicon();
     }
     return () => {
-      document.title = base;
+      setUnreadTitle(null);
     };
   }, [count, t]);
 

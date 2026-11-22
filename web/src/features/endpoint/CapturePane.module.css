@@ -83,4 +83,9 @@
   .button {
     min-height: 44px;
   }
+
+  .heading {
+    flex: 1 1 100%;
+    order: 3;
+  }
 }

@@ -1,4 +1,6 @@
-import { useEffect, useId, useRef, useState, type ChangeEvent, type Ref } from 'react';
+import * as Dialog from '@radix-ui/react-dialog';
+import * as Popover from '@radix-ui/react-popover';
+import { useEffect, useRef, useState, type ChangeEvent, type ReactNode, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ViewportLayout } from '../../features/endpoint/useViewport';
 import { FilterBuilder } from '../../features/filterbuilder';
@@ -105,6 +107,9 @@ function ChipGroup({ label, options, selected, labelOf, onToggle }: ChipGroupPro
   const chosen = selected?.split(',') ?? [];
   return (
     <div role="group" aria-label={label} className={styles.chips}>
+      <span className={styles.caption} aria-hidden="true">
+        {label}
+      </span>
       {options.map((option) => (
         <button
           key={option}
@@ -122,13 +127,14 @@ function ChipGroup({ label, options, selected, labelOf, onToggle }: ChipGroupPro
   );
 }
 
-export function FilterBar({ search, layout, hiddenCount, onChange, onClear, searchRef }: FilterBarProps) {
+interface FilterOptionsProps {
+  search: CaptureSearch;
+  onChange: (patch: CaptureSearchPatch) => void;
+  onClearAll: () => void;
+}
+
+function FilterOptions({ search, onChange, onClearAll }: FilterOptionsProps) {
   const { t } = useTranslation();
-  const panelId = useId();
-  const [open, setOpen] = useState(false);
-  const [fieldGeneration, setFieldGeneration] = useState(0);
-  const collapsible = layout !== 'wide';
-  const expanded = !collapsible || open;
   const hasFilters = hasCaptureSearch(search);
 
   function statusLabel(option: string): string {
@@ -167,6 +173,115 @@ export function FilterBar({ search, layout, hiddenCount, onChange, onClear, sear
     onChange({ range: undefined, since: undefined });
   }
 
+  return (
+    <>
+      <ChipGroup
+        label={t('wl.kinds.filter.label')}
+        options={KIND_OPTIONS}
+        selected={search.kind}
+        labelOf={kindLabel}
+        onToggle={(option) => {
+          onChange({ kind: toggleToken(search.kind, option) });
+        }}
+      />
+      <ChipGroup
+        label={t('wl.endpoint.filter.method')}
+        options={METHOD_OPTIONS}
+        selected={search.method}
+        labelOf={(option) => option}
+        onToggle={(option) => {
+          onChange({ method: toggleToken(search.method, option) });
+        }}
+      />
+      <ChipGroup
+        label={t('wl.endpoint.filter.status')}
+        options={STATUS_OPTIONS}
+        selected={search.status}
+        labelOf={statusLabel}
+        onToggle={(option) => {
+          onChange({ status: toggleToken(search.status, option) });
+        }}
+      />
+      <label className={styles.field}>
+        <span>{t('wl.endpoint.filter.time')}</span>
+        <select
+          className={styles.select}
+          value={search.range ?? ''}
+          onChange={(event) => {
+            chooseRange(event.target.value);
+          }}
+        >
+          <option value="">{t('wl.endpoint.filter.range.any')}</option>
+          {RANGE_OPTIONS.map((range) => (
+            <option key={range} value={range}>
+              {rangeLabel(range)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <button type="button" className={styles.button} disabled={!hasFilters} onClick={onClearAll}>
+        {t('wl.endpoint.filter.clear')}
+      </button>
+    </>
+  );
+}
+
+interface FilterDisclosureProps {
+  layout: ViewportLayout;
+  count: number;
+  children: ReactNode;
+}
+
+function FilterDisclosure({ layout, count, children }: FilterDisclosureProps) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const label = t('wl.endpoint.filter.toggle', { count });
+  const trigger = (
+    <button type="button" className={styles.button}>
+      {label}
+    </button>
+  );
+
+  if (layout === 'narrow') {
+    return (
+      <Dialog.Root open={open} onOpenChange={setOpen}>
+        <Dialog.Trigger asChild>{trigger}</Dialog.Trigger>
+        <Dialog.Portal>
+          <Dialog.Overlay className={styles.overlay} />
+          <Dialog.Content className={styles.sheet} aria-describedby={undefined}>
+            <div className={styles.sheetHead}>
+              <Dialog.Title className={styles.sheetTitle}>{t('wl.endpoint.filter.panel')}</Dialog.Title>
+              <Dialog.Close className={styles.button}>{t('wl.endpoint.filter.done')}</Dialog.Close>
+            </div>
+            <div className={styles.sheetBody}>{children}</div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+    );
+  }
+
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger asChild>{trigger}</Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          className={styles.popover}
+          aria-label={t('wl.endpoint.filter.panel')}
+          align="start"
+          sideOffset={6}
+          collisionPadding={8}
+        >
+          <div className={styles.sheetBody}>{children}</div>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
+export function FilterBar({ search, layout, hiddenCount, onChange, onClear, searchRef }: FilterBarProps) {
+  const { t } = useTranslation();
+  const [fieldGeneration, setFieldGeneration] = useState(0);
+
   function clearAll() {
     setFieldGeneration((generation) => generation + 1);
     onClear();
@@ -184,74 +299,9 @@ export function FilterBar({ search, layout, hiddenCount, onChange, onClear, sear
           }}
         />
         <FilterBuilder search={search} layout={layout} onApply={onChange} />
-        {collapsible ? (
-          <button
-            type="button"
-            className={styles.button}
-            aria-expanded={expanded}
-            aria-controls={panelId}
-            onClick={() => {
-              setOpen((current) => !current);
-            }}
-          >
-            {t('wl.endpoint.filter.toggle', { count: activePartCount(search) })}
-          </button>
-        ) : null}
-      </div>
-      <div
-        id={panelId}
-        role="group"
-        aria-label={t('wl.endpoint.filter.panel')}
-        className={styles.panel}
-        hidden={!expanded}
-      >
-        <ChipGroup
-          label={t('wl.kinds.filter.label')}
-          options={KIND_OPTIONS}
-          selected={search.kind}
-          labelOf={kindLabel}
-          onToggle={(option) => {
-            onChange({ kind: toggleToken(search.kind, option) });
-          }}
-        />
-        <ChipGroup
-          label={t('wl.endpoint.filter.method')}
-          options={METHOD_OPTIONS}
-          selected={search.method}
-          labelOf={(option) => option}
-          onToggle={(option) => {
-            onChange({ method: toggleToken(search.method, option) });
-          }}
-        />
-        <ChipGroup
-          label={t('wl.endpoint.filter.status')}
-          options={STATUS_OPTIONS}
-          selected={search.status}
-          labelOf={statusLabel}
-          onToggle={(option) => {
-            onChange({ status: toggleToken(search.status, option) });
-          }}
-        />
-        <label className={styles.field}>
-          <span>{t('wl.endpoint.filter.time')}</span>
-          <select
-            className={styles.select}
-            value={search.range ?? ''}
-            onChange={(event) => {
-              chooseRange(event.target.value);
-            }}
-          >
-            <option value="">{t('wl.endpoint.filter.range.any')}</option>
-            {RANGE_OPTIONS.map((range) => (
-              <option key={range} value={range}>
-                {rangeLabel(range)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button type="button" className={styles.button} disabled={!hasFilters} onClick={clearAll}>
-          {t('wl.endpoint.filter.clear')}
-        </button>
+        <FilterDisclosure layout={layout} count={activePartCount(search)}>
+          <FilterOptions search={search} onChange={onChange} onClearAll={clearAll} />
+        </FilterDisclosure>
       </div>
       {hiddenCount > 0 ? (
         <div className={styles.hidden}>

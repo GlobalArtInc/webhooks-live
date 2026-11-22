@@ -199,6 +199,7 @@ export function CaptureList({
             <div
               role="listbox"
               tabIndex={0}
+              data-skip-target="true"
               aria-label={t('wl.endpoint.list.label')}
               aria-activedescendant={selectedOptionId}
               aria-multiselectable={selection?.active ? true : undefined}
@@ -233,6 +234,7 @@ export function CaptureList({
                   key={item.id}
                   captureId={item.id}
                   compareLabel={compareLabelOf(markedId, item.id)}
+                  variant={variant}
                   style={{ height: rowHeight, transform: `translateY(${index * rowHeight}px)` }}
                   compare={compare}
                   deleteDenied={rowExtras(item).deleteDenied}

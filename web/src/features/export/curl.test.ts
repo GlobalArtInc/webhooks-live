@@ -20,6 +20,30 @@ describe('toCurl', () => {
     );
   });
 
+  it('omits the edge headers that the proxy adds, whatever their case, and keeps the others', () => {
+    const headers = [
+      { name: 'X-Forwarded-For', value: '203.0.113.7' },
+      { name: 'x-forwarded-proto', value: 'https' },
+      { name: 'X-Envoy-External-Address', value: '203.0.113.7' },
+      { name: 'X-Request-Id', value: 'abc' },
+      { name: 'x-endpoint-id', value: 'e1' },
+      { name: 'X-Forward', value: 'kept' },
+      { name: 'X-Request-Source', value: 'kept' },
+    ];
+    const command = toCurl(makeCapture({ headers }));
+
+    expect(command.toLowerCase()).not.toMatch(/x-forwarded|x-envoy|x-request-id|x-endpoint-id/);
+    expect(command).toContain("-H 'X-Forward: kept'");
+    expect(command).toContain("-H 'X-Request-Source: kept'");
+    expect(curlSkippedHeaders(makeCapture({ headers })).map((header) => header.name)).toEqual([
+      'X-Forwarded-For',
+      'x-forwarded-proto',
+      'X-Envoy-External-Address',
+      'X-Request-Id',
+      'x-endpoint-id',
+    ]);
+  });
+
   it('needs no -X for GET without a body and always passes -X otherwise', () => {
     expect(toCurl(makeCapture({ method: 'GET' }))).not.toContain('-X');
     expect(toCurl(makeCapture({ method: 'DELETE' }))).toContain("-X 'DELETE'");

@@ -13,7 +13,11 @@ export const OMITTED_REQUEST_HEADERS: readonly string[] = [
   'transfer-encoding',
   'upgrade',
   'accept-encoding',
+  'x-request-id',
+  'x-endpoint-id',
 ];
+
+export const OMITTED_REQUEST_HEADER_PREFIXES: readonly string[] = ['x-forwarded-', 'x-envoy-'];
 
 export const HAR_CREATOR_NAME = 'webhooks.live';
 export const HAR_CREATOR_VERSION = '1.0.0';

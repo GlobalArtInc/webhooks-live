@@ -1,4 +1,4 @@
-import { MAX_ESCAPED_CONTROL_CHARS, OMITTED_REQUEST_HEADERS } from './constants';
+import { MAX_ESCAPED_CONTROL_CHARS, OMITTED_REQUEST_HEADER_PREFIXES, OMITTED_REQUEST_HEADERS } from './constants';
 import { countTerminalHazards } from './shellQuote';
 import type { NameValue, SkippedHeader } from './types';
 
@@ -21,6 +21,14 @@ export function findHeaderValue(headers: readonly NameValue[], name: string): st
   return found === undefined ? null : found.value;
 }
 
+function isOmitted(name: string): boolean {
+  const lower = name.toLowerCase();
+  return (
+    OMITTED_REQUEST_HEADERS.includes(lower) ||
+    OMITTED_REQUEST_HEADER_PREFIXES.some((prefix) => lower.startsWith(prefix))
+  );
+}
+
 function isUnsendable(header: NameValue): boolean {
   return (
     !HTTP_TOKEN_PATTERN.test(header.name) ||
@@ -33,7 +41,7 @@ export function splitHeaders(headers: readonly NameValue[]): HeaderSplit {
   const sendable: NameValue[] = [];
   const skipped: SkippedHeader[] = [];
   for (const header of headers) {
-    if (OMITTED_REQUEST_HEADERS.includes(header.name.toLowerCase())) {
+    if (isOmitted(header.name)) {
       skipped.push({ name: header.name, value: header.value, reason: 'omitted' });
     } else if (isUnsendable(header)) {
       skipped.push({ name: header.name, value: header.value, reason: 'unsendable' });

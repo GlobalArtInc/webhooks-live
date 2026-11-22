@@ -1,3 +1,4 @@
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { CaptureSummary } from '../../api/types';
@@ -36,6 +37,7 @@ export interface CaptureRowProps {
 export interface CaptureRowActionsProps {
   captureId: string;
   compareLabel: CompareLabel;
+  variant: CaptureRowVariant;
   style: CSSProperties;
   compare?: boolean;
   deleteDenied?: string;
@@ -97,6 +99,7 @@ export function CaptureRow({
   const subject = (summary.subject ?? '').trim();
   const headline = badge === 'email' && subject === '' ? t('wl.kinds.row.noSubject') : subject;
 
+  const twoLine = variant === 'two-line';
   const forwardText =
     summary.forward_state === 'pending'
       ? t('wl.endpoint.row.forward.pending')
@@ -170,21 +173,36 @@ export function CaptureRow({
             <StatusChip code={summary.status_override} kind="override" label={String(summary.status_override)} />
           </span>
         )}
-        {summary.forward_state === null ? null : (
+        {summary.forward_state === null || twoLine ? null : (
           <span className={styles.forward} data-state={summary.forward_state}>
             {forwardText}
           </span>
         )}
-        <span className={styles.size}>{size}</span>
-        <time className={styles.time} dateTime={summary.received_at}>
-          {time}
-        </time>
+        {twoLine ? null : <span className={styles.size}>{size}</span>}
+        {twoLine ? null : (
+          <time className={styles.time} dateTime={summary.received_at}>
+            {time}
+          </time>
+        )}
       </span>
       <span className={styles.meta}>
-        {badge === null ? <span>{contentType}</span> : null}
+        {twoLine ? (
+          <>
+            <time className={styles.time} dateTime={summary.received_at}>
+              {time}
+            </time>
+            <span>{size}</span>
+            {summary.forward_state === null ? null : (
+              <span className={styles.forward} data-state={summary.forward_state}>
+                {forwardText}
+              </span>
+            )}
+          </>
+        ) : null}
         {kind === 'schedule' ? <span>{t('wl.kinds.row.scheduled')}</span> : null}
         {summary.imported === true ? <span>{t('wl.kinds.row.imported')}</span> : null}
         <span>{summary.client_ip}</span>
+        {badge === null ? <span className={styles.metaType}>{contentType}</span> : null}
       </span>
     </div>
   );
@@ -193,6 +211,7 @@ export function CaptureRow({
 export function CaptureRowActions({
   captureId,
   compareLabel,
+  variant,
   style,
   compare = true,
   deleteDenied,
@@ -206,6 +225,44 @@ export function CaptureRowActions({
       : compareLabel === 'unmark'
         ? t('wl.endpoint.compare.unmark')
         : t('wl.endpoint.compare.withMarked');
+
+  if (variant === 'two-line') {
+    return (
+      <div className={styles.actions} style={style}>
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger asChild>
+            <button type="button" className={styles.action} aria-label={t('wl.endpoint.row.actions')}>
+              <span aria-hidden="true">…</span>
+            </button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content className={styles.menu} align="end" sideOffset={4}>
+              {compare ? (
+                <DropdownMenu.Item
+                  className={styles.menuItem}
+                  onSelect={() => {
+                    onCompare(captureId);
+                  }}
+                >
+                  {compareName}
+                </DropdownMenu.Item>
+              ) : null}
+              <DropdownMenu.Item
+                className={styles.menuItem}
+                disabled={deleteDenied !== undefined}
+                title={deleteDenied}
+                onSelect={() => {
+                  onDelete(captureId);
+                }}
+              >
+                {t('wl.endpoint.row.delete')}
+              </DropdownMenu.Item>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.actions} style={style}>

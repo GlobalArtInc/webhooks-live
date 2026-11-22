@@ -97,7 +97,7 @@ export function CapturePane({
           </button>
         )}
         <h2 ref={headingRef} tabIndex={-1} className={styles.heading}>
-          {t('wl.endpoint.detail.heading', { id: captureId.slice(0, SHORT_ID_LENGTH) })}
+          {t('wl.endpoint.detail.heading', { id: captureId.slice(-SHORT_ID_LENGTH) })}
         </h2>
         {onCompare === undefined ? null : (
           <button type="button" className={styles.button} onClick={onCompare}>

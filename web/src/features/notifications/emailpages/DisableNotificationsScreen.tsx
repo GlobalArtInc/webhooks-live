@@ -1,9 +1,11 @@
 import { useTranslation } from 'react-i18next';
+import { useStandalonePageTitle } from '../../../app/useDocumentTitle';
 import { disableNotifications } from '../notificationsApi';
 import { ConfirmationScreen } from './ConfirmationScreen';
 
 export function DisableNotificationsScreen() {
   const { t } = useTranslation();
+  useStandalonePageTitle(t('wl.title.notificationsDisable'));
   return (
     <ConfirmationScreen
       title={t('wl.emailpages.disable.title')}

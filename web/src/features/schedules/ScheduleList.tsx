@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { formatRelativeTime } from '../../components/format/format';
+import { formatElapsedTime } from '../../components/format/format';
 import type { Schedule } from '../../api/types';
 import { cronToCadence } from './cadence';
 import { formatRunTime } from './cron';
@@ -58,7 +58,7 @@ export function ScheduleList({ schedules, selectedId, now, onSelect }: ScheduleL
               <span className={styles.meta}>
                 {schedule.last_run_at === null
                   ? t('wl.schedules.neverRun')
-                  : t('wl.schedules.lastRun', { time: formatRelativeTime(schedule.last_run_at, now, locale) })}
+                  : t('wl.schedules.lastRun', { time: formatElapsedTime(schedule.last_run_at, now, locale) })}
               </span>
               {schedule.consecutive_failures > 0 ? (
                 <span className={styles.failures}>

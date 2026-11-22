@@ -1,8 +1,8 @@
+import { formatByteSize } from '../../components/format/format';
 import { HEX_BYTES, HEX_ROW_BYTES } from './constants';
 import type { BodyContent, Bytes } from './types';
 
-const KIB = 1024;
-const MIB = KIB * 1024;
+const SIZE_LOCALE = 'en';
 
 export function toBytes(content: BodyContent): Bytes {
   return content.type === 'bytes' ? content.bytes : new TextEncoder().encode(content.text);
@@ -13,13 +13,7 @@ export function decodeText(bytes: Uint8Array, partial: boolean): string {
 }
 
 export function formatSize(size: number): string {
-  if (size >= MIB) {
-    return `${(size / MIB).toFixed(1)} MiB`;
-  }
-  if (size >= KIB) {
-    return `${(size / KIB).toFixed(1)} KiB`;
-  }
-  return `${size} B`;
+  return formatByteSize(size, SIZE_LOCALE);
 }
 
 export function pickLonger(first: Bytes | null, second: Bytes | null): Bytes | null {

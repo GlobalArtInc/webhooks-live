@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { I18nextProvider } from 'react-i18next';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CaptureSummary } from '../../api/types';
@@ -12,15 +12,16 @@ import {
 } from '../../test/fixtures/kinds';
 import { summaryOf } from '../../test/msw/store';
 import { createI18nInstance } from '../../i18n/setup';
-import { CaptureRow } from './CaptureRow';
+import { CaptureRow, CaptureRowActions } from './CaptureRow';
+import type { CaptureRowVariant } from './CaptureRow';
 
-function renderRow(summary: CaptureSummary) {
+function renderRow(summary: CaptureSummary, variant: CaptureRowVariant = 'one-line') {
   render(
     <I18nextProvider i18n={createI18nInstance()}>
       <CaptureRow
         optionId="row-1"
         summary={summary}
-        variant="one-line"
+        variant={variant}
         selected={false}
         positionInSet={1}
         setSize={1}
@@ -70,5 +71,52 @@ describe('CaptureRow by kind', () => {
     expect(screen.getByText('POST')).toBeTruthy();
     expect(screen.getByText('Scheduled')).toBeTruthy();
     expect(screen.getByText('Imported')).toBeTruthy();
+  });
+});
+
+describe('CaptureRow in the two-line variant', () => {
+  it('keeps the first line for the method and the path, and moves the time and the size to the second', () => {
+    renderRow(summaryOf(jsonCaptureFixture), 'two-line');
+
+    const option = screen.getByRole('option');
+    const lines = option.children;
+    expect(lines).toHaveLength(2);
+    expect(lines[0]?.textContent).toContain('/404/orders?x=1');
+    expect(lines[0]?.querySelector('time')).toBeNull();
+    expect(lines[1]?.querySelector('time')?.textContent).toBe('1 minute ago');
+    expect(lines[1]?.textContent).toContain('12 B');
+  });
+});
+
+describe('CaptureRowActions', () => {
+  const handlers = { onDelete: vi.fn(), onCompare: vi.fn() };
+
+  function renderActions(variant: CaptureRowVariant) {
+    render(
+      <I18nextProvider i18n={createI18nInstance()}>
+        <CaptureRowActions captureId="c1" compareLabel="mark" variant={variant} style={{}} {...handlers} />
+      </I18nextProvider>,
+    );
+  }
+
+  it('shows the delete and compare buttons inline in the one-line variant', () => {
+    renderActions('one-line');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete capture' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Mark for compare' }));
+    expect(handlers.onDelete).toHaveBeenCalledWith('c1');
+    expect(handlers.onCompare).toHaveBeenCalledWith('c1');
+    expect(screen.queryByRole('button', { name: 'Capture actions' })).toBeNull();
+  });
+
+  it('puts both actions behind one menu button in the two-line variant', async () => {
+    renderActions('two-line');
+
+    expect(screen.queryByRole('button', { name: 'Delete capture' })).toBeNull();
+    const trigger = screen.getByRole('button', { name: 'Capture actions' });
+    fireEvent.keyDown(trigger, { key: 'Enter' });
+
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete capture' }));
+    expect(handlers.onDelete).toHaveBeenCalledWith('c1');
   });
 });

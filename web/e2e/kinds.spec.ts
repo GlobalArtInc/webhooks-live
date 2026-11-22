@@ -70,7 +70,10 @@ test('the kind chips send the kind to the list query and show only the chosen ki
   await page.setViewportSize(WIDE);
   const state = await openEndpoint(page, ENDPOINT_PATH, MIXED);
 
-  const email = page.getByRole('button', { name: 'Email', exact: true });
+  await page.getByRole('button', { name: 'Filters (0)' }).click();
+  const email = page
+    .getByRole('dialog', { name: 'Filter options' })
+    .getByRole('button', { name: 'Email', exact: true });
   await email.click();
   await expect(email).toHaveAttribute('aria-pressed', 'true');
   await expect.poll(() => state.listRequests.some((search) => search.includes('kind=email'))).toBe(true);

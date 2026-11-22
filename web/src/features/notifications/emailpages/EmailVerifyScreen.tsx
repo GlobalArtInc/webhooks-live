@@ -1,9 +1,11 @@
 import { useTranslation } from 'react-i18next';
+import { useStandalonePageTitle } from '../../../app/useDocumentTitle';
 import { verifyEmailAddress } from '../notificationsApi';
 import { ConfirmationScreen } from './ConfirmationScreen';
 
 export function EmailVerifyScreen() {
   const { t } = useTranslation();
+  useStandalonePageTitle(t('wl.title.emailVerify'));
   return (
     <ConfirmationScreen
       title={t('wl.emailpages.verify.title')}

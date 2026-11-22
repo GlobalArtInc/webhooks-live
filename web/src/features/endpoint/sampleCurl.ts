@@ -11,7 +11,7 @@ export function sampleCurl(captureUrl: string): string {
     shellQuote(captureUrl),
     '--header',
     shellQuote('Content-Type: application/json'),
-    '--data-binary',
+    '--data-raw',
     shellQuote(SAMPLE_BODY),
   ].join(' ');
 }

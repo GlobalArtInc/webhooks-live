@@ -17,6 +17,7 @@ registerMockServer();
 const ENDPOINT_PATH = `/e/${ENDPOINT_ID}`;
 const CLIENT_HEIGHT_PX = 360;
 const BASE_TITLE = 'webhooks.live';
+const ENDPOINT_TITLE = 'Endpoint 7k2…p4 — webhooks.live';
 const ASYNC_TIMEOUT_MS = 5000;
 const DEFAULT_ASYNC_TIMEOUT_MS = 1000;
 
@@ -189,12 +190,12 @@ describe('endpoint view live updates', () => {
     arrive(4);
     arrive(5);
 
-    await waitFor(() => expect(document.title).toBe(`(2) ${BASE_TITLE}`));
+    await waitFor(() => expect(document.title).toBe(`(2) ${ENDPOINT_TITLE}`));
     expect(announcerText()).toBe('');
 
     setHidden(false);
 
-    await waitFor(() => expect(document.title).toBe(BASE_TITLE));
+    await waitFor(() => expect(document.title).toBe(ENDPOINT_TITLE));
   });
 
   it('offers a new-captures pill when scrolled away and scrolls back to the top on click', async () => {

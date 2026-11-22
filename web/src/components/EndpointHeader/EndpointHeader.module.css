@@ -23,11 +23,12 @@
 }
 
 .url {
+  display: block;
+  flex: 0 1 auto;
   min-width: 0;
   font: var(--text-title);
   font-family: var(--font-mono);
   color: var(--color-text);
-  overflow-wrap: anywhere;
 }
 
 .meta {
@@ -123,8 +124,38 @@
 }
 
 @media (max-width: 767px) {
+  .root {
+    gap: var(--space-1) var(--space-2);
+    padding: var(--space-2) var(--space-3);
+  }
+
+  .urlGroup {
+    flex: 1 1 0;
+  }
+
+  .label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
   .url {
-    font: var(--text-section);
-    font-family: var(--font-mono);
+    font: var(--mono-data);
+  }
+
+  .meta {
+    order: 2;
+    flex: 1 1 100%;
+  }
+
+  .actions {
+    order: 1;
+  }
+
+  .button,
+  .danger {
+    min-height: 44px;
   }
 }

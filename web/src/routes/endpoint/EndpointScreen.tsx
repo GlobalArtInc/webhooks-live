@@ -383,28 +383,30 @@ export function EndpointScreen() {
               <p className={styles.noMatch}>{t('wl.filterbuilder.shown', { shown: list.items.length })}</p>
             ) : null}
             {noMatch ? <p className={styles.noMatch}>{t('wl.endpoint.filter.empty')}</p> : null}
-            <LiveToolbar
-              follow={follow.state}
-              announce={livePrefs.announce}
-              onToggleFollow={() => {
-                applyFollow({ kind: 'toggle' });
-              }}
-              onToggleAnnounce={() => {
-                saveLivePrefs({ announce: !livePrefs.announce });
-              }}
-            />
-            <SelectionBar
-              active={selectMode.active}
-              count={checkedCaptures.length}
-              loadedCount={list.items.length}
-              onBegin={selectMode.begin}
-              onEnd={selectMode.end}
-              onSelectAll={() => {
-                selectMode.selectAll(list.items.map((item) => item.id));
-              }}
-              onExport={openExport}
-              onDelete={requestBulkDelete}
-            />
+            <div className={styles.tools}>
+              <LiveToolbar
+                follow={follow.state}
+                announce={livePrefs.announce}
+                onToggleFollow={() => {
+                  applyFollow({ kind: 'toggle' });
+                }}
+                onToggleAnnounce={() => {
+                  saveLivePrefs({ announce: !livePrefs.announce });
+                }}
+              />
+              <SelectionBar
+                active={selectMode.active}
+                count={checkedCaptures.length}
+                loadedCount={list.items.length}
+                onBegin={selectMode.begin}
+                onEnd={selectMode.end}
+                onSelectAll={() => {
+                  selectMode.selectAll(list.items.map((item) => item.id));
+                }}
+                onExport={openExport}
+                onDelete={requestBulkDelete}
+              />
+            </div>
             <CaptureList
               selection={{
                 active: selectMode.active,

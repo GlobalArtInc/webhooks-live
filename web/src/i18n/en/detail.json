@@ -15,7 +15,7 @@
   "wl.detail.section.show": "Show",
   "wl.detail.section.hideNamed": "Hide {{title}}",
   "wl.detail.section.showNamed": "Show {{title}}",
-  "wl.detail.summary.copyUrl": "Copy capture URL",
+  "wl.detail.summary.copyUrl": "Copy URL",
   "wl.detail.summary.clientIp": "Sender IP",
   "wl.detail.summary.received": "Received",
   "wl.detail.summary.size": "Size",

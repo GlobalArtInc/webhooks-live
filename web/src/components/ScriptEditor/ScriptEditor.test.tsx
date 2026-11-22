@@ -27,7 +27,7 @@ describe('ScriptEditor', () => {
     const { container } = renderEditor({ phase: 'before' });
 
     expect(screen.getByRole('group', { name: LABEL })).toBeTruthy();
-    expect(screen.getByText('10B of 16.4kB')).toBeTruthy();
+    expect(screen.getByText('10 B of 16.0 KiB')).toBeTruthy();
     expect(screen.getByText('Before the response:')).toBeTruthy();
     expect(screen.getByText(/runs stop after 100 ms or 100,000 operations\./)).toBeTruthy();
     await waitFor(() => {

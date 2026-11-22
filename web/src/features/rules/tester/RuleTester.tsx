@@ -2,7 +2,7 @@ import { useId, useMemo, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CapturePicker } from '../../../components/CapturePicker/CapturePicker';
 import { useNow } from '../../endpoints/useNow';
-import { formatRelativeTime } from '../../../components/format/format';
+import { formatElapsedTime } from '../../../components/format/format';
 import { FinalResponsePanel } from './FinalResponsePanel';
 import { RealRunPanel } from './RealRunPanel';
 import { describeFailure } from './summary';
@@ -97,7 +97,7 @@ export function RuleTester(props: RuleTesterProps) {
     statusText = t('wl.tester.status.waiting');
   } else if (trace !== null) {
     statusText = t('wl.tester.status.summary', {
-      when: formatRelativeTime(new Date(runner.at).toISOString(), now, i18n.language),
+      when: formatElapsedTime(new Date(runner.at).toISOString(), now, i18n.language),
       verdict,
       ms: trace.durationMs,
     });

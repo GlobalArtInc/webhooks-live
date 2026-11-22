@@ -32,9 +32,19 @@ function saveButton(page: Page): Locator {
   return page.getByRole('button', { name: 'Save', exact: true });
 }
 
+const NARROW_BREAKPOINT = 768;
+
 async function chooseTheme(page: Page, theme: 'Light' | 'Dark'): Promise<void> {
+  const inDrawer = (page.viewportSize()?.width ?? 0) < NARROW_BREAKPOINT;
+  if (inDrawer) {
+    await page.getByRole('button', { name: 'Menu', exact: true }).click();
+  }
   await page.getByRole('radio', { name: theme, exact: true }).check();
   await expect(page.locator('html')).toHaveAttribute('data-theme', theme.toLowerCase());
+  if (inDrawer) {
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog', { name: 'Menu' })).toBeHidden();
+  }
 }
 
 test.describe('rule editor', () => {

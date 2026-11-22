@@ -36,7 +36,11 @@ export function SummarySection({ capture }: SummarySectionProps) {
       <div className={styles.urlRow}>
         <MethodBadge method={capture.method} />
         <code className={styles.url}>{capture.url}</code>
-        <CopyButton value={capture.url} label={t('wl.detail.summary.copyUrl')} />
+        <CopyButton
+          value={capture.url}
+          label={t('wl.detail.summary.copyUrl')}
+          idleText={t('wl.detail.summary.copyUrl')}
+        />
       </div>
       <dl className={styles.facts}>
         <Fact term={t('wl.detail.summary.clientIp')}>

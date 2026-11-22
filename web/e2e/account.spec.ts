@@ -9,6 +9,7 @@ const SIGNED_IN = instanceWith({
   auth: { provider_name: 'Example ID', sign_in_available: true },
 });
 const OPEN = instanceWith();
+const NARROW_BREAKPOINT = 768;
 const WIDTHS = [
   { width: 360, height: 740 },
   { width: 1024, height: 768 },
@@ -149,6 +150,9 @@ for (const { width, height } of WIDTHS) {
     await expect(page.getByRole('heading', { level: 1, name: 'Account' })).toBeVisible();
     expect(await horizontalOverflow(page)).toBe(0);
 
+    if (width < NARROW_BREAKPOINT) {
+      await page.getByRole('button', { name: 'Menu', exact: true }).click();
+    }
     await page.getByRole('button', { name: 'Account: Ada Lovelace' }).click();
     await expect(page.getByRole('menuitem', { name: 'Preferences' })).toBeVisible();
     expect(await horizontalOverflow(page)).toBe(0);

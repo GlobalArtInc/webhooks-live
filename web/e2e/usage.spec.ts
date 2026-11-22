@@ -12,6 +12,7 @@ import { instanceWith, mockApi } from './support/mockApi';
 
 const USAGE_PATH = '/usage';
 const USAGE_REQUEST = '/api/v1/usage';
+const NARROW_BREAKPOINT = 768;
 const WIDTHS = [
   { width: 360, height: 740 },
   { width: 1440, height: 900 },
@@ -91,9 +92,13 @@ for (const { width, height } of WIDTHS) {
     await openUsage(page);
 
     await expect(page.getByRole('heading', { level: 1, name: 'Usage and limits' })).toBeVisible();
-    await expect(page.getByRole('link', { name: /Outbound requests: limit reached/ })).toBeVisible();
     await expect(page.getByText(/^At the limit\. New items are refused until it resets in /)).toBeVisible();
     expect(await horizontalOverflow(page)).toBe(0);
+
+    if (width < NARROW_BREAKPOINT) {
+      await page.getByRole('button', { name: 'Menu', exact: true }).click();
+    }
+    await expect(page.getByRole('link', { name: /Outbound requests: limit reached/ })).toBeVisible();
   });
 }
 

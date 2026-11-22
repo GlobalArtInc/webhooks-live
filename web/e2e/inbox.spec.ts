@@ -2,6 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import type { Capture, CaptureSummary } from '../src/api/types';
 import {
+  captureIdOf,
   inboxCapture,
   PAYMENTS_ENDPOINT_ID,
   paymentsEndpoint,
@@ -21,7 +22,7 @@ import { apiError, instanceWith, mockApi, type ReplyMap } from './support/mockAp
 const CHOSEN_PATH = `/inbox?scope=endpoints:${PAYMENTS_ENDPOINT_ID},${SHIPPING_ENDPOINT_ID}`;
 const LIST_NAME = 'Captures';
 const GONE_TITLE = 'An endpoint in this scope is no longer available';
-const CAPTURE_HEADING = 'Capture 0193a1c2';
+const CAPTURE_HEADING = `Capture ${captureIdOf(1).slice(-8)}`;
 
 function endpointReplies(): ReplyMap {
   return {

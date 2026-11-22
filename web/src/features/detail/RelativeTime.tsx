@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { formatRelativeTime } from '../../components/format/format';
+import { formatElapsedTime } from '../../components/format/format';
 
 const TICK_MS = 30000;
 
@@ -22,5 +22,5 @@ export function RelativeTime({ iso, locale }: RelativeTimeProps) {
     };
   }, []);
 
-  return <span>{formatRelativeTime(iso, now, locale)}</span>;
+  return <span>{formatElapsedTime(iso, now, locale)}</span>;
 }

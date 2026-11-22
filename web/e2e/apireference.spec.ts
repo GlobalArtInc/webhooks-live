@@ -10,6 +10,7 @@ import { instanceWith, mockApi, type Reply } from './support/mockApi';
 const FIXTURE_PATH = fileURLToPath(new URL('../src/test/fixtures/openapi.json', import.meta.url));
 const document: unknown = JSON.parse(readFileSync(FIXTURE_PATH, 'utf8'));
 const OPERATION_COUNT = buildReference(parseOpenApiDocument(document)).operations.length;
+const NARROW_BREAKPOINT = 768;
 const WIDTHS = [
   { width: 360, height: 740 },
   { width: 1440, height: 900 },
@@ -24,8 +25,16 @@ async function openReference(page: Page, path = '/docs/api', instance: Reply = i
 }
 
 async function chooseTheme(page: Page, theme: 'Light' | 'Dark'): Promise<void> {
+  const inDrawer = (page.viewportSize()?.width ?? 0) < NARROW_BREAKPOINT;
+  if (inDrawer) {
+    await page.getByRole('button', { name: 'Menu', exact: true }).click();
+  }
   await page.getByRole('radio', { name: theme, exact: true }).check();
   await expect(page.locator('html')).toHaveAttribute('data-theme', theme.toLowerCase());
+  if (inDrawer) {
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog', { name: 'Menu' })).toBeHidden();
+  }
 }
 
 async function horizontalOverflow(page: Page): Promise<number> {

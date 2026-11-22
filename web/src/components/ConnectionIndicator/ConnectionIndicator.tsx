@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import type { ConnectionState } from '../../features/live/types';
-import { formatRelativeTime } from '../format/format';
+import { formatElapsedTime } from '../format/format';
 import styles from './ConnectionIndicator.module.css';
 
 export interface ConnectionIndicatorProps {
@@ -15,7 +15,7 @@ export function ConnectionIndicator({ state, lastEventAt, now }: ConnectionIndic
     lastEventAt === null
       ? t('wl.live.status.noEvent')
       : t('wl.live.status.lastEvent', {
-          when: formatRelativeTime(new Date(lastEventAt).toISOString(), now, i18n.language),
+          when: formatElapsedTime(new Date(lastEventAt).toISOString(), now, i18n.language),
         });
 
   let label: string;
