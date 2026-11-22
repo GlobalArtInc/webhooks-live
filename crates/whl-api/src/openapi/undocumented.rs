@@ -111,16 +111,7 @@ const PUSH: &[Route] = &[
     route("DELETE", "/push/subscriptions/{subscription_id}"),
 ];
 
-const RULES: &[Route] = &[
-    route("GET", "/endpoints/{id}/rule-runs"),
-    route("GET", "/endpoints/{id}/rules"),
-    route("POST", "/endpoints/{id}/rules"),
-    route("POST", "/endpoints/{id}/rules/dry-run"),
-    route("PUT", "/endpoints/{id}/rules/order"),
-    route("DELETE", "/endpoints/{id}/rules/{rule_id}"),
-    route("GET", "/endpoints/{id}/rules/{rule_id}"),
-    route("PATCH", "/endpoints/{id}/rules/{rule_id}"),
-];
+const RULES: &[Route] = &[];
 
 const SCHEDULES: &[Route] = &[
     route("GET", "/endpoints/{id}/schedules"),
@@ -131,17 +122,9 @@ const SCHEDULES: &[Route] = &[
     route("GET", "/endpoints/{id}/schedules/{schedule_id}/runs"),
 ];
 
-const SECRETS: &[Route] = &[
-    route("GET", "/endpoints/{id}/secrets"),
-    route("DELETE", "/endpoints/{id}/secrets/{name}"),
-    route("PUT", "/endpoints/{id}/secrets/{name}"),
-];
+const SECRETS: &[Route] = &[];
 
-const VARS: &[Route] = &[
-    route("GET", "/endpoints/{id}/vars"),
-    route("DELETE", "/endpoints/{id}/vars/{name}"),
-    route("PUT", "/endpoints/{id}/vars/{name}"),
-];
+const VARS: &[Route] = &[];
 
 pub(super) fn all() -> Vec<&'static Route> {
     [

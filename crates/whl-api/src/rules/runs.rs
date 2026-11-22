@@ -4,12 +4,16 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use utoipa::{IntoParams, ToSchema};
 use whl_core::capture_id::CaptureId;
 use whl_store::Uuid;
 use whl_store::rule_exec::{RerunOutcome, RunFilter, RunRecord};
 
+use super::dto::RUN_GRAMMAR;
 use super::handlers::{endpoint_id, live_endpoint};
-use crate::error::{ApiError, FieldCode, FieldViolation};
+use crate::error::{ApiError, ErrorBody, FieldCode, FieldViolation};
+use crate::openapi::params::EndpointIdParam;
+use crate::openapi::responses::{StoreUnavailable, Unauthenticated, ValidationFailed};
 use crate::state::ApiState;
 
 const DEFAULT_LIMIT: i64 = 50;
@@ -17,24 +21,39 @@ const MAX_LIMIT: i64 = 200;
 const CAPTURE_RUNS: i64 = 10;
 const STATES: [&str; 5] = ["sync", "queued", "running", "succeeded", "failed"];
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct RunListParams {
+    #[param(minimum = 1, maximum = 200, default = 50, example = 50)]
     limit: Option<i64>,
+    #[param(example = "0193a6c2-7d1e-7c3a-8f55-2b9e4c1a6d70")]
     cursor: Option<String>,
+    #[param(example = "failed")]
     state: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = RuleRun, description = RUN_GRAMMAR)]
 pub struct RuleRunDto {
+    #[schema(read_only, example = "0193a6c2-7d1e-7c3a-8f55-2b9e4c1a6d70")]
     id: String,
+    #[schema(read_only, example = "0193a6c2-7d1e-7c3a-8f55-2b9e4c1a6d71")]
     capture_id: String,
+    #[schema(read_only, example = "capture")]
     trigger: String,
+    #[schema(read_only, example = "succeeded")]
     state: String,
+    #[schema(read_only, example = 3)]
     rules_version: i32,
+    #[schema(read_only, required = true, example = 201)]
     response_status: Option<i16>,
+    #[schema(read_only, required = true)]
     error: Option<String>,
+    #[schema(read_only, value_type = Vec<Object>)]
     entries: Value,
+    #[schema(read_only, format = DateTime)]
     created_at: String,
+    #[schema(read_only, required = true, format = DateTime)]
     finished_at: Option<String>,
 }
 
@@ -55,9 +74,14 @@ impl From<&RunRecord> for RuleRunDto {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(
+    as = RuleRunList,
+    description = "Newest first. `next_cursor` is the id to pass as `cursor` for the next page; null on the last page."
+)]
 pub struct RunListDto {
     items: Vec<RuleRunDto>,
+    #[schema(required = true, example = "0193a6c2-7d1e-7c3a-8f55-2b9e4c1a6d70")]
     next_cursor: Option<String>,
 }
 
@@ -82,6 +106,26 @@ fn capture_uuid(raw: &str) -> Result<Uuid, ApiError> {
         .map_err(|_| ApiError::NotFound)
 }
 
+#[utoipa::path(
+    get,
+    path = "/endpoints/{id}/rule-runs",
+    operation_id = "rules_runs_list",
+    tag = "Rules",
+    summary = "List the rule runs of an endpoint",
+    description = "Runs of every capture of the endpoint, newest first, 1 to 200 per page (`limit`, default 50). `cursor` is the `next_cursor` of the previous page, the id of its last run; a malformed cursor or one that is not a run of this endpoint answers 400 `invalid_cursor`. `state` is one of `sync`, `queued`, `running`, `succeeded`, `failed`. Needs a viewer on the endpoint; a token needs the `read` scope.",
+    security(("session_cookie" = []), ("api_token" = []), ()),
+    params(EndpointIdParam, RunListParams),
+    responses(
+        (status = 200, description = "One page of runs", body = RunListDto),
+        (status = 400, description = "`invalid_cursor`: malformed cursor or not a run of this endpoint", body = ErrorBody),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`insufficient_scope`: the token lacks `read`", body = ErrorBody),
+        (status = 404, description = "`not_found`: malformed endpoint id", body = ErrorBody),
+        (status = 410, description = "`endpoint_gone`: unknown, expired or deleted endpoint, or no role on it in `sso`", body = ErrorBody),
+        (status = 422, response = ValidationFailed),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 pub async fn list(
     State(state): State<ApiState>,
     Path(raw_id): Path<String>,
