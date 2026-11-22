@@ -4,13 +4,15 @@ use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
+use utoipa::ToSchema;
 use whl_auth::{AuthRejection, Caller};
 use whl_core::endpoint_id::EndpointId;
 use whl_core::tag::Tag;
 use whl_store::{EndpointFilter, ListPosition, RoleFilter, Uuid};
 
 use crate::dto::EndpointDto;
-use crate::error::{ApiError, FieldCode, FieldViolation};
+use crate::error::{ApiError, ErrorBody, FieldCode, FieldViolation};
+use crate::openapi::responses::{StoreUnavailable, Unauthenticated, ValidationFailed};
 use crate::state::ApiState;
 
 const DEFAULT_LIMIT: u32 = 50;
@@ -25,12 +27,37 @@ pub struct ListParams {
     folder: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = EndpointList)]
 pub struct EndpointListDto {
     items: Vec<EndpointDto>,
     next_cursor: Option<String>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/endpoints",
+    operation_id = "endpoints_list",
+    tag = "Endpoints",
+    summary = "List the caller's endpoints",
+    description = "Lists the caller's own endpoints and the endpoints shared with the caller, most recently active first (`last_active_at` descending). 50 per page by default, at most 200. `role=owner` or `role=shared` narrows the list, `tag` and `folder` filter it; there is no `q` search. A token with an endpoint limit sees only those endpoints. Signed-in callers only: `open` answers 403 `not_available_in_mode`. A Bearer token needs the `read` scope.",
+    security(("session_cookie" = []), ("api_token" = [])),
+    params(
+        ("limit" = Option<u32>, Query, minimum = 1, maximum = 200, description = "Page size; default 50"),
+        ("cursor" = Option<String>, Query, description = "From `next_cursor` of the previous page; opaque"),
+        ("role" = Option<String>, Query, pattern = "^(owner|shared)$", description = "`owner`: the caller's own endpoints; `shared`: endpoints shared with the caller"),
+        ("tag" = Option<String>, Query, pattern = "^[a-z0-9-]{1,32}$", description = "Only endpoints with this tag"),
+        ("folder" = Option<String>, Query, description = "Only endpoints of this folder, a UUID")
+    ),
+    responses(
+        (status = 200, description = "One page of endpoints", body = EndpointListDto),
+        (status = 400, description = "`invalid_cursor`: the cursor is malformed or was issued for other filters", body = ErrorBody),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`not_available_in_mode`: the instance is `open`; `sign_in_required`: `mixed` without a signed-in caller; `insufficient_scope`: a token without `read`", body = ErrorBody),
+        (status = 422, response = ValidationFailed),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 pub async fn list(
     State(state): State<ApiState>,
     caller: Caller,

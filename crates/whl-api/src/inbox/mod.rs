@@ -1,4 +1,5 @@
 mod cursor;
+mod doc;
 mod list;
 mod selection;
 
@@ -15,6 +16,8 @@ use whl_store::Store;
 
 use crate::error::{ApiError, FieldCode, FieldViolation};
 use crate::routing::{Routes, get};
+
+pub use doc::InboxDoc;
 
 pub fn routes() -> Routes {
     Routes::new().route("/inbox/captures", get(list::list))

@@ -7,11 +7,36 @@ use whl_core::endpoint_id::EndpointId;
 use whl_store::{ClaimOutcome, ClaimRefusal, EndpointRole};
 
 use crate::dto::EndpointDto;
-use crate::error::ApiError;
+use crate::error::{ApiError, ErrorBody};
+use crate::openapi::params::EndpointIdParam;
+use crate::openapi::responses::StoreUnavailable;
 use crate::state::ApiState;
 
 pub const CLAIM_WINDOW: Duration = Duration::from_secs(24 * 3600);
 
+#[utoipa::path(
+    post,
+    path = "/endpoints/{id}/claim",
+    operation_id = "endpoints_claim",
+    tag = "Endpoints",
+    summary = "Claim an anonymous endpoint as its owner",
+    description = "Only in `mixed`. The caller becomes the owner of an endpoint that has no owner, was created within the last 24 hours and was created from the caller's network; the response is the endpoint with `my_role` `owner`. Session only: a Bearer token answers 403 `session_required`. A view-protected endpoint also needs a valid grant (`X-Webhooks-Live-Grant`).",
+    security(("session_cookie" = [])),
+    params(
+        EndpointIdParam,
+        ("X-Webhooks-Live-Grant" = Option<String>, Header, description = "View grant of a view-protected endpoint, from `POST .../unlock`")
+    ),
+    responses(
+        (status = 200, description = "The claimed endpoint", body = EndpointDto),
+        (status = 401, description = "`unauthenticated` or `invalid_token` (no valid session or Bearer token); `grant_required`: a view-protected endpoint without a valid grant", body = ErrorBody),
+        (status = 403, description = "`not_available_in_mode`: the instance is not `mixed`; `sign_in_required`: no signed-in caller; `claim_refused`: the caller is outside the creating network, the endpoint is older than 24 hours or has no recorded network; `session_required`: a Bearer token was used", body = ErrorBody),
+        (status = 404, description = "`not_found`: malformed endpoint id", body = ErrorBody),
+        (status = 409, description = "`already_owned`: the endpoint has an owner, or the caller is already a member", body = ErrorBody),
+        (status = 410, description = "`endpoint_gone`: unknown, expired or deleted endpoint, or one owned by someone else", body = ErrorBody),
+        (status = 422, description = "`limit_reached`: the caller's endpoint limit (`error.limit` = `{name: \"endpoints\", max}`)", body = ErrorBody),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 pub async fn claim(
     State(state): State<ApiState>,
     caller: Caller,

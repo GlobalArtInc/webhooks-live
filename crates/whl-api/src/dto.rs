@@ -3,6 +3,7 @@ use base64::engine::general_purpose::STANDARD;
 use serde::Serialize;
 use time::macros::format_description;
 use time::{OffsetDateTime, UtcOffset};
+use utoipa::ToSchema;
 use whl_auth::AccessControl;
 use whl_core::header::MAX_HEADERS;
 use whl_core::response::{MAX_BODY_BYTES as RESPONSE_BODY_BYTES, MAX_DELAY_MS};
@@ -16,22 +17,34 @@ use crate::view_password::GrantDto;
 
 const MAX_FORWARD_RULES: u32 = 5;
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = Instance)]
 pub struct InstanceDto {
+    #[schema(example = "1.0.0")]
     version: &'static str,
+    #[schema(pattern = "^(open|sso|mixed)$", example = "sso")]
     auth_mode: &'static str,
+    #[schema(example = "member")]
     tier: String,
     user: Option<UserDto>,
+    #[schema(example = "https://webhooks.globalart.hu")]
     public_url: String,
     auth: AuthDto,
     limits: LimitsDto,
     features: FeaturesDto,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = User)]
 pub struct UserDto {
+    #[schema(
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        example = "0193a1c2-7e4b-7c11-9a2f-3b5d1e0f4a21"
+    )]
     id: String,
+    #[schema(example = "dev@example.com")]
     email: String,
+    #[schema(example = "Dev")]
     name: Option<String>,
 }
 
@@ -45,13 +58,16 @@ impl From<&UserRecord> for UserDto {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = InstanceAuth)]
 struct AuthDto {
+    #[schema(example = "GlobalArt SSO")]
     provider_name: Option<String>,
     sign_in_available: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = InstanceLimits)]
 struct LimitsDto {
     max_captures: u32,
     max_body_bytes: u64,
@@ -82,7 +98,8 @@ struct LimitsDto {
     email_notifications_per_day: u32,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = InstanceFeatures)]
 struct FeaturesDto {
     ring_mode_allowed: bool,
     forwarding: bool,
@@ -180,37 +197,50 @@ impl InstanceDto {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = Endpoint)]
 pub struct EndpointDto {
+    #[schema(
+        pattern = "^[0-9a-hjkmnp-tv-z]{24}$",
+        example = "7k2m9q4xw8c1d5f3h6j0n2p4"
+    )]
     id: String,
     url: String,
     title: Option<String>,
     response: ResponseDto,
     cors: bool,
+    #[schema(pattern = "^(refuse|ring)$", example = "refuse")]
     overflow: &'static str,
     tags: Vec<String>,
+    #[schema(value_type = Vec<Object>)]
     forward_rules: Vec<RuleDto>,
+    #[schema(value_type = Option<VerifierDoc>)]
     verifier: Option<serde_json::Value>,
     max_captures: u32,
     capture_count: i32,
     bytes_used: i64,
     last_seq: i64,
+    #[schema(format = DateTime)]
     created_at: String,
+    #[schema(format = DateTime)]
     last_active_at: String,
+    #[schema(format = DateTime)]
     expires_at: Option<String>,
     retention: RetentionDto,
     capture_ttl_seconds: Option<i32>,
     sender_allow_cidrs: Vec<String>,
     capture_auth: Option<CaptureAuthDto>,
     owner: Option<UserDto>,
+    #[schema(pattern = "^(owner|editor|viewer)$", example = "owner")]
     my_role: Option<&'static str>,
     view_protected: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     view_grant: Option<GrantDto>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[schema(as = CaptureAuth)]
 enum CaptureAuthDto {
     Basic { username: String },
     Header { name: String },
@@ -229,31 +259,40 @@ impl From<&CaptureAuthRecord> for CaptureAuthDto {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = Retention)]
 struct RetentionDto {
+    #[schema(pattern = "^(sliding|never)$", example = "sliding")]
     mode: &'static str,
     seconds: Option<i32>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = EndpointResponse)]
 struct ResponseDto {
+    #[schema(minimum = 100, maximum = 599, default = 200)]
     status: u16,
     templated: bool,
     status_template: Option<String>,
+    #[schema(example = "text/plain")]
     content_type: String,
     headers: Vec<NameValueDto>,
     body: BodyDto,
+    #[schema(maximum = 10000)]
     delay_ms: u64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = NameValue)]
 struct NameValueDto {
     name: String,
     value: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = Body)]
 pub(crate) struct BodyDto {
+    #[schema(pattern = "^(utf8|base64)$", example = "utf8")]
     encoding: &'static str,
     data: String,
     truncated: bool,
@@ -380,6 +419,91 @@ fn verifier_value(stored: &StoredVerifier) -> serde_json::Value {
             serde_json::from_str(raw).unwrap_or(serde_json::Value::Null)
         }
     }
+}
+
+#[derive(ToSchema)]
+#[schema(as = EndpointInput)]
+#[allow(dead_code)]
+pub struct EndpointInputDoc {
+    #[schema(max_length = 100)]
+    title: Option<String>,
+    response: Option<EndpointResponseInputDoc>,
+    cors: Option<bool>,
+    #[schema(pattern = "^(refuse|ring)$")]
+    overflow: Option<String>,
+    #[schema(max_items = 10)]
+    tags: Option<Vec<String>>,
+    retention: Option<RetentionInputDoc>,
+    #[schema(minimum = 1)]
+    max_captures: Option<u32>,
+    #[schema(minimum = 60)]
+    capture_ttl_seconds: Option<u32>,
+    #[schema(max_items = 20)]
+    sender_allow_cidrs: Option<Vec<String>>,
+    capture_auth: Option<CaptureAuthInputDoc>,
+    #[schema(min_length = 8, max_length = 128)]
+    view_password: Option<String>,
+    verifier: Option<VerifierDoc>,
+    #[schema(min_length = 1)]
+    template_id: Option<String>,
+}
+
+#[derive(ToSchema)]
+#[schema(as = EndpointResponseInput)]
+#[allow(dead_code)]
+pub struct EndpointResponseInputDoc {
+    #[schema(minimum = 100, maximum = 599)]
+    status: Option<u16>,
+    content_type: Option<String>,
+    headers: Option<Vec<NameValueDto>>,
+    body: Option<BodyDto>,
+    #[schema(maximum = 10000)]
+    delay_ms: Option<u64>,
+    templated: Option<bool>,
+    #[schema(max_length = 1024)]
+    status_template: Option<String>,
+}
+
+#[derive(ToSchema)]
+#[schema(as = RetentionInput)]
+#[allow(dead_code)]
+pub struct RetentionInputDoc {
+    #[schema(pattern = "^(sliding|never)$")]
+    mode: Option<String>,
+    #[schema(minimum = 3600)]
+    seconds: Option<u32>,
+}
+
+#[derive(ToSchema)]
+#[schema(as = CaptureAuthInput)]
+#[allow(dead_code)]
+pub struct CaptureAuthInputDoc {
+    #[schema(pattern = "^(basic|header)$")]
+    kind: String,
+    #[schema(min_length = 1, max_length = 256)]
+    username: Option<String>,
+    #[schema(min_length = 1, max_length = 256)]
+    password: Option<String>,
+    #[schema(min_length = 1, max_length = 256)]
+    name: Option<String>,
+    #[schema(min_length = 1, max_length = 256)]
+    value: Option<String>,
+}
+
+#[derive(ToSchema)]
+#[schema(as = Verifier)]
+#[allow(dead_code)]
+pub struct VerifierDoc {
+    #[schema(pattern = "^(hmac|github|stripe|slack|shopify|standard_webhooks)$")]
+    scheme: String,
+    secret_name: String,
+    header: Option<String>,
+    #[schema(pattern = "^(sha1|sha256|sha512)$")]
+    algorithm: Option<String>,
+    #[schema(pattern = "^(hex|base64)$")]
+    encoding: Option<String>,
+    prefix: Option<String>,
+    timestamp_header: Option<String>,
 }
 
 const TIMESTAMP: &[time::format_description::FormatItem<'static>] =

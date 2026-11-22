@@ -7,12 +7,7 @@ const fn route(method: &'static str, path: &'static str) -> Route {
     Route { method, path }
 }
 
-const ALIASES: &[Route] = &[
-    route("GET", "/aliases/{alias}/availability"),
-    route("GET", "/endpoints/{id}/aliases"),
-    route("DELETE", "/endpoints/{id}/aliases/{alias}"),
-    route("PUT", "/endpoints/{id}/aliases/{alias}"),
-];
+const ALIASES: &[Route] = &[];
 
 const CAPTURES: &[Route] = &[
     route("DELETE", "/endpoints/{id}/captures"),
@@ -45,16 +40,7 @@ const COMPOSER: &[Route] = &[
     route("DELETE", "/send/history/{sent_id}"),
 ];
 
-const ENDPOINTS: &[Route] = &[
-    route("GET", "/endpoints"),
-    route("POST", "/endpoints"),
-    route("DELETE", "/endpoints/{id}"),
-    route("GET", "/endpoints/{id}"),
-    route("PATCH", "/endpoints/{id}"),
-    route("POST", "/endpoints/{id}/claim"),
-    route("POST", "/endpoints/{id}/unlock"),
-    route("GET", "/instance"),
-];
+const ENDPOINTS: &[Route] = &[];
 
 const EXPORT: &[Route] = &[
     route("GET", "/endpoints/{id}/export"),
@@ -83,13 +69,9 @@ const IMPORT: &[Route] = &[
     route("POST", "/endpoints/{id}/import"),
 ];
 
-const INBOX: &[Route] = &[route("GET", "/inbox/captures")];
+const INBOX: &[Route] = &[];
 
-const MEMBERS: &[Route] = &[
-    route("GET", "/endpoints/{id}/members"),
-    route("PUT", "/endpoints/{id}/members"),
-    route("DELETE", "/endpoints/{id}/members/{user_id}"),
-];
+const MEMBERS: &[Route] = &[];
 
 const NOTIFICATIONS: &[Route] = &[
     route("GET", "/email-addresses"),
