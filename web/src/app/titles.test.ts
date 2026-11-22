@@ -64,3 +64,16 @@ describe('document title with an unread mark', () => {
     expect(document.title).toBe('Inbox — webhooks.live');
   });
 });
+
+describe('pageTitleOf with an endpoint title', () => {
+  it('uses the title for the list and for a capture, and keeps the id fallback', () => {
+    expect(pageTitleOf(`/e/${ENDPOINT_ID}`, i18n.t, 'My title')).toBe('My title — webhooks.live');
+    expect(pageTitleOf(`/e/${ENDPOINT_ID}/c/0193a1c2-9d10-7a3e-8b44-1c2d3e4f5a01`, i18n.t, 'My title')).toBe(
+      'My title — webhooks.live',
+    );
+    expect(pageTitleOf(`/e/${ENDPOINT_ID}`, i18n.t, null)).toBe('Endpoint x7g…q3 — webhooks.live');
+    expect(pageTitleOf(`/e/${ENDPOINT_ID}/settings/general`, i18n.t, 'My title')).toBe(
+      'Settings · General — webhooks.live',
+    );
+  });
+});

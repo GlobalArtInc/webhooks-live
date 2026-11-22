@@ -3,13 +3,14 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { http } from 'msw';
 import { afterEach, describe, expect, it } from 'vitest';
 import { queryKeys } from '../../api/queries';
-import type { ApiLimit, SendRequest, User } from '../../api/types';
+import type { ApiLimit, SendRequest, SentRequest, User } from '../../api/types';
 import { I18nProvider } from '../../i18n/provider';
 import { jsonCaptureFixture } from '../../test/fixtures/captures';
-import { sentRequestFixture, SENT_TARGET } from '../../test/fixtures/composer';
+import { sendResultFixture, sentRequestFixture, SENT_TARGET } from '../../test/fixtures/composer';
 import { errorResponse, jsonResponse } from '../../test/msw/responses';
 import { sendHandlers } from '../../test/msw/composer';
 import { mockServer, registerMockServer } from '../../test/msw/server';
+import { ENDPOINT_ID } from '../../test/fixtures/endpoint';
 import { mockStore } from '../../test/msw/store';
 import { ComposerWorkspace } from './ComposerWorkspace';
 import { emptyDraft, seedFromCapture, type ComposerSeed } from './draft';
@@ -25,12 +26,12 @@ afterEach(() => {
   cleanup();
 });
 
-function renderWorkspace(seed: ComposerSeed = BLANK) {
+function renderWorkspace(seed: ComposerSeed = BLANK, endpointId: string | null = null) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
       <I18nProvider bundles={{}}>
-        <ComposerWorkspace endpointId={null} seed={seed} />
+        <ComposerWorkspace endpointId={endpointId} seed={seed} />
       </I18nProvider>
     </QueryClientProvider>,
   );
@@ -158,6 +159,47 @@ describe('composer workspace', () => {
 
     expect(await screen.findByText('No requests sent yet.')).toBeTruthy();
     expect(screen.queryByText('Sign in or open an endpoint to see its history.')).toBeNull();
+    expect(historyRequests).toEqual([]);
+  });
+
+  it('refreshes the history after a send that is stored', async () => {
+    const history: SentRequest[] = [];
+    mockServer.use(
+      ...sendHandlers({
+        history,
+        reply: () => {
+          history.push(sentRequestFixture);
+          return jsonResponse(sendResultFixture);
+        },
+      }),
+    );
+    renderWorkspace(BLANK, ENDPOINT_ID);
+    expect(await screen.findByText('No requests sent yet.')).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText(URL_LABEL), { target: { value: 'https://example.test/hook' } });
+    fireEvent.click(screen.getByRole('button', { name: SEND_LABEL }));
+
+    expect(await screen.findByRole('button', { name: `Replay POST ${SENT_TARGET}` })).toBeTruthy();
+    expect(screen.queryByText('No requests sent yet.')).toBeNull();
+  });
+
+  it('keeps the neutral history text and asks for no history when the send is not stored', async () => {
+    const historyRequests: string[] = [];
+    mockServer.use(
+      ...sendHandlers(),
+      http.get('/api/v1/send/history', ({ request }) => {
+        historyRequests.push(request.url);
+        return jsonResponse({ items: [], next_cursor: null });
+      }),
+    );
+    mockStore.instance = { ...mockStore.instance, user: null };
+    renderWorkspace();
+
+    fireEvent.change(await screen.findByLabelText(URL_LABEL), { target: { value: 'https://example.test/hook' } });
+    fireEvent.click(screen.getByRole('button', { name: SEND_LABEL }));
+
+    expect(await screen.findByText('200')).toBeTruthy();
+    expect(screen.getByText('No requests sent yet.')).toBeTruthy();
     expect(historyRequests).toEqual([]);
   });
 

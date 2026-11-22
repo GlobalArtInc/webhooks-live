@@ -1,6 +1,8 @@
+import { useMemo } from 'react';
 import { useInstance } from '../../api/queries';
 import type { Endpoint, EndpointListQuery, Folder } from '../../api/types';
 import { useMyEndpoints } from '../endpoints/store';
+import { useCachedEndpointTitles } from '../endpoints/titleCache';
 import { useAccountEndpoints, useAccountFolders } from './api';
 import type { LocalOrganize } from './localOrganize';
 import { allFolderViews, buildOrganized, type FolderView, type OrganizedEndpoint } from './model';
@@ -38,7 +40,12 @@ export function useSession(): SessionState {
 
 export function useOrganizeData(serverQuery: EndpointListQuery): OrganizeData {
   const session = useSession();
-  const local = useMyEndpoints();
+  const stored = useMyEndpoints();
+  const titles = useCachedEndpointTitles(stored.map((entry) => entry.id));
+  const local = useMemo(
+    () => stored.map((entry, index) => ({ ...entry, label: entry.label ?? titles[index] ?? null })),
+    [stored, titles],
+  );
   const organize = useLocalOrganize();
   const everyAccount = useAccountEndpoints({}, session.signedIn);
   const shown = useAccountEndpoints(serverQuery, session.signedIn);

@@ -7,6 +7,7 @@ import { ConfirmDialog } from '../../components/ConfirmDialog/ConfirmDialog';
 import { Announcer } from '../../components/Announcer/Announcer';
 import { copyText } from '../../components/CopyButton/clipboard';
 import { ConnectionIndicator } from '../../components/ConnectionIndicator/ConnectionIndicator';
+import { latestTimestamp } from '../../components/format/useSharedNow';
 import { EmptyState } from '../../components/EmptyState/EmptyState';
 import { EndpointHeader } from '../../components/EndpointHeader/EndpointHeader';
 import { EmptySamples } from '../../features/kinds/samples/EmptySamples';
@@ -124,7 +125,8 @@ export function EndpointScreen() {
   const checkedCaptures = selectMode.checkedIn(list.items);
   const clear = useClearCaptures(endpointId);
   const marked = useMarkedCapture(endpointId);
-  const now = useVisibleMinuteNow();
+  const freshest = useMemo(() => latestTimestamp(list.items.map((item) => item.received_at)), [list.items]);
+  const now = useVisibleMinuteNow(freshest);
   const [listWidth, setListWidth] = useState(loadListWidth);
   const [closedFor, setClosedFor] = useState<string | null>(null);
   const [clearOpen, setClearOpen] = useState(false);

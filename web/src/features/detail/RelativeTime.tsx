@@ -1,7 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useMemo } from 'react';
 import { formatElapsedTime } from '../../components/format/format';
-
-const TICK_MS = 30000;
+import { useSharedNow } from '../../components/format/useSharedNow';
 
 interface RelativeTimeProps {
   iso: string;
@@ -9,18 +8,8 @@ interface RelativeTimeProps {
 }
 
 export function RelativeTime({ iso, locale }: RelativeTimeProps) {
-  const [now, setNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      if (!document.hidden) {
-        setNow(Date.now());
-      }
-    }, TICK_MS);
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, []);
+  const time = useMemo(() => Date.parse(iso), [iso]);
+  const now = useSharedNow(Number.isNaN(time) ? null : time);
 
   return <span>{formatElapsedTime(iso, now, locale)}</span>;
 }

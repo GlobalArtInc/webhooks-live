@@ -7,6 +7,25 @@ interface StoredGrant {
 
 const STORAGE_PREFIX = 'wl.grant.';
 const memory = new Map<string, StoredGrant>();
+const listeners = new Map<string, Set<() => void>>();
+
+export function onGrantStored(endpointId: string, listener: () => void): () => void {
+  const set = listeners.get(endpointId) ?? new Set<() => void>();
+  set.add(listener);
+  listeners.set(endpointId, set);
+  return () => {
+    set.delete(listener);
+    if (set.size === 0 && listeners.get(endpointId) === set) {
+      listeners.delete(endpointId);
+    }
+  };
+}
+
+function notifyGrantStored(endpointId: string): void {
+  for (const listener of [...(listeners.get(endpointId) ?? [])]) {
+    listener();
+  }
+}
 
 function sessionStore(): Storage | null {
   try {
@@ -52,6 +71,7 @@ export function storeGrant(endpointId: string, grant: string, expiresAt: string)
   const entry: StoredGrant = { grant, expiresAt: expires };
   memory.set(endpointId, entry);
   persist(endpointId, entry);
+  notifyGrantStored(endpointId);
   return true;
 }
 

@@ -381,7 +381,7 @@ test('the skip link moves focus to the capture list on an endpoint', async ({ pa
 for (const size of [WIDE, NARROW]) {
   test(`every route has its own document title (${size.width} px)`, async ({ page }) => {
     await openLive(page, size, longPathSeries(3));
-    const title = `Endpoint ${ENDPOINT_ID.slice(0, 3)}…${ENDPOINT_ID.slice(-2)} — webhooks.live`;
+    const title = 'stripe test — webhooks.live';
     await expect(page).toHaveTitle(title);
 
     await page.goto('/docs/api');

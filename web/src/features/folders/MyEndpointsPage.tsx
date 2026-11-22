@@ -1,6 +1,7 @@
 import { useNavigate } from '@tanstack/react-router';
 import { useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { latestTimestamp } from '../../components/format/useSharedNow';
 import { useNow } from '../endpoints/useNow';
 import { EndpointCard } from './EndpointCard';
 import { filterOrganized, labelCounts, type FolderView, type SourceFilter } from './model';
@@ -29,11 +30,11 @@ function folderOptionsOf(folders: readonly FolderView[], source: FolderView['sou
 export function MyEndpointsPage({ search }: MyEndpointsPageProps) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
-  const now = useNow();
   const headingId = useId();
   const headingRef = useRef<HTMLHeadingElement>(null);
   const [notice, setNotice] = useState('');
   const data = useOrganizeData(serverQueryFor(search));
+  const now = useNow(latestTimestamp(data.allRows.map((row) => row.lastActivity)));
   const rows = filterOrganized(data.shownRows, search);
   const labels = labelCounts(data.allRows);
   const suggestions = labels.map((entry) => entry.label);

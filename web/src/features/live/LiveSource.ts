@@ -1,6 +1,6 @@
 import { API_PREFIX, GRANT_HEADER, reportGrantRejected } from '../../api/client';
 import { GRANT_REQUIRED_CODE } from '../access/grantRequired';
-import { clearGrant, readGrant } from '../access/grants';
+import { clearGrant, onGrantStored, readGrant } from '../access/grants';
 import { BYE_LOOP_GUARD_MS, HIDDEN_GRACE_MS, STABLE_CONNECTION_MS, backoffDelay } from './backoff';
 import { parseLiveEvent } from './parse';
 import {
@@ -121,6 +121,7 @@ export class LiveSource {
   private highSeq = 0;
   private lastEventId: string | null = null;
   private probeToken = 0;
+  private stopGrantWatch: (() => void) | null = null;
 
   constructor(options: LiveSourceOptions) {
     this.options = options;
@@ -158,6 +159,10 @@ export class LiveSource {
     document.addEventListener('visibilitychange', this.handleVisibility);
     window.addEventListener('online', this.handleOnline);
     window.addEventListener('offline', this.handleOffline);
+    const { endpointId } = this.options;
+    if (endpointId !== undefined) {
+      this.stopGrantWatch = onGrantStored(endpointId, this.handleGrantStored);
+    }
     this.connect();
     if (document.hidden) {
       this.armHiddenTimer();
@@ -172,6 +177,8 @@ export class LiveSource {
     document.removeEventListener('visibilitychange', this.handleVisibility);
     window.removeEventListener('online', this.handleOnline);
     window.removeEventListener('offline', this.handleOffline);
+    this.stopGrantWatch?.();
+    this.stopGrantWatch = null;
     this.clearTimers();
     this.closeSource();
   }
@@ -426,6 +433,25 @@ export class LiveSource {
       return;
     }
     this.reconnectNow();
+  };
+
+  private readonly handleGrantStored = (): void => {
+    if (this.disposed || (this.state === 'ended' && this.reason !== 'locked')) {
+      return;
+    }
+    if (this.state === 'ended') {
+      this.state = 'offline';
+      this.reason = null;
+    }
+    this.attempt = 0;
+    if (document.hidden) {
+      this.suspend();
+      return;
+    }
+    if (navigator.onLine === false) {
+      return;
+    }
+    this.connect();
   };
 
   private readonly handleOnline = (): void => {

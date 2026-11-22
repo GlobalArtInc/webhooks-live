@@ -1,11 +1,13 @@
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { setBaseTitle } from './pageTitle';
-import { pageTitleOf } from './titles';
+import { useCachedEndpointTitle } from '../features/endpoints/titleCache';
+import { endpointIdOfPath, pageTitleOf } from './titles';
 
 export function useDocumentTitle(pathname: string): void {
   const { t } = useTranslation();
-  const title = pageTitleOf(pathname, t);
+  const endpointTitle = useCachedEndpointTitle(endpointIdOfPath(pathname));
+  const title = pageTitleOf(pathname, t, endpointTitle);
 
   useEffect(() => {
     setBaseTitle(title);

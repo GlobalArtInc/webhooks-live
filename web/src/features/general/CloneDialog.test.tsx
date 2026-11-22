@@ -7,11 +7,14 @@ import { mockServer, registerMockServer } from '../../test/msw/server';
 import { seedEndpoint } from '../../test/msw/store';
 import { schemaProperties } from '../../test/openapiShapes';
 import { renderAppAt } from '../endpoints/renderApp';
+import { shortEndpointId } from '../endpoints/format';
+import { ENDPOINTS_STORAGE_KEY, parseEndpoints } from '../endpoints/storage';
 
 registerMockServer();
 
 afterEach(() => {
   cleanup();
+  window.localStorage.clear();
 });
 
 const CLONE_URL = `/api/v1/endpoints/${ENDPOINT_ID}/clone`;
@@ -63,5 +66,46 @@ describe('clone dialog', () => {
 
     expect(await screen.findByText('Secrets were not copied')).toBeTruthy();
     expect(screen.getByText('KEY')).toBeTruthy();
+  });
+
+  it('adds every clone to my endpoints once, and a second clone adds another', async () => {
+    const ids = ['k7m2q9x4w8c1d5f3h6j0n2p4', 'k7m2q9x4w8c1d5f3h6j0n2p5'];
+    let calls = 0;
+    mockServer.use(
+      http.post(CLONE_URL, () => {
+        const id = ids[calls] ?? ids[0];
+        calls += 1;
+        return jsonResponse({ ...endpointFixture, id, secrets_missing: [], skipped: [] }, 201);
+      }),
+    );
+    const stored = () => parseEndpoints(window.localStorage.getItem(ENDPOINTS_STORAGE_KEY)).map((entry) => entry.id);
+
+    const first = await openDialog();
+    fireEvent.click(within(first.dialog).getByRole('button', { name: 'Clone' }));
+    await waitFor(() => expect(stored()).toEqual([ids[0]]));
+    const nav = await screen.findByRole('navigation', { name: 'My endpoints' });
+    expect(within(nav).getAllByRole('link', { name: shortEndpointId(ids[0] ?? '') })).toHaveLength(1);
+    cleanup();
+
+    const second = await openDialog();
+    fireEvent.click(within(second.dialog).getByRole('button', { name: 'Clone' }));
+    await waitFor(() => expect(stored()).toEqual([ids[1], ids[0]]));
+  });
+
+  it('adds the clone even when the secrets notice is shown first', async () => {
+    mockServer.use(
+      http.post(CLONE_URL, () =>
+        jsonResponse(
+          { ...endpointFixture, id: 'k7m2q9x4w8c1d5f3h6j0n2p4', secrets_missing: ['KEY'], skipped: [] },
+          201,
+        ),
+      ),
+    );
+    const { dialog } = await openDialog();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Clone' }));
+    await screen.findByText('Secrets were not copied');
+    expect(parseEndpoints(window.localStorage.getItem(ENDPOINTS_STORAGE_KEY)).map((entry) => entry.id)).toEqual([
+      'k7m2q9x4w8c1d5f3h6j0n2p4',
+    ]);
   });
 });

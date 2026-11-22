@@ -2,6 +2,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { useId, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CLONE_PARTS, useCloneEndpoint, type ClonePart, type CloneResult } from '../../api/general';
+import { rememberEndpoint } from '../endpoints/store';
 import styles from './CloneDialog.module.css';
 
 type PartKey =
@@ -54,6 +55,7 @@ export function CloneDialog({ endpointId, title, onClose, onCloseAutoFocus, onCl
       { title: trimmed, include: CLONE_PARTS.filter((part) => selected.includes(part)) },
       {
         onSuccess: (result) => {
+          rememberEndpoint(result.id);
           if (result.secrets_missing.length === 0) {
             onCloned(result);
             return;

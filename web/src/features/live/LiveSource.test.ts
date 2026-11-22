@@ -303,6 +303,51 @@ describe('LiveSource', () => {
     clearGrant(ID);
   });
 
+  it('re-opens the open stream with the new grant when one is adopted, and closes the old source', () => {
+    const { fakes, source } = harness();
+    const first = fakes.latest();
+    first.open();
+    expect(first.url).not.toContain('grant=');
+
+    storeGrant(ID, 'adopted-grant', '2999-01-01T00:00:00.000Z');
+
+    expect(first.isClosed()).toBe(true);
+    expect(fakes.instances).toHaveLength(2);
+    expect(fakes.latest().url).toBe(`/api/v1/endpoints/${ID}/stream?grant=adopted-grant`);
+    source.close();
+    clearGrant(ID);
+  });
+
+  it('leaves a locked stream and reconnects with a grant that arrives afterwards', async () => {
+    setGrantRejectedHandler(vi.fn<(endpointId: string) => void>());
+    const { fakes, source } = harness(vi.fn<StatusProbe>().mockResolvedValue(401));
+    fakes.latest().fail(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(source.getEndReason()).toBe('locked');
+
+    storeGrant(ID, 'late-grant', '2999-01-01T00:00:00.000Z');
+
+    expect(fakes.instances).toHaveLength(2);
+    expect(fakes.latest().url).toBe(`/api/v1/endpoints/${ID}/stream?grant=late-grant`);
+    expect(source.getEndReason()).toBeNull();
+    fakes.latest().open();
+    expect(source.getState()).toBe('open');
+    source.close();
+    setGrantRejectedHandler(null);
+    clearGrant(ID);
+  });
+
+  it('ignores grants of other endpoints and grants stored after it was closed', () => {
+    const { fakes, source } = harness();
+    storeGrant('other00000000000000000000', 'x', '2999-01-01T00:00:00.000Z');
+    expect(fakes.instances).toHaveLength(1);
+    source.close();
+    storeGrant(ID, 'after-close', '2999-01-01T00:00:00.000Z');
+    expect(fakes.instances).toHaveLength(1);
+    clearGrant(ID);
+    clearGrant('other00000000000000000000');
+  });
+
   it('retries after a closed stream when the endpoint itself answers normally', async () => {
     const { fakes, source } = harness(vi.fn<StatusProbe>().mockResolvedValue(503));
     fakes.latest().fail(true);

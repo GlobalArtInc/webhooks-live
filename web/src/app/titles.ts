@@ -30,12 +30,18 @@ export function shortTitleId(id: string): string {
   return `${id.slice(0, ID_HEAD)}${ELLIPSIS}${id.slice(-ID_TAIL)}`;
 }
 
-function endpointPage(t: TFunction, id: string, rest: string): string {
+export function endpointIdOfPath(pathname: string): string | null {
+  const match = ENDPOINT_PATH.exec(pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname);
+  const id = match?.[1];
+  return id !== undefined && isEndpointId(id) ? id : null;
+}
+
+function endpointPage(t: TFunction, id: string, rest: string, endpointTitle: string | null): string {
   if (!isEndpointId(id)) {
     return t('wl.title.notFound');
   }
   if (rest === '' || CAPTURE_PATH.test(rest)) {
-    return t('wl.title.endpoint', { id: shortTitleId(id) });
+    return endpointTitle ?? t('wl.title.endpoint', { id: shortTitleId(id) });
   }
   if (rest === 'unlock') {
     return t('wl.title.unlock');
@@ -59,14 +65,14 @@ function endpointPage(t: TFunction, id: string, rest: string): string {
     : t('wl.title.notFound');
 }
 
-function pageName(t: TFunction, pathname: string): string | null {
+function pageName(t: TFunction, pathname: string, endpointTitle: string | null): string | null {
   const path = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
   if (path === '/') {
     return null;
   }
   const endpoint = ENDPOINT_PATH.exec(path);
   if (endpoint !== null) {
-    return endpointPage(t, endpoint[1] ?? '', endpoint[2] ?? '');
+    return endpointPage(t, endpoint[1] ?? '', endpoint[2] ?? '', endpointTitle);
   }
   switch (path) {
     case '/endpoints':
@@ -92,8 +98,8 @@ function pageName(t: TFunction, pathname: string): string | null {
   }
 }
 
-export function pageTitleOf(pathname: string, t: TFunction): string {
+export function pageTitleOf(pathname: string, t: TFunction, endpointTitle: string | null = null): string {
   const site = t('wl.title.site');
-  const page = pageName(t, pathname);
+  const page = pageName(t, pathname, endpointTitle);
   return page === null ? site : t('wl.title.page', { page, site });
 }

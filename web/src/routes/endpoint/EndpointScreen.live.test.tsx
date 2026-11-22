@@ -17,7 +17,7 @@ registerMockServer();
 const ENDPOINT_PATH = `/e/${ENDPOINT_ID}`;
 const CLIENT_HEIGHT_PX = 360;
 const BASE_TITLE = 'webhooks.live';
-const ENDPOINT_TITLE = 'Endpoint 7k2…p4 — webhooks.live';
+const ENDPOINT_TITLE = 'stripe test — webhooks.live';
 const ASYNC_TIMEOUT_MS = 5000;
 const DEFAULT_ASYNC_TIMEOUT_MS = 1000;
 

@@ -1,5 +1,6 @@
 import { useId, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { latestTimestamp } from '../../components/format/useSharedNow';
 import { EndpointRow } from './EndpointRow';
 import { useNow } from './useNow';
 import { byRecentlyOpened } from './storage';
@@ -9,7 +10,7 @@ import styles from './MyEndpointsList.module.css';
 export function MyEndpointsList() {
   const { t, i18n } = useTranslation();
   const endpoints = useMyEndpoints();
-  const now = useNow();
+  const now = useNow(latestTimestamp(endpoints.map((entry) => entry.lastOpened)));
   const headingId = useId();
   const headingRef = useRef<HTMLHeadingElement>(null);
   const sorted = byRecentlyOpened(endpoints);

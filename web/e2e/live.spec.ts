@@ -22,7 +22,7 @@ const ENDPOINT_PATH = `/e/${ENDPOINT_ID}`;
 const LIST_NAME = 'Captures';
 const ROW_HEIGHT_PX = 36;
 const SERIES_LENGTH = 200;
-const ENDPOINT_TITLE = `Endpoint ${ENDPOINT_ID.slice(0, 3)}…${ENDPOINT_ID.slice(-2)} — webhooks.live`;
+const ENDPOINT_TITLE = 'stripe test — webhooks.live';
 const ORIGINAL_ICON = '/favicon.svg';
 
 interface LiveRig {
