@@ -36,6 +36,6 @@ pub struct SecretListDto {
 )]
 #[allow(dead_code)]
 pub struct SecretInputDoc {
-    #[schema(write_only)]
+    #[schema(write_only, min_length = 1, max_length = 4096)]
     value: String,
 }

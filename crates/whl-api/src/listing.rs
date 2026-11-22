@@ -47,7 +47,7 @@ pub struct EndpointListDto {
         ("cursor" = Option<String>, Query, description = "From `next_cursor` of the previous page; opaque"),
         ("role" = Option<String>, Query, pattern = "^(owner|shared)$", description = "`owner`: the caller's own endpoints; `shared`: endpoints shared with the caller"),
         ("tag" = Option<String>, Query, pattern = "^[a-z0-9-]{1,32}$", description = "Only endpoints with this tag"),
-        ("folder" = Option<String>, Query, description = "Only endpoints of this folder, a UUID")
+        ("folder" = Option<String>, Query, pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", description = "Only endpoints of this folder, a UUID")
     ),
     responses(
         (status = 200, description = "One page of endpoints", body = EndpointListDto),

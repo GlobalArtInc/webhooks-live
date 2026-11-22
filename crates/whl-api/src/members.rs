@@ -176,7 +176,7 @@ async fn set(
     security(("session_cookie" = [])),
     params(
         EndpointIdParam,
-        ("user_id" = String, Path, description = "User id, lowercase hyphenated UUID"),
+        ("user_id" = String, Path, pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", description = "User id, lowercase hyphenated UUID"),
     ),
     responses(
         (status = 204, description = "The member is removed"),

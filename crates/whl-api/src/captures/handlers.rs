@@ -38,7 +38,7 @@ impl From<CaptureError> for ApiError {
     tag = "Captures",
     summary = "List the captures of an endpoint",
     description = "Newest first unless `order=asc`; `limit` 1 to 200, default 50. `next_cursor` is null on the last page; a cursor works only with the same `order` and filters. `total` counts every capture that matches the filters, ignoring the cursor and `after_seq`. Filters: `method` and `kind` are comma lists (`kind` of `http`, `email`, `dns`, `schedule`); `status` is a comma list of `1xx` to `5xx` or `none`; `starred` is `true` or `false`; `q` is a case-insensitive substring of the path, query, headers and the first 256 KiB of the body (1 to 200 characters); `after_seq` keeps captures with a greater `seq`; `since` (inclusive) and `until` (exclusive) bound `received_at` in RFC 3339. Reconnect catch-up: `after_seq=<highest seq held>&order=asc`, following `next_cursor`. Needs a viewer on the endpoint; a token needs the `read` scope.",
-    security(("session_cookie" = []), ("api_token" = [])),
+    security(("session_cookie" = []), ("api_token" = []), ()),
     params(
         EndpointIdParam,
         CaptureListQuery,
@@ -85,7 +85,7 @@ pub async fn list(
     tag = "Captures",
     summary = "The newest capture of an endpoint",
     description = "Same shape as `GET .../captures/{capture_id}`. Answers 404 `capture_not_found` when the endpoint holds no capture. Needs a viewer on the endpoint; a token needs the `read` scope.",
-    security(("session_cookie" = []), ("api_token" = [])),
+    security(("session_cookie" = []), ("api_token" = []), ()),
     params(
         EndpointIdParam,
     ),
@@ -119,7 +119,7 @@ pub async fn latest(
     tag = "Captures",
     summary = "One capture with its details",
     description = "The summary plus `url` (as the server saw it), `host`, `headers` and `query` (`{name, value}` lists in original order), `form` (`{fields, files}`, null unless the body was a parsed form), `note`, `body` (`{encoding, data, truncated}` of the first 1 MiB; the whole body is at `/body`), `forwards` newest first, `notifications` and the 10 newest `rule_runs`. `meta` holds the fields of the capture's kind: `http` {hop}; `email` {envelope_from, envelope_to, helo, tls, tag, subject, from, to, cc, date, message_id, parts}; `dns` {name, type, class, transport, dns_id, flags, edns_udp_size, client_subnet}; `schedule` {schedule_id, schedule_name, request, duration_ms, final_url, error, truncated}. Needs a viewer on the endpoint; a token needs the `read` scope.",
-    security(("session_cookie" = []), ("api_token" = [])),
+    security(("session_cookie" = []), ("api_token" = []), ()),
     params(
         EndpointIdParam,
         CaptureIdParam,
@@ -155,7 +155,7 @@ pub async fn show(
     tag = "Captures",
     summary = "Delete one capture",
     description = "Removes the capture with its forward jobs and deliveries. Needs an editor on the endpoint; a token needs the `captures:write` scope.",
-    security(("session_cookie" = []), ("api_token" = [])),
+    security(("session_cookie" = []), ("api_token" = []), ()),
     params(
         EndpointIdParam,
         CaptureIdParam,
@@ -193,7 +193,7 @@ pub async fn delete(
     tag = "Captures",
     summary = "Delete every capture of an endpoint",
     description = "Removes all captures of the endpoint. Needs an editor on the endpoint; a token needs the `captures:write` scope.",
-    security(("session_cookie" = []), ("api_token" = [])),
+    security(("session_cookie" = []), ("api_token" = []), ()),
     params(
         EndpointIdParam,
     ),

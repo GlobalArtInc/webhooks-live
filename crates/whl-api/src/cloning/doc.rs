@@ -1,7 +1,7 @@
-use serde_json::Value;
 use utoipa::{OpenApi, ToSchema};
 
 use super::{handlers, templates};
+use crate::dto::EndpointDto;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -41,8 +41,7 @@ pub struct CloneInputDoc {
 #[allow(dead_code)]
 pub struct CloneResultDoc {
     #[serde(flatten)]
-    #[schema(value_type = Object)]
-    endpoint: Value,
+    endpoint: EndpointDto,
     #[schema(example = json!(["WEBHOOK_SECRET"]))]
     secrets_missing: Vec<String>,
     #[schema(example = json!(["channels"]))]

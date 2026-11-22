@@ -38,7 +38,10 @@ pub struct TemplateRequest {
 #[derive(Serialize, ToSchema)]
 #[schema(as = Template)]
 pub struct TemplateDto {
-    #[schema(example = "0193a6c2-7d1e-7c3a-8f55-2b9e4c1a6d70")]
+    #[schema(
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        example = "0193a6c2-7d1e-7c3a-8f55-2b9e4c1a6d70"
+    )]
     id: String,
     #[schema(example = "Staging")]
     name: String,
@@ -65,7 +68,10 @@ impl From<&TemplateRecord> for TemplateDto {
 #[derive(Serialize, ToSchema)]
 #[schema(as = TemplateSummary)]
 pub struct TemplateSummaryDto {
-    #[schema(example = "0193a6c2-7d1e-7c3a-8f55-2b9e4c1a6d70")]
+    #[schema(
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        example = "0193a6c2-7d1e-7c3a-8f55-2b9e4c1a6d70"
+    )]
     id: String,
     #[schema(example = "Staging")]
     name: String,
@@ -184,7 +190,7 @@ pub async fn list(
     summary = "Get a template with its configuration document",
     description = "`config` is the configuration document: `{version: 1, endpoint: {title, response, cors, overflow, tags, retention, capture_ttl_seconds, verifier, max_captures}, forward_rules: [{id, enabled, target_url, method, content_type, header_allowlist, append_path}], rules: [{name, enabled, condition, steps}], channels: [], schedules: [{name, cron, timezone, request, enabled: false}], secret_names: [string]}`. `channels` is always empty; `forward_rules` is empty when forwarding is off on the instance, `schedules` when schedules are off. Secret values and channel URLs are never in it; `secret_names` lists the secrets it uses. A template of another user, an unknown id and a malformed id all answer 404 `template_not_found`. Needs a signed-in caller; a token is refused with 403 `session_required`.",
     security(("session_cookie" = [])),
-    params(("template_id" = String, Path, description = "Template id, UUID")),
+    params(("template_id" = String, Path, pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", description = "Template id, UUID")),
     responses(
         (status = 200, description = "The template; `config` as described above", body = TemplateDto),
         (status = 401, response = Unauthenticated),
@@ -216,6 +222,9 @@ pub async fn show(
     summary = "Create a template from an endpoint",
     description = "Stores the current configuration of `from_endpoint_id` as a template named `name` (1 to 64 characters, unique per user). The caller needs the viewer role on the source. A source the caller cannot read, or a view-protected one without a valid grant, answers 410 `endpoint_gone`. Channel URLs and secret values are not stored. At most 20 templates per user. Needs a signed-in caller; a token is refused with 403 `session_required`.",
     security(("session_cookie" = [])),
+    params(
+        ("X-Webhooks-Live-Grant" = Option<String>, Header, description = "View grant of the view-protected anonymous source endpoint, from `POST /endpoints/{id}/unlock`")
+    ),
     request_body(content = TemplateInputDoc, content_type = "application/json"),
     responses(
         (status = 201, description = "The template; `config` as in GET", body = TemplateDto),
@@ -223,7 +232,7 @@ pub async fn show(
         (status = 401, response = Unauthenticated),
         (status = 403, description = "`session_required`: a Bearer token was used; `sign_in_required`: `mixed` without a session; `not_available_in_mode`: the instance has no accounts; `csrf_rejected`: the Origin check failed", body = ErrorBody),
         (status = 409, description = "`name_taken`: the user already has a template with this name", body = ErrorBody),
-        (status = 410, description = "`endpoint_gone`: the source is unknown, expired or deleted, or the caller has no viewer role on it", body = ErrorBody),
+        (status = 410, description = "`endpoint_gone`: the source is unknown, expired or deleted, or the caller has no viewer role on it, or it is view-protected and `X-Webhooks-Live-Grant` is missing or invalid", body = ErrorBody),
         (status = 413, response = PayloadTooLarge),
         (status = 415, response = UnsupportedMediaType),
         (status = 422, description = "`validation_failed` (see `error.fields`: `name`, `from_endpoint_id`, or the exported configuration) or `limit_reached` (`error.limit` = `{name: \"templates\", max: 20}`)", body = ErrorBody),
@@ -289,7 +298,7 @@ pub async fn create(
     summary = "Rename a template",
     description = "Only `name` changes (1 to 64 characters, unique per user); the configuration document is kept. An empty body is 400 `invalid_json`. Needs a signed-in caller; a token is refused with 403 `session_required`.",
     security(("session_cookie" = [])),
-    params(("template_id" = String, Path, description = "Template id, UUID")),
+    params(("template_id" = String, Path, pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", description = "Template id, UUID")),
     request_body(content = TemplatePatchInputDoc, content_type = "application/json"),
     responses(
         (status = 200, description = "The renamed template", body = TemplateDto),
@@ -328,7 +337,7 @@ pub async fn rename(
     summary = "Delete a template",
     description = "A template of another user, an unknown id and a malformed id all answer 404 `template_not_found`. Needs a signed-in caller; a token is refused with 403 `session_required`.",
     security(("session_cookie" = [])),
-    params(("template_id" = String, Path, description = "Template id, UUID")),
+    params(("template_id" = String, Path, pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", description = "Template id, UUID")),
     responses(
         (status = 204, description = "The template is deleted"),
         (status = 401, response = Unauthenticated),

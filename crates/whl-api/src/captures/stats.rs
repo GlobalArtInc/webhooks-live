@@ -71,7 +71,7 @@ impl From<&EndpointStats> for StatsDto {
     tag = "Captures",
     summary = "Capture counts of an endpoint over time",
     description = "A series of buckets, oldest first. Each point has `at`, `total`, and counts keyed by `by_method` (method), `by_kind` (`http`, `email`, `dns`, `schedule`) and `by_status` (`1xx` to `5xx`, or `other`). `from` and `to` are the times of the first and last point, null when the series is empty. `bucket` `hour` or `day`; absent means `day`; any other value answers 422 `validation_failed`. Session only: a Bearer token is refused with 403 `session_required`. Needs a viewer on the endpoint.",
-    security(("session_cookie" = [])),
+    security(("session_cookie" = []), ()),
     params(
         EndpointIdParam,
         ("bucket" = Option<String>, Query, description = "`hour` or `day`; absent means `day`"),

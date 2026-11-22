@@ -32,7 +32,10 @@ pub struct FoldersDoc;
 #[derive(Serialize, ToSchema)]
 #[schema(as = Folder)]
 pub struct FolderDto {
-    #[schema(example = "0193a6c2-7d1e-7c3a-8f55-2b9e4c1a6d70")]
+    #[schema(
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        example = "0193a6c2-7d1e-7c3a-8f55-2b9e4c1a6d70"
+    )]
     id: String,
     #[schema(example = "Checkout")]
     name: String,
@@ -169,7 +172,7 @@ async fn create(
     summary = "Rename or move a folder",
     description = "`name` (1 to 64 characters, unique per user) and `position` (integer, 32-bit) are both optional. An empty body is 400 `invalid_json`. Needs a signed-in caller; a token is refused with 403 `session_required`.",
     security(("session_cookie" = [])),
-    params(("folder_id" = String, Path, description = "Folder id, UUID")),
+    params(("folder_id" = String, Path, pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", description = "Folder id, UUID")),
     request_body(content = FolderPatchInputDoc, content_type = "application/json"),
     responses(
         (status = 200, description = "The updated folder", body = FolderDto),
@@ -218,7 +221,7 @@ async fn update(
     summary = "Delete a folder",
     description = "Deletes the folder only; its endpoints are kept. Needs a signed-in caller; a token is refused with 403 `session_required`.",
     security(("session_cookie" = [])),
-    params(("folder_id" = String, Path, description = "Folder id, UUID")),
+    params(("folder_id" = String, Path, pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", description = "Folder id, UUID")),
     responses(
         (status = 204, description = "The folder is deleted"),
         (status = 401, response = Unauthenticated),
@@ -249,7 +252,7 @@ async fn destroy(
     summary = "Add an endpoint to a folder",
     description = "Needs a folder of the caller and the viewer role on the endpoint. Adding an endpoint that is already in the folder changes nothing. Needs a signed-in caller; a token is refused with 403 `session_required`.",
     security(("session_cookie" = [])),
-    params(("folder_id" = String, Path, description = "Folder id, UUID"), EndpointIdParam),
+    params(("folder_id" = String, Path, pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", description = "Folder id, UUID"), EndpointIdParam),
     responses(
         (status = 204, description = "The endpoint is in the folder"),
         (status = 401, response = Unauthenticated),
@@ -286,7 +289,7 @@ async fn add_endpoint(
     summary = "Remove an endpoint from a folder",
     description = "Takes the endpoint out of the folder; the endpoint itself is kept, and no role on it is needed. Needs a signed-in caller; a token is refused with 403 `session_required`.",
     security(("session_cookie" = [])),
-    params(("folder_id" = String, Path, description = "Folder id, UUID"), EndpointIdParam),
+    params(("folder_id" = String, Path, pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", description = "Folder id, UUID"), EndpointIdParam),
     responses(
         (status = 204, description = "The endpoint is out of the folder"),
         (status = 401, response = Unauthenticated),

@@ -37,7 +37,7 @@ struct CloneDto {
     tag = "Cloning",
     summary = "Clone an endpoint",
     description = "Creates a new endpoint from the configuration of the source. `include` picks the parts to copy (`response`, `forward_rules`, `rules`, `channels`, `schedules`); absent copies all of them, and `secrets` is refused. Secret values are never copied: `secrets_missing` lists the secret names the copy uses and does not have, to be set again on the clone. Channel URLs are copied only for an editor of the source; otherwise `skipped` lists `channels`. `skipped` also names other parts that could not be copied. The clone is owned by the caller in `sso` and `mixed`; in `open` anonymous callers may clone and the clone is anonymous. Needs the viewer role on the source; a token is refused with 403 `session_required`. The body is optional; an empty body copies everything.",
-    security(("session_cookie" = [])),
+    security(("session_cookie" = []), ()),
     params(EndpointIdParam),
     request_body(content = Option<CloneInputDoc>, content_type = "application/json"),
     responses(

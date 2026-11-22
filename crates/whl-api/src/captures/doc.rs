@@ -33,7 +33,7 @@ pub struct CaptureListQuery {
     method: Option<String>,
     status: Option<String>,
     kind: Option<String>,
-    starred: Option<String>,
+    starred: Option<bool>,
     #[param(min_length = 1, max_length = 200)]
     q: Option<String>,
     #[param(minimum = 0)]
@@ -51,7 +51,7 @@ pub struct CaptureListQuery {
     tag = "Captures",
     summary = "Forward a capture to a target",
     description = "Queues a manual forward of the capture and answers 202 with the job, `state` `pending`. The body is either `rule_id` alone, which uses that forward rule's settings, or `target_url` with optional `method`, `content_type` and `header_allowlist`; absent or null means the captured value. An empty body answers 422 `target_url` required. The target is checked as for forward rules (field codes `target_refused`, `target_unresolvable`, `invalid_format`); every attempt and redirect is checked again. Answers 404 `not_found` while forwarding is disabled. Needs an editor; a token needs the `send` scope.",
-    security(("session_cookie" = []), ("api_token" = [])),
+    security(("session_cookie" = []), ("api_token" = []), ()),
     params(
         EndpointIdParam,
         CaptureIdParam,
@@ -79,7 +79,7 @@ fn captures_forward() {}
     tag = "Captures",
     summary = "Resend a capture to a target",
     description = "Same route handler and answers as `POST .../captures/{capture_id}/forward`, with the same body (`rule_id` or `target_url`) and the same status codes. Both paths are kept.",
-    security(("session_cookie" = []), ("api_token" = [])),
+    security(("session_cookie" = []), ("api_token" = []), ()),
     params(
         EndpointIdParam,
         CaptureIdParam,

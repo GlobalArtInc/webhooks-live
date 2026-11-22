@@ -234,6 +234,7 @@ pub struct EndpointDto {
     my_role: Option<&'static str>,
     view_protected: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
     view_grant: Option<GrantDto>,
 }
 
@@ -456,7 +457,10 @@ pub struct EndpointInputDoc {
     #[schema(min_length = 8, max_length = 128)]
     view_password: Option<String>,
     verifier: Option<VerifierDoc>,
-    #[schema(min_length = 1)]
+    #[schema(
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        example = "0193a6c2-7d1e-7c3a-8f55-2b9e4c1a6d70"
+    )]
     template_id: Option<String>,
 }
 

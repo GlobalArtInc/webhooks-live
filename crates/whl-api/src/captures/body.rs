@@ -57,7 +57,7 @@ impl BodyParams {
     tag = "Captures",
     summary = "The raw body of a capture",
     description = "The stored bytes, unchanged. The media type is `application/octet-stream`, which is the stored type; with `view=text` it is `text/plain; charset=utf-8`. The captured Content-Type is never used. `download=1` sends an attachment named `<capture_id>.bin`, otherwise the body is inline. Needs a viewer on the endpoint; a token needs the `read` scope.",
-    security(("session_cookie" = []), ("api_token" = [])),
+    security(("session_cookie" = []), ("api_token" = []), ()),
     params(
         EndpointIdParam,
         CaptureIdParam,

@@ -36,9 +36,17 @@ pub struct RunListParams {
 #[derive(Serialize, ToSchema)]
 #[schema(as = RuleRun, description = RUN_GRAMMAR)]
 pub struct RuleRunDto {
-    #[schema(read_only, example = "0193a6c2-7d1e-7c3a-8f55-2b9e4c1a6d70")]
+    #[schema(
+        read_only,
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        example = "0193a6c2-7d1e-7c3a-8f55-2b9e4c1a6d70"
+    )]
     id: String,
-    #[schema(read_only, example = "0193a6c2-7d1e-7c3a-8f55-2b9e4c1a6d71")]
+    #[schema(
+        read_only,
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        example = "0193a6c2-7d1e-7c3a-8f55-2b9e4c1a6d71"
+    )]
     capture_id: String,
     #[schema(read_only, example = "capture")]
     trigger: String,
@@ -193,7 +201,7 @@ pub async fn list(
     tag = "Rules",
     summary = "The rule runs of one capture",
     description = "Newest first, at most 10. `trigger` is `capture` (the rules ran when the capture arrived) or `rerun`. `entries` is in execution order: a rule entry is {rule_id, rule_name, matched}; a step entry is {rule_id, step, name, kind, outcome, duration_ms, detail, output}, with `outcome` `ok`, `failed`, `skipped`, `deferred` or `no_op`. Needs a viewer on the endpoint; a token needs the `read` scope.",
-    security(("session_cookie" = []), ("api_token" = [])),
+    security(("session_cookie" = []), ("api_token" = []), ()),
     params(
         EndpointIdParam,
         CaptureIdParam,
@@ -237,7 +245,7 @@ pub async fn for_capture(
     tag = "Rules",
     summary = "Re-run the endpoint's rules on one capture",
     description = "Queues a run of the endpoint's enabled rules on this capture and answers 202 with the run (`trigger` `rerun`, `state` `queued`). Session only: a Bearer token is refused with 403 `session_required`. Needs an editor on the endpoint. At most 10 re-runs per capture. Answers 503 `feature_disabled` while rules are switched off by the operator.",
-    security(("session_cookie" = [])),
+    security(("session_cookie" = []), ()),
     params(
         EndpointIdParam,
         CaptureIdParam,

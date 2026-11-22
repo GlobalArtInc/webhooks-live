@@ -5,7 +5,8 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use sha2::{Digest, Sha256};
 
-use crate::error::ApiError;
+use super::responses::Unauthenticated;
+use crate::error::{ApiError, ErrorBody};
 
 const CACHE_CONTROL: HeaderValue = HeaderValue::from_static("no-cache");
 const JSON: HeaderValue = HeaderValue::from_static("application/json");
@@ -65,11 +66,13 @@ fn matches(headers: &HeaderMap, etag: &HeaderValue) -> bool {
     operation_id = "openapi_get",
     tag = "Meta",
     summary = "The OpenAPI 3.1 document of this API",
-    description = "Public in every access mode. The `ETag` is the build version plus a digest of the document; send it back in `If-None-Match` to get 304.",
+    description = "Public in every access mode. A Bearer token is accepted but not needed and changes nothing in the document; outside `open` it must carry the `read` scope (403 `insufficient_scope`), and a malformed or unknown one answers 401 `invalid_token`. The `ETag` is the build version plus a digest of the document; send it back in `If-None-Match` to get 304.",
     security(()),
     responses(
         (status = 200, description = "The document", content_type = "application/json", body = Object),
-        (status = 304, description = "The document is unchanged since the `ETag` in `If-None-Match`")
+        (status = 304, description = "The document is unchanged since the `ETag` in `If-None-Match`"),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`insufficient_scope`: a Bearer token without `read`", body = ErrorBody)
     )
 )]
 pub(super) async fn show(headers: HeaderMap) -> Result<Response, ApiError> {

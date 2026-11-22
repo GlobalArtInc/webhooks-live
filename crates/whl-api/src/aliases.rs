@@ -75,7 +75,7 @@ pub struct AliasesDoc;
     tag = "Aliases",
     summary = "List the aliases of an endpoint",
     description = "Needs the viewer role; a token needs the `read` scope. Not available in `open`.",
-    security(("session_cookie" = []), ("api_token" = []), ()),
+    security(("session_cookie" = []), ("api_token" = [])),
     params(
         EndpointIdParam,
     ),

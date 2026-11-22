@@ -26,7 +26,7 @@ const ANNOTATION_KEYS: &[&str] = &["note", "starred"];
     tag = "Captures",
     summary = "Set the note or the star of a capture",
     description = "Absent fields are unchanged. `note` null or an empty string removes the note; more than 2000 characters answers 422 `too_long`. `starred` must be a boolean. Unknown fields answer 422 `not_allowed`. Session only: a Bearer token is refused with 403 `session_required`. Needs an editor on the endpoint.",
-    security(("session_cookie" = [])),
+    security(("session_cookie" = []), ()),
     params(
         EndpointIdParam,
         CaptureIdParam,

@@ -56,6 +56,10 @@ pub struct SendResultDto {
     final_url: Option<String>,
     #[schema(example = "connect_timeout: the connection took too long")]
     error: Option<String>,
+    #[schema(
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        example = "0193a6c2-7d1e-7c3a-8f55-2b9e4c1a6d71"
+    )]
     capture_id: Option<String>,
 }
 
@@ -96,8 +100,12 @@ pub struct SentRequestDto {
     final_url: Option<String>,
     #[schema(example = "connect_timeout: the connection took too long")]
     error: Option<String>,
+    #[schema(
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        example = "0193a6c2-7d1e-7c3a-8f55-2b9e4c1a6d71"
+    )]
     capture_id: Option<String>,
-    #[schema(value_type = SendRequestDoc)]
+    #[schema(value_type = RequestSnapshot)]
     request: Value,
     #[schema(format = DateTime)]
     created_at: String,
@@ -169,16 +177,27 @@ pub struct SendRequestDoc {
     source_capture_id: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = SentRequestSnapshot)]
 struct RequestSnapshot {
+    #[schema(example = "POST")]
     method: String,
+    #[schema(example = "https://hooks.example.com/incoming")]
     url: String,
+    #[schema(value_type = Vec<NameValueDto>)]
     headers: Vec<HeaderSnapshot>,
     body: Option<BodyDto>,
+    #[schema(example = 12)]
     body_size: usize,
+    #[schema(example = 15000)]
     timeout_ms: u64,
     follow_redirects: bool,
+    #[schema(min_length = 24, max_length = 24, pattern = "^[0-9a-hjkmnp-tv-z]{24}$")]
     endpoint_id: Option<String>,
+    #[schema(
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        example = "0193a6c2-7d1e-7c3a-8f55-2b9e4c1a6d70"
+    )]
     source_capture_id: Option<String>,
 }
 

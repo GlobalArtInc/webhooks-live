@@ -39,6 +39,7 @@ pub(super) struct ImportDto {
     reason: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(
+        nullable = false,
         pattern = "^[0-9a-hjkmnp-tv-z]{24}$",
         example = "7k2m9q4xw8c1d5f3h6j0n2p4"
     )]

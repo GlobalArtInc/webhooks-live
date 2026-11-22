@@ -14,8 +14,16 @@ use crate::rules::RuleRunDto;
 #[derive(Serialize, ToSchema)]
 #[schema(as = CaptureSummary)]
 pub struct SummaryDto {
+    #[schema(
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        example = "0193a6c2-7d1e-7c3a-8f55-2b9e4c1a6d70"
+    )]
     id: String,
     seq: i64,
+    #[schema(
+        pattern = "^[0-9a-hjkmnp-tv-z]{24}$",
+        example = "7k2m9q4xw8c1d5f3h6j0n2p4"
+    )]
     endpoint_id: String,
     #[schema(format = DateTime)]
     received_at: String,
@@ -143,6 +151,7 @@ pub struct CaptureFormDoc {
 pub struct CaptureInputDoc {
     #[schema(max_length = 2000)]
     note: Option<String>,
+    #[schema(nullable = false)]
     starred: Option<bool>,
 }
 
@@ -150,6 +159,10 @@ pub struct CaptureInputDoc {
 #[schema(as = ForwardRequest)]
 #[allow(dead_code)]
 pub struct ForwardRequestDoc {
+    #[schema(
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        example = "0193a6c2-7d1e-7c3a-8f55-2b9e4c1a6d70"
+    )]
     rule_id: Option<String>,
     #[schema(max_length = 2048)]
     target_url: Option<String>,

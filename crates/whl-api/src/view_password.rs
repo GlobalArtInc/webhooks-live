@@ -14,7 +14,7 @@ use crate::dto::timestamp;
 use crate::error::{ApiError, ErrorBody, FieldCode, FieldViolation};
 use crate::openapi::params::EndpointIdParam;
 use crate::openapi::responses::{
-    BadRequest, PayloadTooLarge, StoreUnavailable, UnsupportedMediaType, ValidationFailed,
+    BadRequest, PayloadTooLarge, UnsupportedMediaType, ValidationFailed,
 };
 use crate::state::ApiState;
 
@@ -63,7 +63,7 @@ impl From<&IssuedGrant> for GrantDto {
         (status = 413, response = PayloadTooLarge),
         (status = 415, response = UnsupportedMediaType),
         (status = 422, response = ValidationFailed),
-        (status = 503, response = StoreUnavailable)
+        (status = 503, description = "`store_unavailable`; `password_busy`: every password verification slot is taken", body = ErrorBody)
     )
 )]
 pub async fn unlock(

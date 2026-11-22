@@ -67,7 +67,7 @@ pub async fn instance(State(state): State<ApiState>, caller: Caller) -> Json<Ins
     summary = "Create an endpoint",
     description = "The body is an `EndpointInput`; an empty body creates an endpoint with the defaults. With `template_id` the endpoint is cloned from a template instead (session only). In `open` and `mixed` an anonymous caller creates an endpoint without an owner; a signed-in caller owns it. `view_password` is accepted only for an endpoint without an owner. A verifier needs the secrets keyring. A token needs `endpoints:write` and no endpoint limit. The response carries `Location` and, when a view password was set, `view_grant`, so the setter needs no unlock.",
     security(("session_cookie" = []), ("api_token" = []), ()),
-    request_body(content = EndpointInputDoc, content_type = "application/json"),
+    request_body(content = Option<EndpointInputDoc>, content_type = "application/json"),
     responses(
         (status = 201, description = "The new endpoint; `Location` is its path", body = EndpointDto, headers(("Location" = String, description = "`/api/v1/endpoints/{id}` of the new endpoint"))),
         (status = 400, response = BadRequest),
@@ -77,7 +77,7 @@ pub async fn instance(State(state): State<ApiState>, caller: Caller) -> Json<Ins
         (status = 413, response = PayloadTooLarge),
         (status = 415, response = UnsupportedMediaType),
         (status = 422, description = "`validation_failed` (see `error.fields`) or `limit_reached` (`error.limit` names the exceeded limit)", body = ErrorBody),
-        (status = 503, description = "`store_unavailable`, or `feature_disabled` for a verifier without the secrets keyring", body = ErrorBody)
+        (status = 503, description = "`store_unavailable`; `feature_disabled` for a verifier without the secrets keyring; `password_busy` when `view_password` is set and every password hashing slot is taken", body = ErrorBody)
     )
 )]
 pub async fn create(
@@ -257,7 +257,7 @@ pub async fn show(
     operation_id = "endpoints_update",
     tag = "Endpoints",
     summary = "Change an endpoint",
-    description = "A partial update: an absent field is unchanged and `null` resets a nullable field. An empty body answers 400 `invalid_json`. `view_password` (anonymous endpoints only) sets a password, `null` removes it; when the request sets one, the response carries `view_grant`. Needs the editor role; a token needs `endpoints:write`.",
+    description = "A partial update: an absent field is unchanged and `null` resets a nullable field. An empty body answers 400 `invalid_json`. The body is an `EndpointInput` without `template_id`: that key is accepted only by `POST /endpoints` and answers 422 `not_allowed` here. `view_password` (anonymous endpoints only) sets a password, `null` removes it; when the request sets one, the response carries `view_grant`. Needs the editor role; a token needs `endpoints:write`.",
     security(("session_cookie" = []), ("api_token" = []), ()),
     params(
         EndpointIdParam,
@@ -273,7 +273,7 @@ pub async fn show(
         (status = 413, response = PayloadTooLarge),
         (status = 415, response = UnsupportedMediaType),
         (status = 422, description = "`validation_failed` (see `error.fields`; also `view_password` on an endpoint with an owner) or `limit_reached` (`error.limit` = `never_expire` or `storage_bytes`)", body = ErrorBody),
-        (status = 503, description = "`store_unavailable`, or `feature_disabled` for a verifier without the secrets keyring", body = ErrorBody)
+        (status = 503, description = "`store_unavailable`; `feature_disabled` for a verifier without the secrets keyring; `password_busy` when `view_password` is set and every password hashing slot is taken", body = ErrorBody)
     )
 )]
 pub async fn update(

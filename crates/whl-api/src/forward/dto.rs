@@ -102,9 +102,17 @@ impl From<&ForwardAttempt> for AttemptDto {
 #[derive(Serialize, ToSchema)]
 #[schema(as = ForwardJob)]
 pub struct JobDto {
+    #[schema(
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        example = "0193a6c2-7d1e-7c3a-8f55-2b9e4c1a6d70"
+    )]
     id: String,
     #[schema(pattern = "^(rule|manual)$")]
     kind: &'static str,
+    #[schema(
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        example = "0193a6c2-7d1e-7c3a-8f55-2b9e4c1a6d71"
+    )]
     rule_id: Option<String>,
     target_url: String,
     method: String,

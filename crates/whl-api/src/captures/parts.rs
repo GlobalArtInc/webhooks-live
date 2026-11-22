@@ -24,7 +24,7 @@ const FALLBACK_EXTENSION: &str = "bin";
     tag = "Captures",
     summary = "One decoded MIME part of an email capture",
     description = "The part at `index` of `meta.parts` (see `GET .../captures/{capture_id}`), with its transfer encoding removed. `view=text` answers `text/plain; charset=utf-8` for a text part; other parts are `application/octet-stream`, the stored type; the captured Content-Type is never used. `filename` comes from the part and is sanitised; `download=1` sends it as an attachment. An unknown or non-numeric `index` answers 404 `part_not_found`. A parser that is busy or times out answers 503. Needs a viewer on the endpoint; a token needs the `read` scope.",
-    security(("session_cookie" = []), ("api_token" = [])),
+    security(("session_cookie" = []), ("api_token" = []), ()),
     params(
         EndpointIdParam,
         CaptureIdParam,
