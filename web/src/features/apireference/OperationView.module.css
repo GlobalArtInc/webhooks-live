@@ -84,9 +84,31 @@
 }
 
 .summary {
+  flex: 1 1 100%;
   margin: 0;
-  font: var(--text-section);
   color: var(--color-text);
+  font: var(--text-data);
+  overflow-wrap: anywhere;
+}
+
+.toggle {
+  min-height: 24px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: var(--text-meta);
+  cursor: pointer;
+}
+
+.toggle:hover {
+  background: var(--color-surface-sunken);
+}
+
+.toggle:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
 }
 
 .description {

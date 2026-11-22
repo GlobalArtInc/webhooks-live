@@ -11,8 +11,13 @@ import { parseOpenApiDocument, openApiQueryKey } from './document';
 import { buildReference } from './reference';
 import { operationAnchorId } from './anchors';
 import { renderAppAt } from '../endpoints/renderApp';
+import { clearComposerSeed, peekComposerSeed } from '../composer/seedHandoff';
 
 registerMockServer();
+
+vi.mock('../../routes/compose/ComposeScreen', () => ({
+  ComposeScreen: () => <h1>Composer stub</h1>,
+}));
 
 const document = parseOpenApiDocument(openApiFixture);
 const reference = buildReference(document);
@@ -27,6 +32,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  clearComposerSeed();
 });
 
 describe('API reference page', () => {
@@ -104,16 +110,54 @@ describe('API reference page', () => {
     ).toBe(true);
   });
 
-  it('hands method, URL, headers and body to the composer', async () => {
-    renderAppAt('/docs/api/tokens_create');
+  it('hands method, URL, headers and body to the composer seed and opens the compose route', async () => {
+    const { router } = renderAppAt('/docs/api/tokens_create');
     const article = await screen.findByRole('article', { name: /POST\s*\/tokens/ });
 
     fireEvent.click(within(article).getByRole('button', { name: 'Open in composer: POST /tokens' }));
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Composer' })).toBeTruthy();
-    expect((screen.getByLabelText('Target URL') as HTMLInputElement).value).toBe('http://localhost:3000/api/v1/tokens');
-    expect((screen.getByLabelText('Method') as HTMLSelectElement).value).toBe('POST');
-    expect(screen.getByDisplayValue('Content-Type')).toBeTruthy();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Composer stub' })).toBeTruthy();
+    expect(router.state.location.pathname).toBe('/send');
+    const seed = peekComposerSeed();
+    expect(seed?.draft.method).toBe('POST');
+    expect(seed?.draft.url).toBe('http://localhost:3000/api/v1/tokens');
+    expect(seed?.draft.headers.map((row) => [row.name, row.value])).toEqual([['Content-Type', 'application/json']]);
+    expect(JSON.parse(seed?.draft.body.data ?? '')).toEqual({ name: 'laptop cli', scopes: ['read'] });
+    expect(seed?.banner).toBeNull();
+  });
+
+  it('mounts only the header of each operation until it is expanded', async () => {
+    const { container } = renderAppAt('/docs/api');
+    await screen.findAllByRole('article');
+
+    expect(container.querySelectorAll('pre')).toHaveLength(0);
+    expect(container.querySelectorAll('table')).toHaveLength(0);
+    const toggle = screen.getByRole('button', { name: 'Show details: GET /usage' });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+
+    fireEvent.click(toggle);
+
+    const hide = screen.getByRole('button', { name: 'Hide details: GET /usage' });
+    expect(hide.getAttribute('aria-expanded')).toBe('true');
+    expect(container.querySelectorAll('pre')).toHaveLength(1);
+    expect(globalThis.document.getElementById(hide.getAttribute('aria-controls') ?? '')).toBeTruthy();
+
+    fireEvent.click(hide);
+    expect(container.querySelectorAll('pre')).toHaveLength(0);
+  });
+
+  it('opens the deep-linked operation and the few results of a narrow filter, nothing else', async () => {
+    const { container } = renderAppAt('/docs/api/usage_get');
+    await screen.findAllByRole('article');
+
+    expect(container.querySelectorAll('pre')).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Hide details: GET /usage' })).toBeTruthy();
+
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Filter operations' }), { target: { value: 'aliases_' } });
+    await waitFor(() => {
+      expect(screen.getAllByRole('article')).toHaveLength(4);
+    });
+    expect(container.querySelectorAll('pre')).toHaveLength(4);
   });
 
   it('shows the not-found page when the instance does not serve the document', async () => {

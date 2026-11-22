@@ -13,6 +13,8 @@ import type { SampleContext } from './samples';
 import { TextBlocks } from './TextBlocks';
 import styles from './ApiReferencePage.module.css';
 
+const AUTO_OPEN_LIMIT = 5;
+
 export interface ApiReferencePageProps {
   operationId: string | null;
   query: string;
@@ -65,6 +67,7 @@ export function ApiReferencePage({ operationId, query, onQueryChange }: ApiRefer
 
   const unknownOperation =
     operationId !== null && !reference.operations.some((operation) => operation.id === operationId);
+  const autoOpenAll = visible.operations.length <= AUTO_OPEN_LIMIT;
   const baseUrl = `${context.origin}${reference.serverUrl}`;
 
   return (
@@ -125,7 +128,12 @@ export function ApiReferencePage({ operationId, query, onQueryChange }: ApiRefer
               </div>
             )}
             {tag.operations.map((operation) => (
-              <OperationView key={operation.id} operation={operation} context={context} />
+              <OperationView
+                key={operation.id}
+                operation={operation}
+                context={context}
+                autoOpen={operation.id === operationId || autoOpenAll}
+              />
             ))}
           </div>
         ))}

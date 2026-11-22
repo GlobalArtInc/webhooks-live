@@ -42,6 +42,20 @@ test('the index shows the overview, the authentication schemes, the tags and eve
   await expect(page.getByRole('link', { name: 'Download OpenAPI' })).toHaveAttribute('href', '/api/v1/openapi.json');
 });
 
+test('operations start collapsed and open from the keyboard', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openReference(page);
+  await expect(page.getByRole('article')).toHaveCount(OPERATION_COUNT);
+  await expect(page.locator('pre')).toHaveCount(0);
+
+  const toggle = page.getByRole('button', { name: 'Show details: GET /usage' });
+  await toggle.focus();
+  await page.keyboard.press('Enter');
+
+  await expect(page.getByRole('button', { name: 'Hide details: GET /usage' })).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator('pre')).toHaveCount(1);
+});
+
 test('the filter narrows the operations and is kept in the address', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openReference(page);
