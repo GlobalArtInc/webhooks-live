@@ -6,6 +6,7 @@ import type { MemberRole } from '../../api/types';
 import dialogStyles from '../../components/ConfirmDialog/ConfirmDialog.module.css';
 import { useReturnFocus } from '../../components/useReturnFocus';
 import { usePutMember } from './useMembers';
+import { ModalContent } from '../../components/ModalContent/ModalContent';
 import styles from './access.module.css';
 
 export interface InviteDialogProps {
@@ -115,7 +116,7 @@ export function InviteDialog({ endpointId, open, onOpenChange }: InviteDialogPro
     <Dialog.Root open={open} onOpenChange={changeOpen}>
       <Dialog.Portal>
         <Dialog.Overlay className={dialogStyles.overlay} />
-        <Dialog.Content
+        <ModalContent
           className={dialogStyles.content}
           onOpenAutoFocus={returnFocus.onOpenAutoFocus}
           onCloseAutoFocus={returnFocus.onCloseAutoFocus}
@@ -176,7 +177,7 @@ export function InviteDialog({ endpointId, open, onOpenChange }: InviteDialogPro
               </button>
             </div>
           </form>
-        </Dialog.Content>
+        </ModalContent>
       </Dialog.Portal>
     </Dialog.Root>
   );

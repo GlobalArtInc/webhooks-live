@@ -7,6 +7,7 @@ import { useReturnFocus } from '../../components/useReturnFocus';
 import type { ActiveFilters } from '../list/listFilters';
 import { EXPORT_MAX_CAPTURES, exportQueryOf, selectionFitsExport, type ExportScope } from './exportRequest';
 import { useExportJob, type ExportJob, type ExportPhase } from './useExportJob';
+import { ModalContent } from '../../components/ModalContent/ModalContent';
 import styles from './ExportDialog.module.css';
 
 export interface ExportCounts {
@@ -103,7 +104,7 @@ export function ExportDialog({
     <Dialog.Root open onOpenChange={handleOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className={styles.overlay} />
-        <Dialog.Content
+        <ModalContent
           className={styles.content}
           onOpenAutoFocus={returnFocus.onOpenAutoFocus}
           onCloseAutoFocus={returnFocus.onCloseAutoFocus}
@@ -171,7 +172,7 @@ export function ExportDialog({
               }}
             />
           </div>
-        </Dialog.Content>
+        </ModalContent>
       </Dialog.Portal>
     </Dialog.Root>
   );

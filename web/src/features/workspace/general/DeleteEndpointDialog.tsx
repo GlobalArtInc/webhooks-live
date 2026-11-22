@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useDeleteEndpoint } from '../../../api/queries';
 import { useReturnFocus } from '../../../components/useReturnFocus';
 import { forgetEndpoint } from '../../endpoints';
+import { ModalContent } from '../../../components/ModalContent/ModalContent';
 import styles from './DeleteEndpointDialog.module.css';
 
 export interface DeleteEndpointDialogProps {
@@ -48,7 +49,7 @@ export function DeleteEndpointDialog({ endpointId, open, onOpenChange, onDeleted
     >
       <Dialog.Portal>
         <Dialog.Overlay className={styles.overlay} />
-        <Dialog.Content
+        <ModalContent
           className={styles.content}
           onOpenAutoFocus={returnFocus.onOpenAutoFocus}
           onCloseAutoFocus={returnFocus.onCloseAutoFocus}
@@ -91,7 +92,7 @@ export function DeleteEndpointDialog({ endpointId, open, onOpenChange, onDeleted
               {t('wl.general.danger.deleteEndpoint.confirm')}
             </button>
           </div>
-        </Dialog.Content>
+        </ModalContent>
       </Dialog.Portal>
     </Dialog.Root>
   );

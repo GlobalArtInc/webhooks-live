@@ -9,6 +9,7 @@ import { ShortcutsButton } from '../../features/shortcuts';
 import { LanguageControl } from '../../i18n/LanguageControl';
 import { ErrorBoundary } from './ErrorBoundary';
 import { RailContext, type RailState } from './railState';
+import { ModalContent } from '../../components/ModalContent/ModalContent';
 import styles from './AppShell.module.css';
 
 const DRAWER_QUERY = '(max-width: 1199px)';
@@ -87,7 +88,7 @@ export function AppShell({ header, rail, resetKey, collapseRail = false, fill = 
             </Dialog.Trigger>
             <Dialog.Portal>
               <Dialog.Overlay className={styles.overlay} />
-              <Dialog.Content className={styles.drawer} aria-describedby={undefined}>
+              <ModalContent className={styles.drawer} aria-describedby={undefined}>
                 <Dialog.Title className={styles.srOnly}>{t('wl.shell.menuTitle')}</Dialog.Title>
                 <Dialog.Close className={styles.drawerClose}>{t('wl.shell.menuClose')}</Dialog.Close>
                 <RailContext value={railState}>{rail}</RailContext>
@@ -97,7 +98,7 @@ export function AppShell({ header, rail, resetKey, collapseRail = false, fill = 
                     {controls}
                   </div>
                 )}
-              </Dialog.Content>
+              </ModalContent>
             </Dialog.Portal>
           </Dialog.Root>
         )}

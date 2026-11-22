@@ -73,7 +73,7 @@ an endpoint identifier. Filters live in the query string so a filtered view is a
 | Breakpoint | Width | Regions |
 |---|---|---|
 | Wide | >= 1200 px | Rail 232 px (collapsible to 56 px) / list 380 px (resizable 300-560) / detail |
-| Medium | 768-1199 px | List 320 px / detail; rail becomes a left drawer; filter bar collapses to search plus "Filters (n)" popover |
+| Medium | 768-1199 px | List 360 px / detail; rail becomes a left drawer; filter bar collapses to search plus "Filters (n)" popover |
 | Narrow | < 768 px, designed at 360 | One column: header, filter chips, list; detail, settings, forwarding, diff are full-screen routes |
 
 Wide (1440 px):
@@ -141,7 +141,7 @@ Narrow (360 px), list first; the capture URL stays visible because it is the mos
 | Configuration | Workspace route, side section nav (section 15) | Workspace route, section tabs | Section list, then full-screen section |
 | Pager | List footer | List footer | Detail footer (newer/older) |
 | Detail sections | Sticky section nav | Sticky section nav | Sticky segmented tabs (scroll-linked) |
-| Row height | 36 px, one line | 36 px | 56 px, two lines |
+| Row height | 36 px, one line | 56 px, two lines, actions in the `...` menu (a 36 px one-line row leaves the path under 12 characters in a 360 px list) | 56 px, two lines |
 
 ## 4. Home / create
 

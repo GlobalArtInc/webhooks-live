@@ -19,6 +19,7 @@ import {
   type CaptureSearchPatch,
   type RangeOption,
 } from '../../features/filters/captureSearch';
+import { ModalContent } from '../ModalContent/ModalContent';
 import styles from './FilterBar.module.css';
 
 export const SEARCH_DEBOUNCE_MS = 300;
@@ -248,13 +249,13 @@ function FilterDisclosure({ layout, count, children }: FilterDisclosureProps) {
         <Dialog.Trigger asChild>{trigger}</Dialog.Trigger>
         <Dialog.Portal>
           <Dialog.Overlay className={styles.overlay} />
-          <Dialog.Content className={styles.sheet} aria-describedby={undefined}>
+          <ModalContent className={styles.sheet} aria-describedby={undefined}>
             <div className={styles.sheetHead}>
               <Dialog.Title className={styles.sheetTitle}>{t('wl.endpoint.filter.panel')}</Dialog.Title>
               <Dialog.Close className={styles.button}>{t('wl.endpoint.filter.done')}</Dialog.Close>
             </div>
             <div className={styles.sheetBody}>{children}</div>
-          </Dialog.Content>
+          </ModalContent>
         </Dialog.Portal>
       </Dialog.Root>
     );

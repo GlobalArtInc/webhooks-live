@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router';
-import type { ReactNode } from 'react';
+import type { ReactNode, RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { formatRelativeTime } from '../format/format';
 import { CopyButton } from '../CopyButton/CopyButton';
@@ -35,6 +35,7 @@ export interface EndpointHeaderProps {
   narrow: boolean;
   status?: ReactNode;
   addresses?: AddressSource;
+  menuTriggerRef: RefObject<HTMLButtonElement | null>;
   onDeleteAll: () => void;
 }
 
@@ -58,6 +59,7 @@ export function EndpointHeader({
   narrow,
   status,
   addresses,
+  menuTriggerRef,
   onDeleteAll,
 }: EndpointHeaderProps) {
   const { t, i18n } = useTranslation();
@@ -98,7 +100,13 @@ export function EndpointHeader({
       </div>
       <div className={styles.actions}>
         {narrow ? (
-          <HeaderMenu endpointId={endpointId} curl={curl} disableDeleteAll={count === 0} onDeleteAll={onDeleteAll} />
+          <HeaderMenu
+            endpointId={endpointId}
+            curl={curl}
+            disableDeleteAll={count === 0}
+            triggerRef={menuTriggerRef}
+            onDeleteAll={onDeleteAll}
+          />
         ) : (
           <>
             <CopyButton

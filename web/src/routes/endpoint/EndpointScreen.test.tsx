@@ -1,7 +1,8 @@
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { http } from 'msw';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clearMarkedCapture } from '../../features/diff';
+import { WIDE_QUERY } from '../../features/endpoint/constants';
 import { sampleCurl } from '../../features/endpoint/sampleCurl';
 import { forgetSelection } from '../../features/endpoint/selectionMemory';
 import { captureIdFor, captureSeries } from '../../features/endpoint/testFixtures';
@@ -83,10 +84,24 @@ describe('endpoint view', () => {
     Reflect.deleteProperty(HTMLElement.prototype, 'clientHeight');
   });
 
+  beforeEach(() => {
+    vi.stubGlobal('matchMedia', (query: string): MediaQueryList => ({
+      matches: query === WIDE_QUERY,
+      media: query,
+      onchange: null,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      dispatchEvent: () => false,
+    }));
+  });
+
   afterEach(() => {
     cleanup();
     vi.useRealTimers();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     forgetSelection(ENDPOINT_ID);
     clearMarkedCapture(ENDPOINT_ID);
   });

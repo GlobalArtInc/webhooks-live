@@ -26,6 +26,7 @@ import { ScopeGrid } from './ScopeGrid';
 import { SecretReveal } from './SecretReveal';
 import { TokenErrorNotice } from './TokenErrorNotice';
 import { formatDate } from './time';
+import { ModalContent } from '../../components/ModalContent/ModalContent';
 import styles from './CreateTokenDialog.module.css';
 
 export interface CreateTokenDialogProps {
@@ -156,7 +157,7 @@ export function CreateTokenDialog({ onClose, onCloseAutoFocus }: CreateTokenDial
     >
       <Dialog.Portal>
         <Dialog.Overlay className={styles.overlay} />
-        <Dialog.Content
+        <ModalContent
           className={styles.content}
           onOpenAutoFocus={returnFocus.onOpenAutoFocus}
           onCloseAutoFocus={onCloseAutoFocus ?? returnFocus.onCloseAutoFocus}
@@ -333,7 +334,7 @@ export function CreateTokenDialog({ onClose, onCloseAutoFocus }: CreateTokenDial
               )}
             </div>
           )}
-        </Dialog.Content>
+        </ModalContent>
       </Dialog.Portal>
     </Dialog.Root>
   );

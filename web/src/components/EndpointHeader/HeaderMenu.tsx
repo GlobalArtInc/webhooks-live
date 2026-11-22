@@ -1,6 +1,6 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useNavigate } from '@tanstack/react-router';
-import { lazy, Suspense, useState } from 'react';
+import { lazy, Suspense, useState, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { offersImport } from '../../api/capabilities';
 import { useInstance } from '../../api/queries';
@@ -15,10 +15,11 @@ export interface HeaderMenuProps {
   endpointId: string;
   curl: string;
   disableDeleteAll: boolean;
+  triggerRef: RefObject<HTMLButtonElement | null>;
   onDeleteAll: () => void;
 }
 
-export function HeaderMenu({ endpointId, curl, disableDeleteAll, onDeleteAll }: HeaderMenuProps) {
+export function HeaderMenu({ endpointId, curl, disableDeleteAll, triggerRef, onDeleteAll }: HeaderMenuProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [importOpen, setImportOpen] = useState(false);
@@ -27,7 +28,7 @@ export function HeaderMenu({ endpointId, curl, disableDeleteAll, onDeleteAll }: 
     <>
       <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild>
-          <button type="button" className={styles.button}>
+          <button ref={triggerRef} type="button" className={styles.button}>
             {t('wl.endpoint.header.actions')}
           </button>
         </DropdownMenu.Trigger>
@@ -77,6 +78,7 @@ export function HeaderMenu({ endpointId, curl, disableDeleteAll, onDeleteAll }: 
         <Suspense fallback={null}>
           <ImportDialog
             endpointId={endpointId}
+            returnFocusRef={triggerRef}
             onOpenChange={setImportOpen}
             onOpenEndpoint={(openId) => {
               setImportOpen(false);

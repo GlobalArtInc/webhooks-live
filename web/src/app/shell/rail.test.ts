@@ -27,11 +27,14 @@ describe('collapsesRail', () => {
 });
 
 describe('fillsViewport', () => {
-  it('fills the window on the capture list and a selected capture only', () => {
+  it('fills the window on the capture list, a selected capture and the workspace only', () => {
     expect(fillsViewport('/e/0123456789abcdefghjkmnpq')).toBe(true);
     expect(fillsViewport('/e/0123456789abcdefghjkmnpq/')).toBe(true);
     expect(fillsViewport('/e/0123456789abcdefghjkmnpq/c/0193a1c2-7e4b-7c11-9a2f-3b5d1e0f4a21')).toBe(true);
-    expect(fillsViewport('/e/0123456789abcdefghjkmnpq/settings')).toBe(false);
+    expect(fillsViewport('/e/0123456789abcdefghjkmnpq/settings')).toBe(true);
+    expect(fillsViewport('/e/0123456789abcdefghjkmnpq/settings/general')).toBe(true);
+    expect(fillsViewport('/e/0123456789abcdefghjkmnpq/settings/rules/0193a1c2-7e4b-7c11-9a2f-3b5d1e0f4a21')).toBe(true);
+    expect(fillsViewport('/e/0123456789abcdefghjkmnpq/settingsx')).toBe(false);
     expect(fillsViewport('/e/0123456789abcdefghjkmnpq/unlock')).toBe(false);
     expect(fillsViewport('/e/0123456789abcdefghjkmnpq/diff/a/b')).toBe(false);
     expect(fillsViewport('/endpoints')).toBe(false);

@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { displayKey, SHORTCUT_SCOPES, type ShortcutEntry, type ShortcutScope } from '../../features/shortcuts/registry';
 import type { SourceKey } from '../../i18n/keys';
 import { useReturnFocus } from '../useReturnFocus';
+import { ModalContent } from '../ModalContent/ModalContent';
 import styles from './ShortcutsDialog.module.css';
 
 const SCOPE_LABELS: Readonly<Record<ShortcutScope, SourceKey>> = {
@@ -30,7 +31,7 @@ export function ShortcutsDialog({ open, shortcuts, singleKey, onSingleKeyChange,
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className={styles.overlay} />
-        <Dialog.Content
+        <ModalContent
           className={styles.content}
           onOpenAutoFocus={returnFocus.onOpenAutoFocus}
           onCloseAutoFocus={returnFocus.onCloseAutoFocus}
@@ -87,7 +88,7 @@ export function ShortcutsDialog({ open, shortcuts, singleKey, onSingleKeyChange,
               </button>
             </Dialog.Close>
           </div>
-        </Dialog.Content>
+        </ModalContent>
       </Dialog.Portal>
     </Dialog.Root>
   );

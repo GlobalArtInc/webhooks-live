@@ -10,7 +10,7 @@ export function collapsesRail(pathname: string): boolean {
   return COLLAPSING_PATH_PATTERN.test(pathname);
 }
 
-const FILLING_PATH_PATTERN = /^\/e\/[^/]+(\/c\/[^/]+)?\/?$/;
+const FILLING_PATH_PATTERN = /^\/e\/[^/]+(\/c\/[^/]+|\/settings(\/.*)?)?\/?$/;
 
 export function fillsViewport(pathname: string): boolean {
   return FILLING_PATH_PATTERN.test(pathname);

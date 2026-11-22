@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ConfirmDialog } from './ConfirmDialog';
 
@@ -57,5 +57,52 @@ describe('ConfirmDialog', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
 
     await waitFor(() => expect(document.activeElement).toBe(trigger));
+  });
+
+  it('falls back to the given element when the opener is gone', async () => {
+    function MenuHarness() {
+      const [open, setOpen] = useState(false);
+      const [menuOpen, setMenuOpen] = useState(true);
+      const triggerRef = useRef<HTMLButtonElement>(null);
+      return (
+        <>
+          <button ref={triggerRef} type="button">
+            Actions
+          </button>
+          {menuOpen ? (
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen(false);
+                setOpen(true);
+              }}
+            >
+              Item
+            </button>
+          ) : null}
+          <ConfirmDialog
+            open={open}
+            title="Delete all captures?"
+            body="Gone for good."
+            confirmLabel="Confirm"
+            cancelLabel="Cancel"
+            busy={false}
+            returnFocusRef={triggerRef}
+            onConfirm={() => {
+              setOpen(false);
+            }}
+            onOpenChange={setOpen}
+          />
+        </>
+      );
+    }
+
+    render(<MenuHarness />);
+    const item = screen.getByRole('button', { name: 'Item' });
+    item.focus();
+    fireEvent.click(item);
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Actions' })));
   });
 });

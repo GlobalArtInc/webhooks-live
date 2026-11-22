@@ -136,6 +136,7 @@ export function EndpointScreen() {
   const [exportScope, setExportScope] = useState<ExportScope>('all');
   const listRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const actionsRef = useRef<HTMLButtonElement>(null);
   const backRequested = useRef(false);
 
   useTabBadge(live.awayCount);
@@ -347,6 +348,7 @@ export function EndpointScreen() {
         narrow={narrow}
         status={<ConnectionIndicator state={live.connection} lastEventAt={live.lastEventAt} now={now} />}
         addresses={endpoint}
+        menuTriggerRef={actionsRef}
         onDeleteAll={() => {
           setClearOpen(true);
         }}
@@ -419,7 +421,7 @@ export function EndpointScreen() {
               items={list.items}
               selectedId={paneId}
               markedId={marked}
-              variant={narrow ? 'two-line' : 'one-line'}
+              variant={wide ? 'one-line' : 'two-line'}
               now={now}
               unreadIds={live.unreadIds}
               arrivingIds={live.arrivingIds}
@@ -518,6 +520,7 @@ export function EndpointScreen() {
         confirmLabel={t('wl.endpoint.clear.confirm')}
         cancelLabel={t('wl.endpoint.clear.cancel')}
         busy={clear.isPending}
+        returnFocusRef={actionsRef}
         onConfirm={clearAll}
         onOpenChange={setClearOpen}
       />

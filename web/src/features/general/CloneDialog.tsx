@@ -2,6 +2,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { useId, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CLONE_PARTS, useCloneEndpoint, type ClonePart, type CloneResult } from '../../api/general';
+import { ModalContent } from '../../components/ModalContent/ModalContent';
 import { rememberEndpoint } from '../endpoints/store';
 import styles from './CloneDialog.module.css';
 
@@ -77,7 +78,7 @@ export function CloneDialog({ endpointId, title, onClose, onCloseAutoFocus, onCl
     >
       <Dialog.Portal>
         <Dialog.Overlay className={styles.overlay} />
-        <Dialog.Content className={styles.content} onCloseAutoFocus={onCloseAutoFocus}>
+        <ModalContent className={styles.content} onCloseAutoFocus={onCloseAutoFocus}>
           <Dialog.Title className={styles.title}>{t('wl.general.clone.title')}</Dialog.Title>
           <Dialog.Description className={styles.body}>{t('wl.general.clone.body')}</Dialog.Description>
           {created === null ? (
@@ -157,7 +158,7 @@ export function CloneDialog({ endpointId, title, onClose, onCloseAutoFocus, onCl
               </div>
             </div>
           )}
-        </Dialog.Content>
+        </ModalContent>
       </Dialog.Portal>
     </Dialog.Root>
   );

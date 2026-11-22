@@ -7,6 +7,7 @@ import type { ViewportLayout } from '../endpoint/useViewport';
 import { ENDPOINT_SEARCH_ROUTE_ID } from '../filters/useCaptureSearch';
 import type { CaptureSearch, CaptureSearchPatch } from '../filters/captureSearch';
 import { BuilderForm } from './BuilderForm';
+import { ModalContent } from '../../components/ModalContent/ModalContent';
 import styles from './FilterBuilder.module.css';
 
 export interface FilterBuilderProps {
@@ -44,11 +45,11 @@ export function FilterBuilder({ search, layout, onApply }: FilterBuilderProps) {
         <Dialog.Trigger asChild>{trigger}</Dialog.Trigger>
         <Dialog.Portal>
           <Dialog.Overlay className={styles.overlay} />
-          <Dialog.Content className={styles.sheet}>
+          <ModalContent className={styles.sheet}>
             <Dialog.Title className={styles.title}>{t('wl.filterbuilder.title')}</Dialog.Title>
             <Dialog.Description className={styles.description}>{t('wl.filterbuilder.description')}</Dialog.Description>
             <ScopedBuilder search={search} onApply={applyAndClose} />
-          </Dialog.Content>
+          </ModalContent>
         </Dialog.Portal>
       </Dialog.Root>
     );

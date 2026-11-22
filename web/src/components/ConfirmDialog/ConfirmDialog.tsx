@@ -1,5 +1,7 @@
 import * as Dialog from '@radix-ui/react-dialog';
+import type { RefObject } from 'react';
 import { useReturnFocus } from '../useReturnFocus';
+import { ModalContent } from '../ModalContent/ModalContent';
 import styles from './ConfirmDialog.module.css';
 
 export interface ConfirmDialogProps {
@@ -11,6 +13,7 @@ export interface ConfirmDialogProps {
   busy: boolean;
   onConfirm: () => void;
   onOpenChange: (open: boolean) => void;
+  returnFocusRef?: RefObject<HTMLElement | null>;
   onCloseAutoFocus?: (event: Event) => void;
 }
 
@@ -23,14 +26,15 @@ export function ConfirmDialog({
   busy,
   onConfirm,
   onOpenChange,
+  returnFocusRef,
   onCloseAutoFocus,
 }: ConfirmDialogProps) {
-  const returnFocus = useReturnFocus();
+  const returnFocus = useReturnFocus(returnFocusRef);
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className={styles.overlay} />
-        <Dialog.Content
+        <ModalContent
           className={styles.content}
           onOpenAutoFocus={returnFocus.onOpenAutoFocus}
           onCloseAutoFocus={onCloseAutoFocus ?? returnFocus.onCloseAutoFocus}
@@ -47,7 +51,7 @@ export function ConfirmDialog({
               {confirmLabel}
             </button>
           </div>
-        </Dialog.Content>
+        </ModalContent>
       </Dialog.Portal>
     </Dialog.Root>
   );

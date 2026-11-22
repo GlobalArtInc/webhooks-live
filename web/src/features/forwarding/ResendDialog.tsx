@@ -7,6 +7,7 @@ import type { ForwardJob } from '../../api/types';
 import { ForwardResultPanel } from '../../components/ForwardResultPanel/ForwardResultPanel';
 import { useReturnFocus } from '../../components/useReturnFocus';
 import { issueFromServer, validateTarget, type RuleIssue, TARGET_MAX_CHARS } from './ruleDraft';
+import { ModalContent } from '../../components/ModalContent/ModalContent';
 import styles from './ResendDialog.module.css';
 
 export interface ResendDialogProps {
@@ -174,7 +175,7 @@ export function ResendDialog({ endpointId, captureId, open, onOpenChange }: Rese
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className={styles.overlay} />
-        <Dialog.Content
+        <ModalContent
           className={styles.content}
           onOpenAutoFocus={returnFocus.onOpenAutoFocus}
           onCloseAutoFocus={returnFocus.onCloseAutoFocus}
@@ -189,7 +190,7 @@ export function ResendDialog({ endpointId, captureId, open, onOpenChange }: Rese
               </button>
             </Dialog.Close>
           </div>
-        </Dialog.Content>
+        </ModalContent>
       </Dialog.Portal>
     </Dialog.Root>
   );

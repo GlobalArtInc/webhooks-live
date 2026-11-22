@@ -1,5 +1,5 @@
 import * as Dialog from '@radix-ui/react-dialog';
-import { useEffect, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useReturnFocus } from '../../components/useReturnFocus';
 import { inspectFile, type ChosenFile } from './importFile';
@@ -14,16 +14,18 @@ import {
   UploadStatus,
   type ImportTarget,
 } from './ImportViews';
+import { ModalContent } from '../../components/ModalContent/ModalContent';
 import styles from './ImportDialog.module.css';
 
 export interface ImportDialogProps {
   endpointId: string | null;
+  returnFocusRef?: RefObject<HTMLElement | null>;
   onOpenChange: (open: boolean) => void;
   onOpenEndpoint: (endpointId: string) => void;
 }
 
-export function ImportDialog({ endpointId, onOpenChange, onOpenEndpoint }: ImportDialogProps) {
-  const returnFocus = useReturnFocus();
+export function ImportDialog({ endpointId, returnFocusRef, onOpenChange, onOpenEndpoint }: ImportDialogProps) {
+  const returnFocus = useReturnFocus(returnFocusRef);
   const { t, i18n } = useTranslation();
   const locale = i18n.language;
   const job = useImportJob();
@@ -94,7 +96,7 @@ export function ImportDialog({ endpointId, onOpenChange, onOpenEndpoint }: Impor
     <Dialog.Root open onOpenChange={handleOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className={styles.overlay} />
-        <Dialog.Content
+        <ModalContent
           className={styles.content}
           onOpenAutoFocus={returnFocus.onOpenAutoFocus}
           onCloseAutoFocus={returnFocus.onCloseAutoFocus}
@@ -141,7 +143,7 @@ export function ImportDialog({ endpointId, onOpenChange, onOpenEndpoint }: Impor
               }}
             />
           </div>
-        </Dialog.Content>
+        </ModalContent>
       </Dialog.Portal>
     </Dialog.Root>
   );
