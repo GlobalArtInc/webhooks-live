@@ -74,6 +74,7 @@
   "wl.notifications.push.unsupported": "This browser does not support browser push notifications.",
   "wl.notifications.push.subscribed": "This browser is subscribed. Save the channel to use it.",
   "wl.notifications.push.denied": "The browser blocked notifications for this site. Allow them in the browser settings and try again.",
+  "wl.notifications.push.dismissed": "Notifications were not enabled. Try again.",
   "wl.notifications.push.workerFailed": "The browser could not start the notification worker for this site. Reload the page and try again.",
   "wl.notifications.push.failed": "The browser subscription failed. Try again.",
   "wl.notifications.addresses.title": "E-mail addresses",

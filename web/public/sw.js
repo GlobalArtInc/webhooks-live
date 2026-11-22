@@ -3,7 +3,7 @@
 var ENDPOINT_ID = /^[0-9a-hjkmnp-tv-z]{24}$/;
 var CAPTURE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 var KIND = /^[a-z0-9_-]{1,24}$/;
-var CONTROL = /[\u0000-\u001f\u007f-\u009f]+/g;
+var CONTROL = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu;
 var MAX_METHOD = 16;
 var MAX_PATH = 100;
 var APP_NAME = 'webhooks.live';
@@ -59,22 +59,30 @@ function targetOf(data) {
 
 function openTarget(path) {
   var url = new URL(path, self.location.origin).href;
-  return self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (windows) {
-    var own = windows.filter(function (client) {
-      return new URL(client.url).origin === self.location.origin;
-    });
-    if (own.length === 0) {
-      return self.clients.openWindow(url);
-    }
-    return own[0]
-      .focus()
-      .then(function (focused) {
-        return focused.navigate(url);
-      })
-      .catch(function () {
-        return self.clients.openWindow(url);
+  var fallback = function () {
+    return self.clients.openWindow(url);
+  };
+  return self.clients
+    .matchAll({ type: 'window', includeUncontrolled: true })
+    .then(function (windows) {
+      var own = windows.filter(function (client) {
+        return new URL(client.url).origin === self.location.origin;
       });
-  });
+      var target =
+        own.find(function (client) {
+          return client.visibilityState === 'visible';
+        }) || own[0];
+      if (!target) {
+        return fallback();
+      }
+      return target.focus().then(function (focused) {
+        if (focused && typeof focused.navigate === 'function') {
+          return focused.navigate(url);
+        }
+        return fallback();
+      });
+    })
+    .catch(fallback);
 }
 
 self.addEventListener('install', function () {

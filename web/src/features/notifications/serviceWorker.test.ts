@@ -17,6 +17,7 @@ type Listener = (event: FakeEvent) => void;
 
 interface FakeWindow {
   url: string;
+  visibilityState: string;
   focus: ReturnType<typeof vi.fn>;
   navigate: ReturnType<typeof vi.fn>;
 }
@@ -74,8 +75,8 @@ function pushOf(payload: unknown): Partial<FakeEvent> {
   return { data: { json: () => payload } };
 }
 
-function windowAt(url: string): FakeWindow {
-  const window: FakeWindow = { url, focus: vi.fn(), navigate: vi.fn() };
+function windowAt(url: string, visibilityState = 'visible'): FakeWindow {
+  const window: FakeWindow = { url, visibilityState, focus: vi.fn(), navigate: vi.fn() };
   window.focus.mockResolvedValue(window);
   window.navigate.mockResolvedValue(window);
   return window;
@@ -178,5 +179,57 @@ describe('push service worker', () => {
     await fire(rig, 'notificationclick', clickWith(null)).settled;
 
     expect(rig.openWindow).toHaveBeenCalledWith(`${ORIGIN}/`);
+  });
+
+  it('strips bidi, zero-width, format and control characters from the title', async () => {
+    const path = '/a\u202eb\u2066c\u200bd\ufeffe\u00adf\u2028g\u2029h\u0007i\u009fj';
+    await fire(rig, 'push', pushOf({ method: 'GET', path })).settled;
+
+    expect(rig.showNotification.mock.calls[0]?.[0]).toBe('GET /a b c d e f g h i j');
+  });
+
+  it('prefers a visible window of the app over a hidden one', async () => {
+    const hidden = windowAt(`${ORIGIN}/a`, 'hidden');
+    const visible = windowAt(`${ORIGIN}/b`, 'visible');
+    const withWindows = boot([hidden, visible]);
+    await fire(withWindows, 'notificationclick', clickWith({ endpoint_id: ENDPOINT_ID, capture_id: CAPTURE_ID }))
+      .settled;
+
+    expect(visible.navigate).toHaveBeenCalledWith(NOTIFICATION_TARGET);
+    expect(hidden.focus).not.toHaveBeenCalled();
+  });
+
+  it('asks for same-origin windows including uncontrolled ones', async () => {
+    await fire(rig, 'notificationclick', clickWith(null)).settled;
+
+    expect(rig.matchAll).toHaveBeenCalledWith({ type: 'window', includeUncontrolled: true });
+  });
+
+  it('opens a new window when listing the windows fails', async () => {
+    rig.matchAll.mockRejectedValue(new Error('no clients'));
+    await fire(rig, 'notificationclick', clickWith({ endpoint_id: ENDPOINT_ID, capture_id: CAPTURE_ID })).settled;
+
+    expect(rig.openWindow).toHaveBeenCalledWith(NOTIFICATION_TARGET);
+  });
+
+  it('opens a new window when navigating the focused window fails', async () => {
+    const open = windowAt(`${ORIGIN}/endpoints`);
+    open.navigate.mockRejectedValue(new TypeError('uncontrolled'));
+    const withWindow = boot([open]);
+    await fire(withWindow, 'notificationclick', clickWith({ endpoint_id: ENDPOINT_ID, capture_id: CAPTURE_ID }))
+      .settled;
+
+    expect(withWindow.openWindow).toHaveBeenCalledWith(NOTIFICATION_TARGET);
+  });
+
+  it('opens a new window when focusing returns no window', async () => {
+    const open = windowAt(`${ORIGIN}/endpoints`);
+    open.focus.mockResolvedValue(null);
+    const withWindow = boot([open]);
+    await fire(withWindow, 'notificationclick', clickWith({ endpoint_id: ENDPOINT_ID, capture_id: CAPTURE_ID }))
+      .settled;
+
+    expect(open.navigate).not.toHaveBeenCalled();
+    expect(withWindow.openWindow).toHaveBeenCalledWith(NOTIFICATION_TARGET);
   });
 });

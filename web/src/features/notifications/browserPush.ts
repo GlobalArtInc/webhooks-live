@@ -3,7 +3,9 @@ import { subscribePush } from './notificationsApi';
 
 export type PushSupport = 'unsupported' | 'supported';
 
-export type PushOutcome = 'subscribed' | 'denied' | 'worker-failed';
+export type PushOutcome = 'subscribed' | 'denied' | 'dismissed' | 'worker-failed';
+
+export type PublicKeyLoader = () => Promise<string>;
 
 export const WORKER_URL = '/sw.js';
 export const WORKER_SCOPE = '/';
@@ -43,19 +45,32 @@ export function base64UrlToBytes(value: string): Uint8Array<ArrayBuffer> {
   return bytes;
 }
 
+async function startWorker(): Promise<ServiceWorkerRegistration> {
+  await navigator.serviceWorker.register(WORKER_URL, { scope: WORKER_SCOPE });
+  return navigator.serviceWorker.ready;
+}
+
 async function waitForWorker(): Promise<ServiceWorkerRegistration | null> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<null>((resolve) => {
     timer = setTimeout(() => resolve(null), WORKER_READY_TIMEOUT_MS);
   });
   try {
-    await navigator.serviceWorker.register(WORKER_URL, { scope: WORKER_SCOPE });
-    return await Promise.race([navigator.serviceWorker.ready, timeout]);
+    return await Promise.race([startWorker(), timeout]);
   } catch {
     return null;
   } finally {
     clearTimeout(timer);
   }
+}
+
+function sameKey(subscription: PushSubscription, key: Uint8Array): boolean {
+  const current = subscription.options.applicationServerKey;
+  if (current === null) {
+    return false;
+  }
+  const bytes = new Uint8Array(current);
+  return bytes.length === key.length && bytes.every((value, index) => value === key[index]);
 }
 
 async function saveSubscription(subscription: PushSubscription): Promise<void> {
@@ -75,22 +90,26 @@ async function saveSubscription(subscription: PushSubscription): Promise<void> {
   }
 }
 
-export async function subscribeThisBrowser(publicKey: string): Promise<PushOutcome> {
+export async function subscribeThisBrowser(loadPublicKey: PublicKeyLoader): Promise<PushOutcome> {
   const permission = await Notification.requestPermission();
+  if (permission === 'default') {
+    return 'dismissed';
+  }
   if (permission !== 'granted') {
     return 'denied';
   }
+  const key = base64UrlToBytes(await loadPublicKey());
   const registration = await waitForWorker();
   if (registration === null) {
     return 'worker-failed';
   }
-  const existing = await registration.pushManager.getSubscription();
-  const subscription =
-    existing ??
-    (await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: base64UrlToBytes(publicKey),
-    }));
-  await saveSubscription(subscription);
+  let subscription = await registration.pushManager.getSubscription();
+  if (subscription !== null && !sameKey(subscription, key)) {
+    await subscription.unsubscribe();
+    subscription = null;
+  }
+  const active =
+    subscription ?? (await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key }));
+  await saveSubscription(active);
   return 'subscribed';
 }

@@ -8,6 +8,10 @@ export interface PushSettingProps {
   signedIn: boolean;
 }
 
+async function loadPublicKey(): Promise<string> {
+  return (await getPushPublicKey()).public_key;
+}
+
 type PushMessage = PushOutcome | 'unsupported' | 'failed';
 
 export function PushSetting({ signedIn }: PushSettingProps) {
@@ -26,8 +30,7 @@ export function PushSetting({ signedIn }: PushSettingProps) {
     setBusy(true);
     setMessage(null);
     try {
-      const key = await getPushPublicKey();
-      setMessage(await subscribeThisBrowser(key.public_key));
+      setMessage(await subscribeThisBrowser(loadPublicKey));
     } catch {
       setMessage('failed');
     } finally {
@@ -65,6 +68,12 @@ function PushMessageLine({ message }: PushMessageLineProps) {
       return (
         <p role="alert" className={styles.error}>
           {t('wl.notifications.push.denied')}
+        </p>
+      );
+    case 'dismissed':
+      return (
+        <p role="status" className={styles.hint}>
+          {t('wl.notifications.push.dismissed')}
         </p>
       );
     case 'worker-failed':

@@ -327,6 +327,10 @@ async fn service_worker_is_served_only_from_its_exact_path() {
         "/%73w.js",
         "/assets/sw.js",
         "/e/abc123/sw.js",
+        "//sw.js",
+        "/./sw.js",
+        "/sw.js.",
+        "/sw.js;x",
     ] {
         assert_eq!(
             get(with_worker(), uri).await.status(),
@@ -374,4 +378,17 @@ async fn service_worker_matching_etag_returns_not_modified() {
     assert_eq!(header(&response, "cache-control"), "no-cache");
     assert_eq!(header(&response, "service-worker-allowed"), "/");
     assert!(text(response).await.is_empty());
+}
+
+#[tokio::test]
+async fn service_worker_range_request_gets_the_full_body() {
+    let response = send(
+        with_worker(),
+        Method::GET,
+        "/sw.js",
+        &[("range", "bytes=0-3")],
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(text(response).await, WORKER);
 }
