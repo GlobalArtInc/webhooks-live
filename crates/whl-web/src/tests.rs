@@ -16,6 +16,7 @@ use crate::source::{Asset, AssetSource};
 const INLINE_SCRIPT: &str = "(function () { var theme = 'dark'; })();";
 const INDEX: &str = "<!doctype html><html><head><script>(function () { var theme = 'dark'; })();</script></head><body><div id=\"root\"></div></body></html>";
 const JS: &str = "console.log(1);";
+const WORKER: &str = "self.addEventListener('push', function () {});";
 const IMMUTABLE: &str = "public, max-age=31536000, immutable";
 const NO_INLINE_CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob:; worker-src 'self'; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 
@@ -43,6 +44,15 @@ fn built() -> Router {
         ("index.html", INDEX),
         ("assets/index-abc123.js", JS),
         ("assets/index-abc123.css", "body{}"),
+    ])
+}
+
+fn with_worker() -> Router {
+    app(&[
+        ("index.html", INDEX),
+        ("sw.js", WORKER),
+        ("sw.js.map", "{}"),
+        ("assets/index-abc123.js", JS),
     ])
 }
 
@@ -280,4 +290,88 @@ async fn placeholder_page_when_source_is_empty() {
     assert_eq!(header(&response, "cache-control"), "no-cache");
     assert!(header(&response, "content-security-policy").contains("script-src 'self';"));
     assert!(text(response).await.contains("not built"));
+}
+
+#[tokio::test]
+async fn service_worker_is_served_with_its_headers() {
+    let response = get(with_worker(), "/sw.js").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        header(&response, "content-type"),
+        "text/javascript; charset=utf-8"
+    );
+    assert_eq!(header(&response, "cache-control"), "no-cache");
+    assert_eq!(header(&response, "service-worker-allowed"), "/");
+    assert_eq!(header(&response, "x-content-type-options"), "nosniff");
+    assert_eq!(
+        header(&response, "content-security-policy"),
+        "default-src 'none'; img-src 'self'"
+    );
+    assert!(!header(&response, "content-security-policy").contains("sandbox"));
+    assert_eq!(text(response).await, WORKER);
+}
+
+#[tokio::test]
+async fn service_worker_ignores_the_query_string() {
+    let response = get(with_worker(), "/sw.js?x=1").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(text(response).await, WORKER);
+}
+
+#[tokio::test]
+async fn service_worker_is_served_only_from_its_exact_path() {
+    for uri in [
+        "/sw.js/",
+        "/sw.js.map",
+        "/SW.js",
+        "/%73w.js",
+        "/assets/sw.js",
+        "/e/abc123/sw.js",
+    ] {
+        assert_eq!(
+            get(with_worker(), uri).await.status(),
+            StatusCode::NOT_FOUND,
+            "{uri}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn service_worker_is_not_found_when_the_build_lacks_it() {
+    assert_eq!(get(built(), "/sw.js").await.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn service_worker_rejects_unsafe_methods() {
+    let response = send(with_worker(), Method::POST, "/sw.js", &[]).await;
+    assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+    assert_eq!(header(&response, "allow"), "GET, HEAD");
+}
+
+#[tokio::test]
+async fn service_worker_head_returns_headers_without_body() {
+    let response = send(with_worker(), Method::HEAD, "/sw.js", &[]).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(header(&response, "cache-control"), "no-cache");
+    assert_eq!(
+        header(&response, "content-length"),
+        WORKER.len().to_string()
+    );
+    assert!(text(response).await.is_empty());
+}
+
+#[tokio::test]
+async fn service_worker_matching_etag_returns_not_modified() {
+    let etag = header(&get(with_worker(), "/sw.js").await, "etag");
+    let response = send(
+        with_worker(),
+        Method::GET,
+        "/sw.js",
+        &[("if-none-match", etag.as_str())],
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+    assert_eq!(header(&response, "cache-control"), "no-cache");
+    assert_eq!(header(&response, "service-worker-allowed"), "/");
+    assert!(text(response).await.is_empty());
 }

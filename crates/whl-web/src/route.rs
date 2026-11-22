@@ -20,12 +20,14 @@ pub const UI_ROUTES: &[&str] = &[
     "/notifications/disable",
     "/e/{endpoint_id}/unlock",
     "/assets/{file}",
+    "/sw.js",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Target<'a> {
     Hashed(&'a str),
     Shell,
+    ServiceWorker,
 }
 
 pub(crate) fn classify(path: &str) -> Option<Target<'_>> {
@@ -39,6 +41,7 @@ pub(crate) fn classify(path: &str) -> Option<Target<'_>> {
         .find(|pattern| matches(pattern, path))?;
     match pattern {
         "/assets/{file}" => Some(Target::Hashed(key)),
+        "/sw.js" => Some(Target::ServiceWorker),
         _ if key.rsplit('/').next().unwrap_or_default().contains('.') => None,
         _ => Some(Target::Shell),
     }

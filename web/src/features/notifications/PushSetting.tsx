@@ -67,10 +67,10 @@ function PushMessageLine({ message }: PushMessageLineProps) {
           {t('wl.notifications.push.denied')}
         </p>
       );
-    case 'needs-app-worker':
+    case 'worker-failed':
       return (
         <p role="alert" className={styles.error}>
-          {t('wl.notifications.push.needsWorker')}
+          {t('wl.notifications.push.workerFailed')}
         </p>
       );
     case 'unsupported':

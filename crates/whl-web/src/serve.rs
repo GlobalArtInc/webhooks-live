@@ -30,6 +30,9 @@ struct Site {
     shell: Shell,
 }
 
+const WORKER_KEY: &str = "sw.js";
+const WORKER_POLICY: &str = "default-src 'none'; img-src 'self'";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CacheRule {
     Immutable,
@@ -61,14 +64,32 @@ async fn handle(
     let head = method == Method::HEAD;
     match classify(uri.path()) {
         Some(Target::Hashed(key)) => match site.source.get(key) {
-            Some(asset) => deliver(&asset, key, CacheRule::Immutable, None, &request, head),
+            Some(asset) => deliver(
+                &asset,
+                key,
+                CacheRule::Immutable,
+                Policy::Plain,
+                &request,
+                head,
+            ),
+            None => StatusCode::NOT_FOUND.into_response(),
+        },
+        Some(Target::ServiceWorker) => match site.source.get(WORKER_KEY) {
+            Some(asset) => deliver(
+                &asset,
+                WORKER_KEY,
+                CacheRule::NoCache,
+                Policy::Worker,
+                &request,
+                head,
+            ),
             None => StatusCode::NOT_FOUND.into_response(),
         },
         Some(Target::Shell) => deliver(
             &site.shell.document,
             "index.html",
             CacheRule::NoCache,
-            Some(&site.shell.csp),
+            Policy::Document(&site.shell.csp),
             &request,
             head,
         ),
@@ -76,11 +97,18 @@ async fn handle(
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+enum Policy<'a> {
+    Plain,
+    Document(&'a HeaderValue),
+    Worker,
+}
+
 fn deliver(
     asset: &Asset,
     key: &str,
     cache: CacheRule,
-    csp: Option<&HeaderValue>,
+    policy: Policy<'_>,
     request: &HeaderMap,
     head: bool,
 ) -> Response {
@@ -91,19 +119,32 @@ fn deliver(
         HeaderName::from_static("x-content-type-options"),
         HeaderValue::from_static("nosniff"),
     );
-    if let Some(csp) = csp {
-        headers.insert(CONTENT_SECURITY_POLICY, csp.clone());
-        headers.insert(
-            HeaderName::from_static("x-frame-options"),
-            HeaderValue::from_static("DENY"),
-        );
-        headers.insert(REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
-        headers.insert(
-            HeaderName::from_static("permissions-policy"),
-            HeaderValue::from_static(
-                "camera=(), microphone=(), geolocation=(), payment=(), usb=(), clipboard-write=(self)",
-            ),
-        );
+    match policy {
+        Policy::Plain => {}
+        Policy::Document(csp) => {
+            headers.insert(CONTENT_SECURITY_POLICY, csp.clone());
+            headers.insert(
+                HeaderName::from_static("x-frame-options"),
+                HeaderValue::from_static("DENY"),
+            );
+            headers.insert(REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
+            headers.insert(
+                HeaderName::from_static("permissions-policy"),
+                HeaderValue::from_static(
+                    "camera=(), microphone=(), geolocation=(), payment=(), usb=(), clipboard-write=(self)",
+                ),
+            );
+        }
+        Policy::Worker => {
+            headers.insert(
+                CONTENT_SECURITY_POLICY,
+                HeaderValue::from_static(WORKER_POLICY),
+            );
+            headers.insert(
+                HeaderName::from_static("service-worker-allowed"),
+                HeaderValue::from_static("/"),
+            );
+        }
     }
     if not_modified(request, &asset.etag) {
         return (StatusCode::NOT_MODIFIED, headers).into_response();
