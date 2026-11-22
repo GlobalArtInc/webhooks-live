@@ -34,13 +34,58 @@ pub fn validate_set(
     validate_set_with(rules, references, scripts, RuleLimits::default())
 }
 
+pub const HTTP_BEFORE_CUT_MESSAGE: &str =
+    "an http step may stand only after the last response step";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct StepSlot {
+    pub rule: usize,
+    pub step: usize,
+}
+
 pub fn validate_set_with(
     rules: &[Value],
     references: &References,
     scripts: &ScriptCompiler,
     limits: RuleLimits,
 ) -> Result<Vec<Rule>, RuleError> {
-    check_set(Checker::new(references, scripts), rules, limits)
+    check_set(Checker::new(references, scripts), rules, limits, true)
+}
+
+pub fn validate_set_shape(
+    rules: &[Value],
+    references: &References,
+    scripts: &ScriptCompiler,
+    limits: RuleLimits,
+) -> Result<Vec<Rule>, RuleError> {
+    check_set(Checker::new(references, scripts), rules, limits, false)
+}
+
+pub fn http_before_cut(rules: &[Rule]) -> Vec<StepSlot> {
+    let enabled: Vec<(usize, &Rule)> = rules
+        .iter()
+        .enumerate()
+        .filter(|(_, rule)| rule.enabled)
+        .collect();
+    let plan = RulePlan::of(
+        &enabled
+            .iter()
+            .map(|(_, rule)| (*rule).clone())
+            .collect::<Vec<_>>(),
+    );
+    let mut slots = Vec::new();
+    for (position, (rule_index, rule)) in enabled.iter().enumerate() {
+        for (step_index, step) in rule.steps.iter().enumerate() {
+            if StepKind::of(&step.action) == StepKind::Http && plan.is_before(position, step_index)
+            {
+                slots.push(StepSlot {
+                    rule: *rule_index,
+                    step: step_index,
+                });
+            }
+        }
+    }
+    slots
 }
 
 pub fn load_set(rules: &[Value], scripts: &ScriptCompiler) -> Result<Vec<Rule>, RuleError> {
@@ -49,6 +94,7 @@ pub fn load_set(rules: &[Value], scripts: &ScriptCompiler) -> Result<Vec<Rule>, 
         Checker::stored(&references, scripts),
         rules,
         RuleLimits::UNBOUNDED,
+        false,
     )
 }
 
@@ -56,6 +102,7 @@ fn check_set(
     mut checker: Checker<'_>,
     rules: &[Value],
     limits: RuleLimits,
+    enforce_plan: bool,
 ) -> Result<Vec<Rule>, RuleError> {
     if rules.len() > limits.max_rules {
         checker.fail(
@@ -87,7 +134,7 @@ fn check_set(
             "contains an invalid rule",
         );
     }
-    if checker.is_clean() && !checker.is_stored() {
+    if checker.is_clean() && enforce_plan {
         refuse_http_before_cut(&mut checker, &valid);
     }
     if checker.is_clean() {
@@ -107,28 +154,12 @@ fn check_set(
 }
 
 fn refuse_http_before_cut(checker: &mut Checker<'_>, rules: &[Rule]) {
-    let enabled: Vec<(usize, &Rule)> = rules
-        .iter()
-        .enumerate()
-        .filter(|(_, rule)| rule.enabled)
-        .collect();
-    let plan = RulePlan::of(
-        &enabled
-            .iter()
-            .map(|(_, rule)| (*rule).clone())
-            .collect::<Vec<_>>(),
-    );
-    for (position, (rule_index, rule)) in enabled.iter().enumerate() {
-        for (step_index, step) in rule.steps.iter().enumerate() {
-            if StepKind::of(&step.action) == StepKind::Http && plan.is_before(position, step_index)
-            {
-                checker.fail(
-                    format!("rules.{rule_index}.steps.{step_index}.kind"),
-                    RuleErrorCode::NotAllowed,
-                    "an http step may stand only after the last response step",
-                );
-            }
-        }
+    for slot in http_before_cut(rules) {
+        checker.fail(
+            format!("rules.{}.steps.{}.kind", slot.rule, slot.step),
+            RuleErrorCode::NotAllowed,
+            HTTP_BEFORE_CUT_MESSAGE,
+        );
     }
 }
 

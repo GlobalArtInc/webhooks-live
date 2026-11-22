@@ -68,6 +68,7 @@ fn accepts_a_rule_set_using_every_reference_kind() {
                 {"not": {"value": "request.query.token", "op": "exists"}}
             ]},
             "steps": [
+                {"kind": "respond", "status": "202", "body": "accepted"},
                 {"name": "lookup", "kind": "http", "method": "get", "url": "https://h.example/{{ secret.API_KEY }}"},
                 {"kind": "forward", "forward_rule_id": FORWARD_RULE},
                 {"kind": "store_s3", "bucket_url": "https://s3.example/b", "region": "eu-1",
@@ -75,7 +76,7 @@ fn accepts_a_rule_set_using_every_reference_kind() {
             ]
         }),
         json!({"name": "answer", "steps": [
-            {"kind": "respond", "status": "202", "body": "{{ step.lookup.status }}"}
+            {"kind": "set_var", "into": "status", "value": "{{ step.lookup.status }}"}
         ]}),
     ];
     let accepted = check(&rules).expect("the rule set is valid");

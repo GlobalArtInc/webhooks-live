@@ -4,6 +4,12 @@ use axum::Router;
 use axum::http::{Method, StatusCode};
 use common::{bodiless, create, field_codes, harness, request, send};
 use serde_json::{Value, json};
+use std::time::Duration;
+use whl_core::endpoint_id::EndpointId;
+use whl_rules::load_set;
+use whl_script::{EngineLimits, ScriptCompiler};
+use whl_store::Store;
+use whl_store::rules::{RuleChange, WriteOutcome};
 
 async fn endpoint(app: &Router) -> String {
     create(app, "{}").await["id"]
@@ -291,6 +297,159 @@ async fn a_new_response_rule_that_moves_the_cut_past_an_http_step_is_refused() {
                 {"kind": "respond", "status": "200", "body": "x"}
             ]})
             .to_string(),
+        ),
+    )
+    .await;
+
+    assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        field_codes(&reply.json()),
+        vec![("rules.0.steps.0.kind".to_owned(), "not_allowed".to_owned())]
+    );
+}
+
+fn legacy_fetch(name: &str) -> Value {
+    json!({"name": name, "steps": [
+        {"kind": "http", "method": "GET", "url": "https://h.example/"}
+    ]})
+}
+
+async fn seed_legacy_set(harness: &common::Harness, endpoint: &str) -> Vec<String> {
+    let store = Store::from_pool(harness.db.pool().clone());
+    let scripts = ScriptCompiler::new(EngineLimits::default()).expect("the limits are valid");
+    let id = EndpointId::parse(endpoint).expect("a valid endpoint id");
+    let inputs = [
+        legacy_fetch("a"),
+        legacy_fetch("b"),
+        json!({"name": "c", "steps": [{"kind": "respond", "status": "200", "body": "x"}]}),
+    ];
+    for input in inputs {
+        let rule = load_set(&[input], &scripts)
+            .expect("the stored rule loads")
+            .remove(0);
+        let version = store
+            .list_rules(&id)
+            .await
+            .expect("the rules are listed")
+            .version;
+        let outcome = store
+            .write_rules(
+                &id,
+                Duration::from_secs(3600),
+                version,
+                &RuleChange::Create(rule),
+            )
+            .await
+            .expect("the write runs");
+        assert!(matches!(outcome, WriteOutcome::Written(_)), "{outcome:?}");
+    }
+    listing(&harness.app, endpoint).await["items"]
+        .as_array()
+        .expect("the items are listed")
+        .iter()
+        .map(|item| item["id"].as_str().unwrap_or_default().to_owned())
+        .collect()
+}
+
+#[tokio::test]
+async fn a_legacy_rule_can_be_deleted_while_another_one_still_has_http_before_the_response() {
+    let harness = harness().await;
+    let endpoint = endpoint(&harness.app).await;
+    let ids = seed_legacy_set(&harness, &endpoint).await;
+    let uri = |id: &str| format!("/api/v1/endpoints/{endpoint}/rules/{id}");
+
+    let deleted_b = send(&harness.app, bodiless(Method::DELETE, &uri(&ids[1]))).await;
+    let deleted_a = send(&harness.app, bodiless(Method::DELETE, &uri(&ids[0]))).await;
+
+    assert_eq!(deleted_b.status, StatusCode::NO_CONTENT);
+    assert_eq!(deleted_a.status, StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn a_legacy_rule_can_be_repaired_and_the_set_reordered_while_another_one_is_not() {
+    let harness = harness().await;
+    let endpoint = endpoint(&harness.app).await;
+    let ids = seed_legacy_set(&harness, &endpoint).await;
+
+    let patched = send(
+        &harness.app,
+        request(
+            Method::PATCH,
+            &format!("/api/v1/endpoints/{endpoint}/rules/{}", ids[0]),
+            &json!({"steps": [{"kind": "set_var", "into": "v", "value": "x"}]}).to_string(),
+        ),
+    )
+    .await;
+    let reordered = send(
+        &harness.app,
+        request(
+            Method::PUT,
+            &format!("/api/v1/endpoints/{endpoint}/rules/order"),
+            &json!({"ids": [ids[1], ids[2], ids[0]]}).to_string(),
+        ),
+    )
+    .await;
+
+    assert_eq!(patched.status, StatusCode::OK, "{}", patched.json());
+    assert_eq!(reordered.status, StatusCode::OK, "{}", reordered.json());
+}
+
+#[tokio::test]
+async fn a_legacy_violation_does_not_excuse_a_new_one() {
+    let harness = harness().await;
+    let endpoint = endpoint(&harness.app).await;
+    let ids = seed_legacy_set(&harness, &endpoint).await;
+
+    let touched = send(
+        &harness.app,
+        request(
+            Method::PATCH,
+            &format!("/api/v1/endpoints/{endpoint}/rules/{}", ids[0]),
+            &json!({"name": "renamed"}).to_string(),
+        ),
+    )
+    .await;
+    let created = send(
+        &harness.app,
+        request(
+            Method::POST,
+            &format!("/api/v1/endpoints/{endpoint}/rules"),
+            &fetch_before_response("new").to_string(),
+        ),
+    )
+    .await;
+
+    assert_eq!(touched.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        field_codes(&touched.json()),
+        vec![("steps.0.kind".to_owned(), "not_allowed".to_owned())]
+    );
+    assert_eq!(created.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        field_codes(&created.json())
+            .contains(&("steps.1.kind".to_owned(), "not_allowed".to_owned()))
+    );
+}
+
+#[tokio::test]
+async fn a_reorder_that_moves_the_cut_past_an_http_step_is_refused_with_the_new_position() {
+    let harness = harness().await;
+    let endpoint = endpoint(&harness.app).await;
+    let first = add(
+        &harness.app,
+        &endpoint,
+        &json!({"name": "answer", "steps": [{"kind": "respond", "status": "200", "body": "x"}]})
+            .to_string(),
+    )
+    .await;
+    let second = add(&harness.app, &endpoint, &legacy_fetch("fetch").to_string()).await;
+
+    let reply = send(
+        &harness.app,
+        request(
+            Method::PUT,
+            &format!("/api/v1/endpoints/{endpoint}/rules/order"),
+            &json!({"ids": [second["id"], first["id"]]}).to_string(),
         ),
     )
     .await;

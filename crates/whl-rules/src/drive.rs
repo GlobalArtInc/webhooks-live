@@ -51,7 +51,7 @@ pub async fn drive<S: StateBackend, G: Send + 'static>(
         Ok(finished) => finished,
         Err(_) => Finished::failed(Failure::new(
             FailureCode::Budget,
-            "the time budget for rules before the response is spent",
+            "the time budget for the rules is spent",
         )),
     }
 }

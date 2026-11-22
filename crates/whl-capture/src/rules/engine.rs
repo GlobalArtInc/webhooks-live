@@ -25,7 +25,7 @@ use whl_store::rule_runs::{
 };
 use whl_store::vars::VarStoreError;
 use whl_telemetry::series::{RULE_RUNS_TOTAL, RULE_SYNC_DURATION_SECONDS};
-use whl_template::{Context, RandomSeed};
+use whl_template::{Context, RandomSeed, Secrets};
 
 use super::cache::{DEFAULT_CACHE_BYTES, RuleCache};
 use super::facts::RuleFacts;
@@ -751,6 +751,13 @@ impl RulesRuntime {
                 .map_err(|_| DryRunError::Internal)?;
         let compiled = Arc::new(built?);
         let mut context = input.facts.into_context();
+        context.secrets = Secrets::new(
+            compiled
+                .secret_names()
+                .iter()
+                .map(|name| (name.clone(), format!("[secret:{name}]")))
+                .collect(),
+        );
         let remaining = budget.saturating_sub(started.elapsed());
         let loaded = self
             .load_variables(
@@ -782,7 +789,7 @@ impl RulesRuntime {
                     state_timeout: self.inner.settings.state_timeout,
                     slice_hook: None,
                 };
-                drive(machine, &env, remaining, slot).await
+                drive(machine, &env, MAX_SYNC_BUDGET, slot).await
             }
         };
         let failure = finished.failure().cloned();

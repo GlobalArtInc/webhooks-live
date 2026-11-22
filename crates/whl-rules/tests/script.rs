@@ -137,3 +137,29 @@ async fn a_script_step_without_a_pool_fails_instead_of_being_skipped() {
         RunOutcome::Succeeded => panic!("the run succeeded"),
     }
 }
+
+#[tokio::test]
+async fn a_script_after_the_cut_in_a_dry_run_cannot_change_the_response() {
+    let rules = compile(vec![rule(
+        "scripted",
+        json!({}),
+        vec![
+            respond("200", "x"),
+            json!({"kind": "script", "source": r#"#{ response: #{ status: 418 } }"#}),
+        ],
+    )]);
+    let pool = pool();
+
+    let finished = run_with(
+        &rules,
+        context(),
+        Mode::DryRun,
+        &Recorder::default(),
+        Some(&pool),
+    )
+    .await;
+
+    assert_eq!(finished.outcome, RunOutcome::Succeeded);
+    assert_eq!(finished.response.status, Some(200));
+    assert_eq!(step_entries(&finished)[1].outcome, Outcome::Ok);
+}

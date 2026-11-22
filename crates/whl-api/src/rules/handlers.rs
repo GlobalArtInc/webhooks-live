@@ -8,8 +8,8 @@ use serde_json::{Map, Value, json};
 use whl_core::endpoint_id::EndpointId;
 use whl_forward::{TargetCheckError, vet_target};
 use whl_rules::{
-    CompiledRules, References, Rule, RuleLimits, RuleSource, StepScope, outbound_targets,
-    validate_set_with,
+    CompiledRules, HTTP_BEFORE_CUT_MESSAGE, References, Rule, RuleLimits, RuleSource, StepScope,
+    http_before_cut, load_set, outbound_targets, validate_set_shape,
 };
 use whl_script::{EngineLimits, ScriptCompiler};
 use whl_store::Uuid;
@@ -35,6 +35,7 @@ enum Mutation {
     Reorder(Vec<Uuid>),
 }
 
+#[derive(Clone)]
 enum Change {
     Create,
     Replace(Uuid),
@@ -42,7 +43,11 @@ enum Change {
     Reorder(Vec<Uuid>),
 }
 
+#[derive(Clone)]
 struct Plan {
+    stored: Vec<Value>,
+    stored_ids: Vec<Uuid>,
+    ids: Vec<Option<Uuid>>,
     inputs: Vec<Value>,
     candidate: Option<usize>,
     change: Change,
@@ -276,14 +281,17 @@ async fn commit(
         let current = state.store.list_rules(endpoint).await?;
         let plan = plan(&current, &mutation, limits)?;
         let references = references(state, endpoint).await?;
-        let inputs = plan.inputs.clone();
-        let plan_limits = plan.limits;
+        let owned = plan.clone();
         let rules = tokio::task::spawn_blocking(move || {
-            validate_set_with(&inputs, &references, &scripts, plan_limits)
+            let rules = validate_set_shape(&owned.inputs, &references, &scripts, owned.limits)
+                .map_err(|error| {
+                    ApiError::Validation(violations(error.diagnostics, owned.candidate))
+                })?;
+            refuse_new_http_before_cut(&owned, &rules, &scripts)?;
+            Ok::<Vec<Rule>, ApiError>(rules)
         })
         .await
-        .map_err(|_| ApiError::InternalFault("the rule validation did not finish"))?
-        .map_err(|error| ApiError::Validation(violations(error.diagnostics, plan.candidate)))?;
+        .map_err(|_| ApiError::InternalFault("the rule validation did not finish"))??;
         vet_candidate(state, &rules, plan.candidate).await?;
         let required = candidate_secrets(&rules, plan.candidate, scripts).await?;
         let change = change(&plan, &rules)?;
@@ -350,8 +358,49 @@ async fn rule_limits(state: &ApiState, endpoint: &EndpointId) -> Result<RuleLimi
     })
 }
 
+fn refuse_new_http_before_cut(
+    plan: &Plan,
+    rules: &[Rule],
+    scripts: &ScriptCompiler,
+) -> Result<(), ApiError> {
+    let stored = load_set(&plan.stored, scripts)
+        .map_err(|_| ApiError::InternalFault("the stored rules could not be read"))?;
+    let known: BTreeSet<(Uuid, usize)> = http_before_cut(&stored)
+        .into_iter()
+        .filter_map(|slot| Some((*plan.stored_ids.get(slot.rule)?, slot.step)))
+        .collect();
+    let found: Vec<FieldViolation> = http_before_cut(rules)
+        .into_iter()
+        .filter(|slot| {
+            let tolerated = plan
+                .ids
+                .get(slot.rule)
+                .copied()
+                .flatten()
+                .is_some_and(|id| known.contains(&(id, slot.step)));
+            plan.candidate == Some(slot.rule) || !tolerated
+        })
+        .map(|slot| {
+            let field = if plan.candidate == Some(slot.rule) {
+                format!("steps.{}.kind", slot.step)
+            } else {
+                format!("rules.{}.steps.{}.kind", slot.rule, slot.step)
+            };
+            FieldViolation::new(field, FieldCode::NotAllowed, HTTP_BEFORE_CUT_MESSAGE)
+        })
+        .collect();
+    if found.is_empty() {
+        Ok(())
+    } else {
+        Err(ApiError::Validation(found))
+    }
+}
+
 fn plan(current: &RuleSet, mutation: &Mutation, limits: RuleLimits) -> Result<Plan, ApiError> {
     let mut inputs: Vec<Value> = current.rules.iter().map(input_of).collect();
+    let stored = inputs.clone();
+    let stored_ids: Vec<Uuid> = current.rules.iter().map(|rule| rule.id).collect();
+    let mut member_ids: Vec<Option<Uuid>> = stored_ids.iter().copied().map(Some).collect();
     match mutation {
         Mutation::Create(object) => {
             if current.rules.len() >= limits.max_rules {
@@ -360,8 +409,12 @@ fn plan(current: &RuleSet, mutation: &Mutation, limits: RuleLimits) -> Result<Pl
                 });
             }
             inputs.push(Value::Object(object.clone()));
+            member_ids.push(None);
             let candidate = inputs.len() - 1;
             Ok(Plan {
+                stored,
+                stored_ids,
+                ids: member_ids,
                 candidate: Some(candidate),
                 inputs,
                 change: Change::Create,
@@ -376,6 +429,9 @@ fn plan(current: &RuleSet, mutation: &Mutation, limits: RuleLimits) -> Result<Pl
             inputs[index] = merged(&inputs[index], object);
             let grown = step_count(&inputs[index]) > step_count(&input_of(&current.rules[index]));
             Ok(Plan {
+                stored,
+                stored_ids,
+                ids: member_ids,
                 inputs,
                 candidate: Some(index),
                 change: Change::Replace(*id),
@@ -393,7 +449,11 @@ fn plan(current: &RuleSet, mutation: &Mutation, limits: RuleLimits) -> Result<Pl
         Mutation::Remove(id) => {
             let index = index_of(current, *id)?;
             inputs.remove(index);
+            member_ids.remove(index);
             Ok(Plan {
+                stored,
+                stored_ids,
+                ids: member_ids,
                 inputs,
                 candidate: None,
                 change: Change::Remove(*id),
@@ -403,7 +463,11 @@ fn plan(current: &RuleSet, mutation: &Mutation, limits: RuleLimits) -> Result<Pl
         Mutation::Reorder(ids) => {
             let order = order_indexes(current, ids)?;
             let reordered = order.iter().map(|index| inputs[*index].clone()).collect();
+            let reordered_ids = order.iter().map(|index| member_ids[*index]).collect();
             Ok(Plan {
+                stored,
+                stored_ids,
+                ids: reordered_ids,
                 inputs: reordered,
                 candidate: None,
                 change: Change::Reorder(ids.clone()),

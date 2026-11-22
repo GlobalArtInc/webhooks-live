@@ -410,7 +410,7 @@ impl Machine {
                 self.checkpoint_due = false;
                 return Advance::Checkpoint;
             }
-            if after {
+            if after || self.dry_run_after_cut() {
                 self.budget = ResponseBudget::start(&self.clock, STEP_BUDGET);
             }
             if !self.entered {
@@ -427,6 +427,11 @@ impl Machine {
                         self.rule += 1;
                         self.step = 0;
                         self.checkpoint_due = after;
+                        continue;
+                    }
+                    Err(_) if self.dry_run_after_cut() => {
+                        self.rule += 1;
+                        self.step = 0;
                         continue;
                     }
                     Err(failure) => {
@@ -1237,7 +1242,8 @@ impl Machine {
                     None,
                     Some(failure.code.as_str().to_owned()),
                 );
-                let forgiven = step.continue_on_error && failure.code != FailureCode::Budget;
+                let forgiven = (step.continue_on_error && failure.code != FailureCode::Budget)
+                    || self.dry_run_after_cut();
                 if !forgiven {
                     self.failure = Some(failure);
                 }

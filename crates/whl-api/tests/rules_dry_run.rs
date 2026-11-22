@@ -295,6 +295,45 @@ async fn a_draft_with_an_http_step_before_the_response_is_refused() {
 }
 
 #[tokio::test]
+async fn a_dry_run_shows_secrets_as_placeholders_and_never_their_values() {
+    let fixture = fixture().await;
+    let stored = send(
+        &fixture.app,
+        request(
+            Method::PUT,
+            &format!("/api/v1/endpoints/{}/secrets/API_KEY", fixture.endpoint),
+            &json!({"value": "hunter2-real-value"}).to_string(),
+        ),
+    )
+    .await;
+    assert_eq!(stored.status, StatusCode::OK, "{}", stored.json());
+
+    let reply = fixture
+        .dry_run(json!({
+            "capture_id": fixture.capture,
+            "rules": [{
+                "name": "call",
+                "steps": [
+                    {"kind": "respond", "status": "200", "body": "x"},
+                    {"kind": "http", "method": "POST", "url": "https://example.test/",
+                     "headers": [{"name": "Authorization", "value": "Bearer {{ secret.API_KEY }}"}]},
+                ],
+            }],
+        }))
+        .await;
+
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.json());
+    let run = reply.json();
+    assert_eq!(run["state"], "succeeded");
+    assert_eq!(run["response_status"], 200);
+    assert_eq!(
+        run["entries"][2]["output"]["headers"][0]["value"],
+        "Bearer [secret:API_KEY]"
+    );
+    assert!(!reply.json().to_string().contains("hunter2-real-value"));
+}
+
+#[tokio::test]
 async fn unsaved_draft_rules_are_validated_and_run_instead_of_the_saved_ones() {
     let fixture = fixture().await;
 

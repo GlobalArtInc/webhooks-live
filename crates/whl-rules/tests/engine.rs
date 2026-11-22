@@ -456,6 +456,52 @@ async fn a_dry_run_reports_state_writes_without_performing_them() {
 }
 
 #[tokio::test]
+async fn a_dry_run_records_a_failure_after_the_cut_without_failing_the_run() {
+    let rules = compile(vec![rule(
+        "late",
+        always(),
+        vec![
+            respond("200", "x"),
+            json!({"kind": "http", "method": "GET", "url": "https://example.test/{{ var.nope }}"}),
+            json!({"kind": "set_var", "into": "after", "value": "y"}),
+        ],
+    )]);
+
+    let dry = run_with(&rules, context(), Mode::DryRun, &Recorder::default(), None).await;
+
+    assert_eq!(dry.outcome, RunOutcome::Succeeded);
+    assert_eq!(dry.response.status, Some(200));
+    let outcomes: Vec<Outcome> = step_entries(&dry)
+        .iter()
+        .map(|entry| entry.outcome)
+        .collect();
+    assert_eq!(outcomes, vec![Outcome::Ok, Outcome::Failed, Outcome::Ok]);
+}
+
+#[tokio::test]
+async fn a_dry_run_after_the_cut_does_not_touch_the_state_store() {
+    let rules = compile(vec![rule(
+        "late",
+        always(),
+        vec![
+            respond("200", "x"),
+            json!({"kind": "set_store", "name": "label", "value": "v"}),
+            json!({"kind": "increment", "counter": "hits", "by": 1}),
+        ],
+    )]);
+    let state = Recorder::default();
+
+    let dry = run_with(&rules, context(), Mode::DryRun, &state, None).await;
+
+    assert!(state.calls().is_empty());
+    let outcomes: Vec<Outcome> = step_entries(&dry)
+        .iter()
+        .map(|entry| entry.outcome)
+        .collect();
+    assert_eq!(outcomes, vec![Outcome::Ok, Outcome::NoOp, Outcome::NoOp]);
+}
+
+#[tokio::test]
 async fn a_stored_http_step_before_the_response_fails_with_the_http_code() {
     let rules = compile_stored(vec![rule(
         "fetch",

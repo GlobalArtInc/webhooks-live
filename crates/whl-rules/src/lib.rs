@@ -52,7 +52,8 @@ pub use results::{
     steps_from_value, steps_to_value,
 };
 pub use set::{
-    OutboundTarget, References, load_set, outbound_targets, validate_set, validate_set_with,
+    HTTP_BEFORE_CUT_MESSAGE, OutboundTarget, References, StepSlot, http_before_cut, load_set,
+    outbound_targets, validate_set, validate_set_shape, validate_set_with,
 };
 pub use stored::{
     PlanReadError, StoredRule, deferred_from_plan, load_stored, plan_payload, plan_resume_step,

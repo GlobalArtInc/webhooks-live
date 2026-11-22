@@ -20,10 +20,10 @@ fn every_shape() -> Vec<Value> {
         vec![
             json!({"kind": "extract", "from": "request.body", "json_path": "$.order.id", "into": "id"}),
             json!({"kind": "extract", "from": "request.path", "regex": "^/(.*)$", "into": "rest"}),
+            respond("200", "{{ var.id }}"),
             json!({"kind": "http", "method": "GET", "url": "https://example.test/{{ var.id }}"}),
             json!({"kind": "forward", "target_url": "https://example.test/hook"}),
             json!({"kind": "notify", "channel_id": "0190c3a2-7d1e-7000-8000-000000000001"}),
-            respond("200", "{{ var.id }}"),
         ],
     )]
 }
@@ -141,7 +141,11 @@ fn each_compiled_rule_lists_the_secrets_it_alone_reads() {
                 "access_key_secret": "S3_ID", "secret_key_secret": "S3_KEY", "content": "body"}),
             ],
         ),
-        rule("plain", json!({}), vec![json!({"kind": "stop"})]),
+        rule(
+            "plain",
+            json!({}),
+            vec![json!({"kind": "set_var", "into": "x", "value": "y"})],
+        ),
     ];
     let references = References {
         secrets: ["API_KEY", "S3_ID", "S3_KEY"]
