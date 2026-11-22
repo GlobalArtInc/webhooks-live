@@ -46,7 +46,9 @@ describe('unlock page', () => {
 
     expect((await screen.findByRole('alert')).textContent).toBe(WRONG_TEXT);
     expect(input.value).toBe('');
-    expect(document.activeElement).toBe(input);
+    await waitFor(() => {
+      expect(document.activeElement).toBe(input);
+    });
     expect(input.getAttribute('autocomplete')).toBe('current-password');
     expect(input.getAttribute('type')).toBe('password');
     expect(mock.unlockAttempts).toEqual(['wrong-guess']);
