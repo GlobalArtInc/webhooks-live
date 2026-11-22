@@ -6,7 +6,10 @@ use std::time::{Duration, Instant};
 
 use axum::body::Body;
 use common::{Harness, Reply, request, send};
-use ruled::{add_rule, capture_rule_state, entries, relaxed, respond, rule, run_count, run_row};
+use ruled::{
+    add_rule, add_stored_rule, capture_rule_state, entries, relaxed, respond, rule, run_count,
+    run_row,
+};
 use serde_json::{Value, json};
 use served::{Configured, endpoint_configured};
 use tokio::task::JoinSet;
@@ -108,10 +111,10 @@ async fn a_slow_template_overruns_its_budget_and_falls_back_inside_the_deadline(
 }
 
 #[tokio::test]
-async fn an_http_step_before_the_response_fails_the_run_with_the_http_code() {
+async fn a_stored_http_step_before_the_response_fails_the_run_with_the_http_code() {
     let harness = Harness::new().await.with_rules(relaxed(), None);
     let id = static_endpoint(&harness).await;
-    add_rule(
+    add_stored_rule(
         &harness,
         &id,
         rule(

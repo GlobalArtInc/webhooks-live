@@ -176,6 +176,125 @@ async fn a_dry_run_of_the_saved_rules_reports_the_steps_and_writes_nothing() {
 }
 
 #[tokio::test]
+async fn a_dry_run_reports_every_step_of_every_matched_rule_in_order() {
+    let fixture = fixture().await;
+    fixture
+        .add_rule(json!({
+            "name": "shaped",
+            "steps": [
+                {"kind": "set_var", "into": "a", "value": "one"},
+                {"kind": "respond", "status": "202", "body": "{{ var.a }}"},
+                {"kind": "set_header", "name": "X-Shaped", "value": "yes"},
+                {"kind": "notify", "channel_id": fixture.channel, "message": "got {{ var.a }}"},
+                {"kind": "http", "method": "POST", "url": "https://example.test/hook", "body": "{{ var.a }}"},
+            ],
+        }))
+        .await;
+    fixture
+        .add_rule(json!({
+            "name": "tail",
+            "steps": [{"kind": "set_var", "into": "b", "value": "two"}],
+        }))
+        .await;
+    fixture
+        .add_rule(json!({
+            "name": "unmatched",
+            "condition": {"value": "request.method", "op": "eq", "arg": "DELETE"},
+            "steps": [{"kind": "set_var", "into": "c", "value": "three"}],
+        }))
+        .await;
+
+    let reply = fixture
+        .dry_run(json!({"capture_id": fixture.capture}))
+        .await;
+
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.json());
+    let run = reply.json();
+    assert_eq!(run["state"], "succeeded");
+    assert_eq!(run["response_status"], 202);
+    let entries = run["entries"].as_array().expect("entries are an array");
+    let shape: Vec<(String, String)> = entries
+        .iter()
+        .map(|entry| {
+            let kind = entry["kind"].as_str().unwrap_or("rule");
+            let result = match entry["outcome"].as_str() {
+                Some(outcome) => outcome.to_owned(),
+                None => entry["matched"].to_string(),
+            };
+            (kind.to_owned(), result)
+        })
+        .collect();
+    let expected: Vec<(String, String)> = [
+        ("rule", "true"),
+        ("set_var", "ok"),
+        ("respond", "ok"),
+        ("set_header", "ok"),
+        ("notify", "no_op"),
+        ("http", "no_op"),
+        ("rule", "true"),
+        ("set_var", "ok"),
+        ("rule", "false"),
+    ]
+    .map(|(kind, result)| (kind.to_owned(), result.to_owned()))
+    .to_vec();
+    assert_eq!(shape, expected);
+    assert_eq!(entries[4]["output"]["message"], "got one");
+    assert_eq!(entries[5]["output"]["url"], "https://example.test/hook");
+}
+
+#[tokio::test]
+async fn a_dry_run_of_rules_without_a_response_step_still_reports_their_steps() {
+    let fixture = fixture().await;
+
+    let reply = fixture
+        .dry_run(json!({
+            "capture_id": fixture.capture,
+            "rules": [{
+                "name": "quiet",
+                "steps": [
+                    {"kind": "set_var", "into": "a", "value": "one"},
+                    {"kind": "notify", "channel_id": fixture.channel},
+                ],
+            }],
+        }))
+        .await;
+
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.json());
+    let run = reply.json();
+    assert_eq!(run["response_status"], Value::Null);
+    let entries = run["entries"].as_array().expect("entries are an array");
+    assert_eq!(entries.len(), 3);
+    assert_eq!(entries[0]["matched"], true);
+    assert_eq!(entries[1]["outcome"], "ok");
+    assert_eq!(entries[2]["outcome"], "no_op");
+}
+
+#[tokio::test]
+async fn a_draft_with_an_http_step_before_the_response_is_refused() {
+    let fixture = fixture().await;
+
+    let reply = fixture
+        .dry_run(json!({
+            "capture_id": fixture.capture,
+            "rules": [{
+                "name": "draft",
+                "steps": [
+                    {"kind": "set_var", "into": "a", "value": "one"},
+                    {"kind": "http", "method": "GET", "url": "https://example.test/"},
+                    {"kind": "respond", "status": "201", "body": "x"},
+                ],
+            }],
+        }))
+        .await;
+
+    assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        field_codes(&reply.json()),
+        vec![("rules.0.steps.1.kind".to_owned(), "not_allowed".to_owned())]
+    );
+}
+
+#[tokio::test]
 async fn unsaved_draft_rules_are_validated_and_run_instead_of_the_saved_ones() {
     let fixture = fixture().await;
 

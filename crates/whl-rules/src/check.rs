@@ -81,6 +81,10 @@ impl<'a> Checker<'a> {
         }
     }
 
+    pub(crate) fn is_stored(&self) -> bool {
+        self.lenient
+    }
+
     pub(crate) fn knows_secret(&self, name: &str) -> bool {
         self.lenient || self.references.secrets.contains(name)
     }

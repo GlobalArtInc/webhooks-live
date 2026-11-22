@@ -10,7 +10,8 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 use whl_rules::{
     CompiledRules, DriveEnv, Entry, Finished, Machine, MachineInput, Mode, References, RuleSource,
-    STATE_STEP_TIMEOUT, StateBackend, StateError, StoreCall, StoreValue, drive, validate_set,
+    STATE_STEP_TIMEOUT, StateBackend, StateError, StoreCall, StoreValue, drive, load_set,
+    validate_set,
 };
 use whl_script::{DEFAULT_MEMORY_BYTES, EngineLimits, ScriptCompiler, ScriptPool};
 use whl_template::{BodyData, Context, NameValue, RandomSeed};
@@ -29,6 +30,20 @@ pub fn compile(inputs: Vec<Value>) -> Arc<CompiledRules> {
     let scripts = compiler();
     let valid =
         validate_set(&inputs, &References::default(), &scripts).expect("the rules are valid");
+    let sources = valid
+        .into_iter()
+        .enumerate()
+        .map(|(index, rule)| RuleSource {
+            id: rule_id(index),
+            rule,
+        })
+        .collect();
+    Arc::new(CompiledRules::compile(sources, &scripts).expect("the rules compile"))
+}
+
+pub fn compile_stored(inputs: Vec<Value>) -> Arc<CompiledRules> {
+    let scripts = compiler();
+    let valid = load_set(&inputs, &scripts).expect("the stored rules load");
     let sources = valid
         .into_iter()
         .enumerate()

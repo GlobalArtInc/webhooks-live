@@ -54,7 +54,7 @@ fn the_built_in_tiers_carry_the_documented_numbers() {
     assert_eq!(anonymous.limits().storage_bytes, None);
     assert_eq!(member.limits().rules_per_endpoint, 25);
     assert_eq!(anonymous.limits().steps_per_rule, 10);
-    assert_eq!(member.limits().sync_http_steps, 2);
+    assert_eq!(member.limits().sync_http_steps, 0);
     assert_eq!(anonymous.limits().outbound_per_endpoint_hour, Some(200));
     assert_eq!(anonymous.limits().outbound_per_network_day, Some(1000));
     assert_eq!(member.limits().outbound_per_user_hour, Some(2000));

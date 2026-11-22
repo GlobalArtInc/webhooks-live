@@ -5,8 +5,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use common::{
-    Recorder, compile, context, machine, respond, rule, rule_entries, rule_id, run, run_with,
-    step_entries,
+    Recorder, compile, compile_stored, context, machine, respond, rule, rule_entries, rule_id, run,
+    run_with, step_entries,
 };
 use serde_json::{Value, json};
 use whl_rules::{
@@ -456,8 +456,8 @@ async fn a_dry_run_reports_state_writes_without_performing_them() {
 }
 
 #[tokio::test]
-async fn an_http_step_before_the_response_fails_with_the_http_code() {
-    let rules = compile(vec![rule(
+async fn a_stored_http_step_before_the_response_fails_with_the_http_code() {
+    let rules = compile_stored(vec![rule(
         "fetch",
         always(),
         vec![

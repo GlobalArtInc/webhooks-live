@@ -215,3 +215,89 @@ async fn a_secret_referenced_by_a_rule_must_exist() {
         vec![("steps.0.url".to_owned(), "invalid_format".to_owned())]
     );
 }
+
+fn fetch_before_response(name: &str) -> Value {
+    json!({"name": name, "steps": [
+        {"kind": "set_var", "into": "a", "value": "x"},
+        {"kind": "http", "method": "GET", "url": "https://h.example/"},
+        {"kind": "respond", "status": "200", "body": "x"},
+    ]})
+}
+
+#[tokio::test]
+async fn an_http_step_before_the_response_is_refused_on_create_and_update() {
+    let harness = harness().await;
+    let endpoint = endpoint(&harness.app).await;
+    let uri = format!("/api/v1/endpoints/{endpoint}/rules");
+
+    let created = send(
+        &harness.app,
+        request(
+            Method::POST,
+            &uri,
+            &fetch_before_response("fetch").to_string(),
+        ),
+    )
+    .await;
+    let saved = add(
+        &harness.app,
+        &endpoint,
+        &json!({"name": "later", "steps": [
+            {"kind": "http", "method": "GET", "url": "https://h.example/"}
+        ]})
+        .to_string(),
+    )
+    .await;
+    let patch = json!({"steps": fetch_before_response("x")["steps"].clone()}).to_string();
+    let updated = send(
+        &harness.app,
+        request(
+            Method::PATCH,
+            &format!("{uri}/{}", saved["id"].as_str().unwrap_or_default()),
+            &patch,
+        ),
+    )
+    .await;
+
+    for reply in [created, updated] {
+        assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(
+            field_codes(&reply.json()),
+            vec![("steps.1.kind".to_owned(), "not_allowed".to_owned())]
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_new_response_rule_that_moves_the_cut_past_an_http_step_is_refused() {
+    let harness = harness().await;
+    let endpoint = endpoint(&harness.app).await;
+    add(
+        &harness.app,
+        &endpoint,
+        &json!({"name": "later", "steps": [
+            {"kind": "http", "method": "GET", "url": "https://h.example/"}
+        ]})
+        .to_string(),
+    )
+    .await;
+
+    let reply = send(
+        &harness.app,
+        request(
+            Method::POST,
+            &format!("/api/v1/endpoints/{endpoint}/rules"),
+            &json!({"name": "answer", "steps": [
+                {"kind": "respond", "status": "200", "body": "x"}
+            ]})
+            .to_string(),
+        ),
+    )
+    .await;
+
+    assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        field_codes(&reply.json()),
+        vec![("rules.0.steps.0.kind".to_owned(), "not_allowed".to_owned())]
+    );
+}

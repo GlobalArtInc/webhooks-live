@@ -107,7 +107,7 @@ impl TierLimits {
             storage_bytes: Some(2 * GIB),
             rules_per_endpoint: 25,
             steps_per_rule: 20,
-            sync_http_steps: 2,
+            sync_http_steps: 0,
             script_before: Duration::from_millis(100),
             script_after: Duration::from_secs(1),
             outbound_per_endpoint_hour: None,

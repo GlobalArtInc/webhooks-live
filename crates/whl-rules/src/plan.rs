@@ -46,4 +46,8 @@ impl RulePlan {
             None => true,
         }
     }
+
+    pub fn is_before(&self, rule: usize, step: usize) -> bool {
+        !self.is_after(rule, step)
+    }
 }

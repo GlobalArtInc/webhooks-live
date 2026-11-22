@@ -2,7 +2,9 @@ use std::collections::BTreeSet;
 
 use serde_json::{Value, json};
 use uuid::Uuid;
-use whl_rules::{References, Rule, RuleDiagnostic, RuleError, RuleErrorCode, validate_set};
+use whl_rules::{
+    References, Rule, RuleDiagnostic, RuleError, RuleErrorCode, load_set, validate_set,
+};
 use whl_script::{EngineLimits, ScriptCompiler};
 
 const FORWARD_RULE: &str = "0190c3a2-7d1e-7000-8000-000000000001";
@@ -417,4 +419,53 @@ fn rejects_a_header_name_with_a_space() {
         "rules.0.steps.0.name",
         RuleErrorCode::InvalidFormat,
     );
+}
+
+fn fetch() -> Value {
+    json!({"kind": "http", "method": "GET", "url": "https://example.test/"})
+}
+
+fn respond() -> Value {
+    json!({"kind": "respond", "status": "200", "body": "x"})
+}
+
+#[test]
+fn an_http_step_before_the_last_response_step_is_refused_on_the_step_kind() {
+    let diagnostic = expect_rejected(
+        vec![
+            one_step(respond()),
+            with_steps(vec![
+                stop(),
+                fetch(),
+                json!({"kind": "set_header", "name": "X-A", "value": "b"}),
+            ]),
+        ],
+        "rules.1.steps.1.kind",
+        RuleErrorCode::NotAllowed,
+    );
+    assert!(diagnostic.message.contains("after the last response step"));
+}
+
+#[test]
+fn an_http_step_after_the_last_response_step_or_in_a_set_without_one_is_accepted() {
+    let after = check(&[with_steps(vec![respond(), fetch()])]);
+    let none = check(&[with_steps(vec![fetch()])]);
+    let disabled = check(&[
+        json!({"name": "off", "enabled": false, "steps": [fetch()]}),
+        one_step(respond()),
+    ]);
+
+    assert!(after.is_ok());
+    assert!(none.is_ok());
+    assert!(disabled.is_ok());
+}
+
+#[test]
+fn a_stored_set_with_an_http_step_before_the_response_still_loads() {
+    let scripts =
+        ScriptCompiler::new(EngineLimits::default()).expect("the default limits are valid");
+
+    let loaded = load_set(&[with_steps(vec![fetch(), respond()])], &scripts);
+
+    assert!(loaded.is_ok());
 }

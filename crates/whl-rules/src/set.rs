@@ -7,8 +7,10 @@ use whl_script::ScriptCompiler;
 use crate::check::Checker;
 use crate::condition::validate_condition;
 use crate::error::{RuleError, RuleErrorCode};
+use crate::kind::StepKind;
 use crate::limits::{MAX_RULE_NAME_CHARS, MAX_RULE_SET_BYTES, RuleLimits};
 use crate::model::{Action, Condition, Rule};
+use crate::plan::RulePlan;
 use crate::step::validate_step;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -85,6 +87,9 @@ fn check_set(
             "contains an invalid rule",
         );
     }
+    if checker.is_clean() && !checker.is_stored() {
+        refuse_http_before_cut(&mut checker, &valid);
+    }
     if checker.is_clean() {
         let bytes = valid
             .iter()
@@ -99,6 +104,32 @@ fn check_set(
         }
     }
     checker.finish().map(|()| valid)
+}
+
+fn refuse_http_before_cut(checker: &mut Checker<'_>, rules: &[Rule]) {
+    let enabled: Vec<(usize, &Rule)> = rules
+        .iter()
+        .enumerate()
+        .filter(|(_, rule)| rule.enabled)
+        .collect();
+    let plan = RulePlan::of(
+        &enabled
+            .iter()
+            .map(|(_, rule)| (*rule).clone())
+            .collect::<Vec<_>>(),
+    );
+    for (position, (rule_index, rule)) in enabled.iter().enumerate() {
+        for (step_index, step) in rule.steps.iter().enumerate() {
+            if StepKind::of(&step.action) == StepKind::Http && plan.is_before(position, step_index)
+            {
+                checker.fail(
+                    format!("rules.{rule_index}.steps.{step_index}.kind"),
+                    RuleErrorCode::NotAllowed,
+                    "an http step may stand only after the last response step",
+                );
+            }
+        }
+    }
 }
 
 pub fn outbound_targets(rules: &[Rule]) -> Vec<OutboundTarget> {

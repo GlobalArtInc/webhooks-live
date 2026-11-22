@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use sqlx::Row;
 use whl_capture::RulesSettings;
 use whl_core::endpoint_id::EndpointId;
-use whl_rules::{References, validate_set};
+use whl_rules::{References, load_set, validate_set};
 use whl_script::{EngineLimits, ScriptCompiler};
 use whl_store::rules::{RuleChange, WriteOutcome};
 use whl_store::{Store, Uuid};
@@ -33,11 +33,20 @@ pub fn respond(status: &str, body: &str) -> Value {
 }
 
 pub async fn add_rule(harness: &Harness, endpoint: &EndpointId, input: Value) {
-    let store = Store::from_pool(harness.db.pool().clone());
     let scripts = ScriptCompiler::new(EngineLimits::default()).expect("the limits are valid");
     let mut rules =
         validate_set(&[input], &References::default(), &scripts).expect("the rule is valid");
-    let rule = rules.remove(0);
+    write_rule(harness, endpoint, rules.remove(0)).await;
+}
+
+pub async fn add_stored_rule(harness: &Harness, endpoint: &EndpointId, input: Value) {
+    let scripts = ScriptCompiler::new(EngineLimits::default()).expect("the limits are valid");
+    let mut rules = load_set(&[input], &scripts).expect("the stored rule loads");
+    write_rule(harness, endpoint, rules.remove(0)).await;
+}
+
+async fn write_rule(harness: &Harness, endpoint: &EndpointId, rule: whl_rules::Rule) {
+    let store = Store::from_pool(harness.db.pool().clone());
     let current = store
         .list_rules(endpoint)
         .await

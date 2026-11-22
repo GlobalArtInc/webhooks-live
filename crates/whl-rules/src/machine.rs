@@ -395,6 +395,7 @@ impl Machine {
         let rules = Arc::clone(&self.rules);
         let plan = rules.plan();
         let after = self.mode == Mode::After;
+        let live = self.mode == Mode::Live;
         loop {
             if self.failure.is_some() || self.stopped {
                 return self.finish(&rules);
@@ -402,7 +403,7 @@ impl Machine {
             let Some(rule) = rules.rules().get(self.rule) else {
                 return self.finish(&rules);
             };
-            if !after && plan.cut().is_none_or(|cut| self.rule > cut.rule) {
+            if live && plan.cut().is_none_or(|cut| self.rule > cut.rule) {
                 return self.finish(&rules);
             }
             if self.checkpoint_due {
@@ -440,7 +441,7 @@ impl Machine {
                 self.entered = false;
                 continue;
             };
-            if !after && plan.is_after(self.rule, self.step) {
+            if live && plan.is_after(self.rule, self.step) {
                 return self.finish(&rules);
             }
             if !after && self.budget_spent() {
@@ -481,6 +482,10 @@ impl Machine {
 
     pub fn is_dry_run(&self) -> bool {
         self.mode == Mode::DryRun
+    }
+
+    fn dry_run_after_cut(&self) -> bool {
+        self.mode == Mode::DryRun && self.rules.plan().is_after(self.rule, self.step)
     }
 
     fn budget_spent(&self) -> bool {
@@ -623,12 +628,18 @@ impl Machine {
                 Err(failure) => Produced::Done(Err(failure)),
             },
             CompiledAction::Fetch(action) if after => self.http_effect(rule, index, step, action),
+            CompiledAction::Fetch(action) if self.dry_run_after_cut() => {
+                Produced::Done(self.simulate_http(action))
+            }
             CompiledAction::Fetch(_) => Produced::Done(Err(Failure::new(
                 FailureCode::Http,
                 "HTTP steps are not available before the response",
             ))),
             CompiledAction::SideEffect { message } if after => {
                 self.side_effect(rule, index, step, message.as_ref())
+            }
+            CompiledAction::SideEffect { message } if self.dry_run_after_cut() => {
+                Produced::Done(self.simulate_side_effect(step, message.as_ref()))
             }
             CompiledAction::SideEffect { .. } => Produced::Done(self.defer(rule, index, step)),
         }
@@ -715,6 +726,83 @@ impl Machine {
             Ok(call) => self.outbound(rule, index, step, OutboundCall::Http(call)),
             Err(failure) => Produced::Done(Err(failure)),
         }
+    }
+
+    fn simulate_http(&mut self, action: &HttpAction) -> Result<Done, Failure> {
+        let call = self.render_http(action)?;
+        let headers: Vec<Value> = call
+            .headers
+            .iter()
+            .map(|(name, value)| json!({"name": name, "value": logged(value)}))
+            .collect();
+        let output = json!({
+            "method": call.method,
+            "url": logged(&call.url),
+            "headers": headers,
+            "body": call.body.as_deref().map(logged),
+            "timeout_ms": call.timeout_ms,
+        });
+        Ok(Done {
+            outcome: Outcome::NoOp,
+            detail: Some(format!("would send {} {}", call.method, logged(&call.url))),
+            output: Some(output),
+        })
+    }
+
+    fn simulate_side_effect(
+        &mut self,
+        step: &CompiledStep,
+        message: Option<&Template>,
+    ) -> Result<Done, Failure> {
+        let text = match message {
+            Some(template) => Some(
+                self.render_value(template)
+                    .map_err(|issue| issue.failure)?
+                    .output,
+            ),
+            None => None,
+        };
+        let call = side_effect_call(&step.source.action, text, self.payload.as_deref())?;
+        let (detail, output) = match call {
+            OutboundCall::Notify(call) => (
+                "would send the notification".to_owned(),
+                json!({
+                    "channel_id": call.channel_id,
+                    "message": call.message.as_deref().map(logged),
+                }),
+            ),
+            OutboundCall::Forward(call) => (
+                "would forward the capture".to_owned(),
+                json!({
+                    "forward_rule_id": call.forward_rule_id,
+                    "target_url": call.target_url.as_deref().map(logged),
+                    "method": call.method,
+                    "content_type": call.content_type,
+                    "header_allowlist": call.header_allowlist,
+                    "body_from": call.body_from,
+                }),
+            ),
+            OutboundCall::StoreS3(call) => (
+                "would store the capture in the bucket".to_owned(),
+                json!({
+                    "bucket_url": logged(&call.bucket_url),
+                    "prefix": logged(&call.prefix),
+                    "region": call.region,
+                    "content": call.content,
+                }),
+            ),
+            OutboundCall::Http(_) => {
+                return Err(Failure::new(
+                    FailureCode::Internal,
+                    "the step is not a side effect",
+                ));
+            }
+        };
+        Ok(Done {
+            outcome: Outcome::NoOp,
+            detail: Some(detail),
+            output: Some(output),
+        })
     }
 
     fn side_effect(
@@ -998,7 +1086,7 @@ impl Machine {
         material.extend_from_slice(&u64::try_from(self.rule).unwrap_or(u64::MAX).to_le_bytes());
         material.extend_from_slice(&u64::try_from(index).unwrap_or(u64::MAX).to_le_bytes());
         Ok(ScriptCall {
-            phase: if self.mode == Mode::After {
+            phase: if self.mode == Mode::After || self.dry_run_after_cut() {
                 ScriptPhase::AfterResponse
             } else {
                 ScriptPhase::BeforeResponse
@@ -1029,7 +1117,7 @@ impl Machine {
             "log": bound_text(&output.log.text, MAX_LOGGED_SCRIPT_BYTES),
         });
         self.context.vars = output.vars.into_iter().collect();
-        if let Some(response) = output.response {
+        if let Some(response) = output.response.filter(|_| !self.dry_run_after_cut()) {
             self.apply_script_response(response);
         }
         Ok(Done::ok(summary))
