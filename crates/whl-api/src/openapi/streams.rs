@@ -38,7 +38,7 @@ fn endpoint_stream() {}
     operation_id = "streams_inbox",
     tag = "Streams",
     summary = "Live events of several endpoints at once (Server-Sent Events)",
-    description = "Sends the events of `GET /endpoints/{id}/stream` for every endpoint of the selection, except `endpoint_updated`; payloads carry `endpoint_id`. Event ids are opaque; resume with `Last-Event-ID` or `?last_event_id=` replays at most 100 events. The selection is `?endpoints=` (comma-separated ids, at most 50 signed in and 20 anonymous) or, signed in, all own and shared endpoints (`endpoints` is required in `open` mode). `folder` is accepted by the contract but answers 422 until folders are selectable. Needs a viewer on every selected endpoint, else 410 `endpoint_gone`. At most 4 streams per user or address. A Bearer token is not part of the contract of this route: `GET /inbox/captures` refuses it with 403 `session_required`, and the stream does not enforce that refusal today.",
+    description = "Sends the events of `GET /endpoints/{id}/stream` for every endpoint of the selection, except `endpoint_updated`; payloads carry `endpoint_id`. Event ids are opaque; resume with `Last-Event-ID` or `?last_event_id=` replays at most 100 events. The selection is `?endpoints=` (comma-separated ids, at most 50 signed in and 20 anonymous) or, signed in, all own and shared endpoints (`endpoints` is required in `open` mode). `folder` is accepted by the contract but answers 422 until folders are selectable. Needs a viewer on every selected endpoint, else 410 `endpoint_gone`. At most 4 streams per user or address. Session only, like `GET /inbox/captures`: a Bearer token is refused with 403 `session_required`. Anonymous callers may open it where the instance allows them (`open`, and `mixed` with an explicit `endpoints` selection).",
     security(("session_cookie" = []), ()),
     params(
         ("endpoints" = Option<String>, Query, description = "Comma-separated endpoint ids"),
@@ -51,7 +51,7 @@ fn endpoint_stream() {}
     responses(
         (status = 200, description = "The event stream", content_type = "text/event-stream", body = String),
         (status = 401, response = Unauthenticated),
-        (status = 403, description = "`sign_in_required` (`mixed`) for the default selection without an account", body = ErrorBody),
+        (status = 403, description = "`session_required`: a Bearer token was used; `sign_in_required` (`mixed`) for the default selection without an account", body = ErrorBody),
         (status = 410, description = "`endpoint_gone`: an endpoint of an explicit selection is unknown or not viewable", body = ErrorBody),
         (status = 422, description = "`validation_failed`: malformed query, malformed or too long id list, or `folder`", body = ErrorBody),
         (status = 429, description = "`rate_limited`: too many inbox streams are open (`Retry-After: 30`)", body = ErrorBody),

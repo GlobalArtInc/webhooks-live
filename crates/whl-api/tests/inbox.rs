@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use axum::http::{Method, StatusCode};
 use common::matrix::{Cast, cast, store_capture, store_capture_at};
+use common::tokens::{ALL_SCOPES, mint};
 use common::{Actor, SsoHarness, UNKNOWN_ID, field_codes, mixed_harness, sso_harness};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
@@ -602,4 +603,31 @@ async fn an_access_change_on_one_endpoint_rechecks_only_that_endpoint() {
     store_capture(&harness.store, &scene.first).await;
 
     assert_eq!(stream.expect_event("capture").await["seq"], 1);
+}
+
+#[tokio::test]
+async fn an_api_token_is_refused_by_the_inbox_stream_exactly_as_by_the_inbox_list() {
+    let harness = sso_harness().await;
+    let scene = scene(&harness).await;
+    let minted = mint(&harness, &scene.cast.owner, &ALL_SCOPES, None).await;
+    let app = harness.live_app(NEVER).await;
+    let query = format!("endpoints={}", scene.first);
+
+    let list = harness
+        .send_bearer(
+            &minted.token,
+            Method::GET,
+            &format!("/api/v1/inbox/captures?{query}"),
+            "",
+        )
+        .await;
+    let mut stream = app.open_inbox_bearer(&minted.token, &query).await;
+    let mut default_selection = app.open_inbox_bearer(&minted.token, "").await;
+
+    assert_eq!(list.status, StatusCode::FORBIDDEN);
+    assert_eq!(stream.status, StatusCode::FORBIDDEN);
+    assert_eq!(default_selection.status, StatusCode::FORBIDDEN);
+    assert_eq!(list.json()["error"]["code"], "session_required");
+    assert_eq!(stream.error_body().await, list.json());
+    assert_eq!(default_selection.error_body().await, list.json());
 }
