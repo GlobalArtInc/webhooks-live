@@ -13,6 +13,7 @@ import {
   renameEndpoint,
   serializeEndpoints,
   touchEndpoint,
+  withEndpointTitle,
 } from './storage';
 
 const FIRST_ID = '0123456789abcdefghjkmnpq';
@@ -100,5 +101,47 @@ describe('my endpoints storage rules', () => {
 
     expect(capped).toHaveLength(MAX_MY_ENDPOINTS);
     expect(capped[0]?.id).toBe(idFor(2));
+  });
+});
+
+describe('known endpoint titles in the stored record', () => {
+  it('loads an old record without a title and keeps a stored title when present', () => {
+    const migrated = migrateEndpoints({
+      version: 1,
+      endpoints: [
+        { id: FIRST_ID, label: null, added: 1, lastOpened: 2, lastSeenCaptureId: null },
+        { id: SECOND_ID, label: null, title: '  Stripe test  ', added: 1, lastOpened: 2, lastSeenCaptureId: null },
+      ],
+    });
+
+    expect(migrated[0]).not.toHaveProperty('title');
+    expect(migrated[1]?.title).toBe('Stripe test');
+    expect(parseEndpoints(serializeEndpoints(migrated))).toEqual(migrated);
+  });
+
+  it('merges a title into the existing record without adding or duplicating entries', () => {
+    const list = [entry(FIRST_ID, 10), entry(SECOND_ID, 5)];
+
+    const titled = withEndpointTitle(list, SECOND_ID, 'Stripe test');
+    expect(titled.map((item) => item.id)).toEqual([FIRST_ID, SECOND_ID]);
+    expect(titled[1]?.title).toBe('Stripe test');
+    expect(titled[0]).toBe(list[0]);
+    expect(withEndpointTitle(titled, SECOND_ID, 'Stripe test')[1]).toBe(titled[1]);
+    expect(withEndpointTitle(list, 'zzzzzzzzzzzzzzzzzzzzzzzz', 'Other')).toEqual(list);
+    expect(withEndpointTitle(titled, SECOND_ID, null)[1]).not.toHaveProperty('title');
+  });
+
+  it('stores the title of a new endpoint and fills it in for one that is already present', () => {
+    const created = addEndpoint([], FIRST_ID, 10, 'Stripe test');
+    expect(created[0]?.title).toBe('Stripe test');
+
+    const again = addEndpoint([entry(FIRST_ID, 5)], FIRST_ID, 20, 'Renamed');
+    expect(again).toHaveLength(1);
+    expect(again[0]).toMatchObject({ lastOpened: 20, title: 'Renamed' });
+  });
+
+  it('limits the stored title to the label length', () => {
+    const [titled] = withEndpointTitle([entry(FIRST_ID, 1)], FIRST_ID, 'T'.repeat(MAX_LABEL_LENGTH + 20));
+    expect(Array.from(titled?.title ?? '')).toHaveLength(MAX_LABEL_LENGTH);
   });
 });

@@ -43,7 +43,7 @@ export function useOrganizeData(serverQuery: EndpointListQuery): OrganizeData {
   const stored = useMyEndpoints();
   const titles = useCachedEndpointTitles(stored.map((entry) => entry.id));
   const local = useMemo(
-    () => stored.map((entry, index) => ({ ...entry, label: entry.label ?? titles[index] ?? null })),
+    () => stored.map((entry, index) => ({ ...entry, label: entry.label ?? titles[index] ?? entry.title ?? null })),
     [stored, titles],
   );
   const organize = useLocalOrganize();

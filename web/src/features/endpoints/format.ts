@@ -23,8 +23,12 @@ export function shortEndpointId(id: string): string {
   return `${id.slice(0, SHORT_ID_HEAD)}...${id.slice(-SHORT_ID_TAIL)}`;
 }
 
-export function endpointName(entry: MyEndpoint): string {
-  return entry.label ?? shortEndpointId(entry.id);
+export function knownEndpointTitle(entry: MyEndpoint, cachedTitle: string | null): string | null {
+  return cachedTitle ?? entry.title ?? null;
+}
+
+export function endpointName(entry: MyEndpoint, cachedTitle: string | null = null): string {
+  return entry.label ?? knownEndpointTitle(entry, cachedTitle) ?? shortEndpointId(entry.id);
 }
 
 export function formatRelativeTime(then: number, now: number, locale: string): string {

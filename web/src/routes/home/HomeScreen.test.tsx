@@ -126,6 +126,28 @@ describe('home screen', () => {
     expect(router.state.location.pathname).toBe('/');
   });
 
+  it('names a remembered endpoint by its stored title, and a local label wins over it', async () => {
+    const entry: MyEndpoint = {
+      id: ENDPOINT_ID,
+      label: null,
+      title: 'Stored title',
+      added: 1,
+      lastOpened: Date.now(),
+      lastSeenCaptureId: null,
+    };
+    window.localStorage.setItem(ENDPOINTS_STORAGE_KEY, serializeEndpoints([entry]));
+    const view = await openHome();
+
+    expect(within(listOf()).getByText('Stored title')).toBeTruthy();
+    expect(within(listOf()).getByText(SHORT_ID)).toBeTruthy();
+    view.unmount();
+
+    window.localStorage.setItem(ENDPOINTS_STORAGE_KEY, serializeEndpoints([{ ...entry, label: 'my label' }]));
+    await openHome();
+    expect(within(listOf()).getByText('my label')).toBeTruthy();
+    expect(within(listOf()).queryByText('Stored title')).toBeNull();
+  });
+
   it('lists remembered endpoints and saves an inline label', async () => {
     seedOne();
     await openHome();

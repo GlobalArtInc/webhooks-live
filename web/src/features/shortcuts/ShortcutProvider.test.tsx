@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { I18nextProvider } from 'react-i18next';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -105,6 +105,18 @@ describe('ShortcutProvider', () => {
     fireEvent.keyDown(document.body, { key: 'j' });
 
     expect(next).not.toHaveBeenCalled();
+  });
+
+  it('puts the initial focus of the help dialog on its title, not on the first control', async () => {
+    renderWith(<Probe next={vi.fn()} close={vi.fn()} />);
+
+    fireEvent.keyDown(document.body, { key: '?' });
+
+    const title = screen.getByRole('heading', { name: 'Keyboard shortcuts' });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(title);
+    });
+    expect(document.activeElement).not.toBe(screen.getByRole('switch', { name: 'Single-key shortcuts' }));
   });
 
   it('opens the help dialog with ?, blocks shortcuts while it is open, and turns single keys off from it', () => {

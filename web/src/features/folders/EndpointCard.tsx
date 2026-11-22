@@ -116,7 +116,7 @@ export function EndpointCard({ row, folders, suggestions, session, now, locale, 
   return (
     <li className={styles.card}>
       <div className={styles.head}>
-        <Link to="/e/$id" params={{ id: row.id }} className={styles.name}>
+        <Link to="/e/$id" params={{ id: row.id }} className={styles.name} title={name}>
           {name}
         </Link>
         <span className={styles.source}>{sourceText()}</span>

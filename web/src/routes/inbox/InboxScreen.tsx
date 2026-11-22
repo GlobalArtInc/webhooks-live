@@ -51,8 +51,8 @@ function labelFor(endpointId: string, endpoints: ReadonlyMap<string, Endpoint>, 
   if (title !== null && title !== undefined && title !== '') {
     return title;
   }
-  const localLabel = local.find((entry) => entry.id === endpointId)?.label;
-  return localLabel ?? shortEndpointId(endpointId);
+  const stored = local.find((entry) => entry.id === endpointId);
+  return stored?.label ?? stored?.title ?? shortEndpointId(endpointId);
 }
 
 function scopeEndpointIds(scope: InboxScope, folderEndpointIds: readonly string[]): string[] {

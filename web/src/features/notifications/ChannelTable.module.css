@@ -123,9 +123,14 @@
   background: var(--color-accent);
 }
 
-.switch:disabled,
-.button:disabled {
+.switch:disabled {
   opacity: 0.6;
+  cursor: default;
+}
+
+.button:disabled {
+  color: var(--color-text-muted);
+  border-color: var(--color-border);
   cursor: default;
 }
 

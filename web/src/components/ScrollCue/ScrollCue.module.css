@@ -1,0 +1,30 @@
+.cue {
+  position: relative;
+}
+
+.cue::before,
+.cue::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  width: var(--space-6);
+  content: '';
+  opacity: 0;
+  pointer-events: none;
+}
+
+.cue::before {
+  left: 0;
+  background: linear-gradient(to right, var(--color-surface), transparent);
+}
+
+.cue::after {
+  right: 0;
+  background: linear-gradient(to left, var(--color-surface), transparent);
+}
+
+.cue[data-fade-start='true']::before,
+.cue[data-fade-end='true']::after {
+  opacity: 1;
+}

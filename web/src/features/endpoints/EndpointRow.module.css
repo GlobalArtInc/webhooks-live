@@ -17,9 +17,13 @@
 }
 
 .name {
+  min-width: 0;
+  max-width: 100%;
   font: var(--text-section);
   color: var(--color-text);
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .id {

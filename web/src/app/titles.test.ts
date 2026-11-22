@@ -18,10 +18,12 @@ describe('pageTitleOf', () => {
   });
 
   it('names the workspace section and falls back to Settings without one', () => {
-    expect(titleOf(`/e/${ENDPOINT_ID}/settings/general`)).toBe('Settings · General — webhooks.live');
-    expect(titleOf(`/e/${ENDPOINT_ID}/settings/rules/0193a1c2`)).toBe('Settings · Rules — webhooks.live');
-    expect(titleOf(`/e/${ENDPOINT_ID}/forwarding`)).toBe('Settings · Forwarding — webhooks.live');
-    expect(titleOf(`/e/${ENDPOINT_ID}/settings`)).toBe('Settings — webhooks.live');
+    expect(titleOf(`/e/${ENDPOINT_ID}/settings/general`)).toBe('Endpoint x7g…q3 · Settings · General — webhooks.live');
+    expect(titleOf(`/e/${ENDPOINT_ID}/settings/rules/0193a1c2`)).toBe(
+      'Endpoint x7g…q3 · Settings · Rules — webhooks.live',
+    );
+    expect(titleOf(`/e/${ENDPOINT_ID}/forwarding`)).toBe('Endpoint x7g…q3 · Settings · Forwarding — webhooks.live');
+    expect(titleOf(`/e/${ENDPOINT_ID}/settings`)).toBe('Endpoint x7g…q3 · Settings — webhooks.live');
   });
 
   it('titles the account and tool routes', () => {
@@ -73,7 +75,8 @@ describe('pageTitleOf with an endpoint title', () => {
     );
     expect(pageTitleOf(`/e/${ENDPOINT_ID}`, i18n.t, null)).toBe('Endpoint x7g…q3 — webhooks.live');
     expect(pageTitleOf(`/e/${ENDPOINT_ID}/settings/general`, i18n.t, 'My title')).toBe(
-      'Settings · General — webhooks.live',
+      'My title · Settings · General — webhooks.live',
     );
+    expect(pageTitleOf(`/e/${ENDPOINT_ID}/settings`, i18n.t, 'My title')).toBe('My title · Settings — webhooks.live');
   });
 });

@@ -1,12 +1,11 @@
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { Capture } from '../../api/types';
-import { CopyButton } from '../../components/CopyButton/CopyButton';
-import { MethodBadge } from '../../components/MethodBadge/MethodBadge';
 import { StatusChip } from '../../components/StatusChip/StatusChip';
 import styles from './CaptureDetail.module.css';
 import { formatAbsoluteTime, formatByteSize } from '../../components/format/format';
 import { useTimeDisplay } from '../../prefs/display';
+import { CaptureUrl } from './CaptureUrl';
 import { RelativeTime } from './RelativeTime';
 
 interface SummarySectionProps {
@@ -33,15 +32,7 @@ export function SummarySection({ capture }: SummarySectionProps) {
   const timeDisplay = useTimeDisplay();
   return (
     <div className={styles.summary}>
-      <div className={styles.urlRow}>
-        <MethodBadge method={capture.method} />
-        <code className={styles.url}>{capture.url}</code>
-        <CopyButton
-          value={capture.url}
-          label={t('wl.detail.summary.copyUrl')}
-          idleText={t('wl.detail.summary.copyUrl')}
-        />
-      </div>
+      <CaptureUrl key={capture.id} method={capture.method} url={capture.url} />
       <dl className={styles.facts}>
         <Fact term={t('wl.detail.summary.clientIp')}>
           <code>{capture.client_ip}</code>

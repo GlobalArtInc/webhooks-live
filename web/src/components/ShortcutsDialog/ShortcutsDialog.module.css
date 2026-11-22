@@ -28,6 +28,10 @@
   color: var(--color-text);
 }
 
+.title:focus {
+  outline: none;
+}
+
 .hint {
   font: var(--text-meta);
   color: var(--color-text-muted);

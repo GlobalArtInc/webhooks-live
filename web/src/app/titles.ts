@@ -36,18 +36,23 @@ export function endpointIdOfPath(pathname: string): string | null {
   return id !== undefined && isEndpointId(id) ? id : null;
 }
 
+function endpointName(t: TFunction, id: string, endpointTitle: string | null): string {
+  return endpointTitle ?? t('wl.title.endpoint', { id: shortTitleId(id) });
+}
+
 function endpointPage(t: TFunction, id: string, rest: string, endpointTitle: string | null): string {
   if (!isEndpointId(id)) {
     return t('wl.title.notFound');
   }
+  const endpoint = endpointName(t, id, endpointTitle);
   if (rest === '' || CAPTURE_PATH.test(rest)) {
-    return endpointTitle ?? t('wl.title.endpoint', { id: shortTitleId(id) });
+    return endpoint;
   }
   if (rest === 'unlock') {
     return t('wl.title.unlock');
   }
   if (rest === 'forwarding') {
-    return t('wl.title.settings', { section: t('wl.workspace.section.forwarding') });
+    return t('wl.title.settings', { endpoint, section: t('wl.workspace.section.forwarding') });
   }
   if (DIFF_PATH.test(rest)) {
     return t('wl.title.diff');
@@ -58,10 +63,10 @@ function endpointPage(t: TFunction, id: string, rest: string, endpointTitle: str
   }
   const section = settings[1];
   if (section === undefined) {
-    return t('wl.title.settingsRoot');
+    return t('wl.title.settingsRoot', { endpoint });
   }
   return isSectionId(section)
-    ? t('wl.title.settings', { section: t(SECTION_LABELS[section]) })
+    ? t('wl.title.settings', { endpoint, section: t(SECTION_LABELS[section]) })
     : t('wl.title.notFound');
 }
 

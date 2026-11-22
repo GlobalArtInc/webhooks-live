@@ -1,6 +1,7 @@
 import { createBrowserHistory } from '@tanstack/react-router';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { logCaughtError } from './app/caughtError';
 import { AppProviders, createAppQueryClient } from './app/providers';
 import { createAppRouter } from './app/router';
 import './styles/fonts.css';
@@ -16,7 +17,7 @@ if (!container) {
 const queryClient = createAppQueryClient();
 const router = createAppRouter({ history: createBrowserHistory(), queryClient });
 
-createRoot(container).render(
+createRoot(container, { onCaughtError: logCaughtError }).render(
   <StrictMode>
     <AppProviders queryClient={queryClient} router={router} />
   </StrictMode>,

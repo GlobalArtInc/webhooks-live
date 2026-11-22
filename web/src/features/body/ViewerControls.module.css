@@ -48,6 +48,12 @@
   cursor: not-allowed;
 }
 
+.button[aria-pressed='true']:disabled,
+.segment[aria-pressed='true']:disabled {
+  background: var(--color-accent-soft);
+  border-color: var(--color-border-strong);
+}
+
 .button:focus-visible,
 .segment:focus-visible,
 .input:focus-visible {

@@ -3,6 +3,7 @@ import { RouterProvider } from '@tanstack/react-router';
 import { useEffect } from 'react';
 import { refreshUsageOnLimit, usageQueryKeys } from '../api/usage';
 import { shouldRetryRequest } from '../api/queries';
+import { syncEndpointTitles } from '../features/endpoints/titleSync';
 import { ShortcutProvider } from '../features/shortcuts';
 import { I18nProvider, useLanguage } from '../i18n/provider';
 import type { AppRouter } from './router';
@@ -30,6 +31,7 @@ export function createAppQueryClient(): QueryClient {
       onError: (error) => refreshUsageOnLimit(queryClient, error),
     }),
   });
+  syncEndpointTitles(queryClient);
   return queryClient;
 }
 

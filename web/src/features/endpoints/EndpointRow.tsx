@@ -11,15 +11,16 @@ export interface EndpointRowProps {
   entry: MyEndpoint;
   now: number;
   locale: string;
+  cachedTitle: string | null;
   onRemoved: () => void;
 }
 
-export function EndpointRow({ entry, now, locale, onRemoved }: EndpointRowProps) {
+export function EndpointRow({ entry, now, locale, cachedTitle, onRemoved }: EndpointRowProps) {
   const { t } = useTranslation();
   const [editing, setEditing] = useState(false);
   const renameRef = useRef<HTMLButtonElement>(null);
   const returnFocus = useRef(false);
-  const name = endpointName(entry);
+  const name = endpointName(entry, cachedTitle);
 
   useEffect(() => {
     if (!editing && returnFocus.current) {
@@ -52,8 +53,10 @@ export function EndpointRow({ entry, now, locale, onRemoved }: EndpointRowProps)
   return (
     <li className={styles.row}>
       <div className={styles.identity}>
-        <span className={styles.name}>{name}</span>
-        {entry.label !== null && <span className={styles.id}>{shortEndpointId(entry.id)}</span>}
+        <span className={styles.name} title={name}>
+          {name}
+        </span>
+        {name !== shortEndpointId(entry.id) && <span className={styles.id}>{shortEndpointId(entry.id)}</span>}
         <span className={styles.meta}>
           {t('wl.home.list.lastOpened', { time: formatRelativeTime(entry.lastOpened, now, locale) })}
         </span>

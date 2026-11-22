@@ -56,7 +56,7 @@ export function CloneDialog({ endpointId, title, onClose, onCloseAutoFocus, onCl
       { title: trimmed, include: CLONE_PARTS.filter((part) => selected.includes(part)) },
       {
         onSuccess: (result) => {
-          rememberEndpoint(result.id);
+          rememberEndpoint(result.id, result.title);
           if (result.secrets_missing.length === 0) {
             onCloned(result);
             return;

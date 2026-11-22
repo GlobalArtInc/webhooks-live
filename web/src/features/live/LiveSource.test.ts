@@ -318,6 +318,42 @@ describe('LiveSource', () => {
     clearGrant(ID);
   });
 
+  it('opens exactly one stream with the grant when it is stored while a retry is pending, and none when it repeats', () => {
+    const { fakes, source } = harness();
+    const first = fakes.latest();
+    first.open();
+    first.fail(true);
+    expect(source.getState()).toBe('reconnecting');
+    const before = fakes.instances.length;
+
+    storeGrant(ID, 'adopted-grant', '2999-01-01T00:00:00.000Z');
+    storeGrant(ID, 'adopted-grant', '2999-01-01T00:00:00.000Z');
+
+    expect(fakes.instances).toHaveLength(before + 1);
+    expect(fakes.latest().url).toBe(`/api/v1/endpoints/${ID}/stream?grant=adopted-grant`);
+    vi.advanceTimersByTime(60_000);
+    expect(fakes.instances).toHaveLength(before + 1);
+
+    expect(fakes.instances.filter((instance) => !instance.isClosed())).toHaveLength(1);
+    source.close();
+    clearGrant(ID);
+  });
+
+  it('does not schedule a reconnect from the error of the source it replaced after a grant', () => {
+    const { fakes, source } = harness();
+    const first = fakes.latest();
+    first.open();
+
+    storeGrant(ID, 'adopted-grant', '2999-01-01T00:00:00.000Z');
+    first.fail(false);
+    vi.advanceTimersByTime(60_000);
+
+    expect(fakes.instances).toHaveLength(2);
+    expect(source.getState()).toBe('reconnecting');
+    source.close();
+    clearGrant(ID);
+  });
+
   it('leaves a locked stream and reconnects with a grant that arrives afterwards', async () => {
     setGrantRejectedHandler(vi.fn<(endpointId: string) => void>());
     const { fakes, source } = harness(vi.fn<StatusProbe>().mockResolvedValue(401));

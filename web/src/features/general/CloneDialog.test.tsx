@@ -7,7 +7,6 @@ import { mockServer, registerMockServer } from '../../test/msw/server';
 import { seedEndpoint } from '../../test/msw/store';
 import { schemaProperties } from '../../test/openapiShapes';
 import { renderAppAt } from '../endpoints/renderApp';
-import { shortEndpointId } from '../endpoints/format';
 import { ENDPOINTS_STORAGE_KEY, parseEndpoints } from '../endpoints/storage';
 
 registerMockServer();
@@ -84,7 +83,8 @@ describe('clone dialog', () => {
     fireEvent.click(within(first.dialog).getByRole('button', { name: 'Clone' }));
     await waitFor(() => expect(stored()).toEqual([ids[0]]));
     const nav = await screen.findByRole('navigation', { name: 'My endpoints' });
-    expect(within(nav).getAllByRole('link', { name: shortEndpointId(ids[0] ?? '') })).toHaveLength(1);
+    expect(within(nav).getAllByRole('link', { name: endpointFixture.title ?? '' })).toHaveLength(1);
+    expect(parseEndpoints(window.localStorage.getItem(ENDPOINTS_STORAGE_KEY))[0]?.title).toBe(endpointFixture.title);
     cleanup();
 
     const second = await openDialog();

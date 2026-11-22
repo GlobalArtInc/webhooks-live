@@ -53,6 +53,7 @@ function EndpointLink({ row }: EndpointLinkProps) {
       params={{ id: row.id }}
       className={styles.link}
       activeProps={{ className: styles.active }}
+      title={rowName(row)}
       onClick={() => {
         if (row.source === 'local') {
           markEndpointOpened(row.id);
@@ -60,7 +61,7 @@ function EndpointLink({ row }: EndpointLinkProps) {
         closeDrawer();
       }}
     >
-      {rowName(row)}
+      <span className={styles.linkText}>{rowName(row)}</span>
     </Link>
   );
 }

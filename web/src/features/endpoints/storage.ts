@@ -10,6 +10,7 @@ type UnknownRecord = Record<string, unknown>;
 export interface MyEndpoint {
   id: string;
   label: string | null;
+  title?: string;
   added: number;
   lastOpened: number;
   lastSeenCaptureId: string | null;
@@ -44,13 +45,15 @@ function readEntry(value: unknown): MyEndpoint | null {
   if (!isRecord(value)) {
     return null;
   }
-  const { id, label, added, lastOpened, lastSeenCaptureId } = value;
+  const { id, label, title, added, lastOpened, lastSeenCaptureId } = value;
   if (typeof id !== 'string' || !isEndpointId(id) || !isTimestamp(added) || !isTimestamp(lastOpened)) {
     return null;
   }
+  const knownTitle = typeof title === 'string' ? normalizeLabel(title) : null;
   return {
     id,
     label: typeof label === 'string' ? normalizeLabel(label) : null,
+    ...(knownTitle === null ? {} : { title: knownTitle }),
     added,
     lastOpened,
     lastSeenCaptureId: typeof lastSeenCaptureId === 'string' ? lastSeenCaptureId : null,
@@ -120,12 +123,37 @@ export function capEndpoints(endpoints: readonly MyEndpoint[]): MyEndpoint[] {
   return endpoints.filter((_entry, index) => !evicted.has(index));
 }
 
-export function addEndpoint(endpoints: readonly MyEndpoint[], id: string, now: number): MyEndpoint[] {
+export function addEndpoint(
+  endpoints: readonly MyEndpoint[],
+  id: string,
+  now: number,
+  title: string | null = null,
+): MyEndpoint[] {
   if (endpoints.some((entry) => entry.id === id)) {
-    return touchEndpoint(endpoints, id, now);
+    return withEndpointTitle(touchEndpoint(endpoints, id, now), id, title);
   }
-  const entry: MyEndpoint = { id, label: null, added: now, lastOpened: now, lastSeenCaptureId: null };
+  const known = title === null ? null : normalizeLabel(title);
+  const entry: MyEndpoint = {
+    id,
+    label: null,
+    ...(known === null ? {} : { title: known }),
+    added: now,
+    lastOpened: now,
+    lastSeenCaptureId: null,
+  };
   return capEndpoints([entry, ...endpoints]);
+}
+
+export function withEndpointTitle(endpoints: readonly MyEndpoint[], id: string, title: string | null): MyEndpoint[] {
+  const known = title === null ? null : normalizeLabel(title);
+  return endpoints.map((entry) => {
+    if (entry.id !== id || (entry.title ?? null) === known) {
+      return entry;
+    }
+    const { id: entryId, label, added, lastOpened, lastSeenCaptureId } = entry;
+    const base: MyEndpoint = { id: entryId, label, added, lastOpened, lastSeenCaptureId };
+    return known === null ? base : { ...base, title: known };
+  });
 }
 
 export function removeEndpoint(endpoints: readonly MyEndpoint[], id: string): MyEndpoint[] {

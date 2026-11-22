@@ -12,12 +12,23 @@ export interface HistoryListProps {
   entries: readonly SentRequest[] | undefined;
   loading: boolean;
   failure: HistoryFailure | null;
+  offered: boolean;
+  signInAvailable: boolean;
   deleting: boolean;
   onReplay: (entry: SentRequest) => void;
   onDelete: (entry: SentRequest) => void;
 }
 
-export function HistoryList({ entries, loading, failure, deleting, onReplay, onDelete }: HistoryListProps) {
+export function HistoryList({
+  entries,
+  loading,
+  failure,
+  offered,
+  signInAvailable,
+  deleting,
+  onReplay,
+  onDelete,
+}: HistoryListProps) {
   const { t, i18n } = useTranslation();
   const { historyText } = useComposerMessages();
   const headingId = useId();
@@ -34,7 +45,12 @@ export function HistoryList({ entries, loading, failure, deleting, onReplay, onD
           {historyText(failure)}
         </p>
       )}
-      {loading || failure !== null || items.length > 0 ? null : (
+      {loading || offered ? null : (
+        <p className={styles.note}>
+          {signInAvailable ? t('wl.composer.history.signIn') : t('wl.composer.history.noSignIn')}
+        </p>
+      )}
+      {loading || !offered || failure !== null || items.length > 0 ? null : (
         <p className={styles.note}>{t('wl.composer.history.empty')}</p>
       )}
       {items.length === 0 ? null : (

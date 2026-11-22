@@ -5,6 +5,7 @@ import { EndpointRow } from './EndpointRow';
 import { useNow } from './useNow';
 import { byRecentlyOpened } from './storage';
 import { useMyEndpoints } from './store';
+import { useCachedEndpointTitles } from './titleCache';
 import styles from './MyEndpointsList.module.css';
 
 export function MyEndpointsList() {
@@ -14,6 +15,7 @@ export function MyEndpointsList() {
   const headingId = useId();
   const headingRef = useRef<HTMLHeadingElement>(null);
   const sorted = byRecentlyOpened(endpoints);
+  const cachedTitles = useCachedEndpointTitles(sorted.map((entry) => entry.id));
 
   return (
     <section aria-labelledby={headingId} className={styles.section}>
@@ -24,12 +26,13 @@ export function MyEndpointsList() {
         <p className={styles.empty}>{t('wl.home.list.empty')}</p>
       ) : (
         <ul className={styles.list}>
-          {sorted.map((entry) => (
+          {sorted.map((entry, index) => (
             <EndpointRow
               key={entry.id}
               entry={entry}
               now={now}
               locale={i18n.language}
+              cachedTitle={cachedTitles[index] ?? null}
               onRemoved={() => headingRef.current?.focus()}
             />
           ))}

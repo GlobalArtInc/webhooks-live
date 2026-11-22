@@ -122,6 +122,7 @@ export class LiveSource {
   private lastEventId: string | null = null;
   private probeToken = 0;
   private stopGrantWatch: (() => void) | null = null;
+  private sourceGrant: string | null = null;
 
   constructor(options: LiveSourceOptions) {
     this.options = options;
@@ -233,6 +234,7 @@ export class LiveSource {
       return;
     }
     this.setState(this.hasConnected || this.attempt > 0 ? 'reconnecting' : 'connecting');
+    this.sourceGrant = this.currentGrant();
     const source = this.factory(this.currentUrl());
     this.source = source;
     source.addEventListener('open', () => {
@@ -251,6 +253,11 @@ export class LiveSource {
         this.handleMessage(source, name, event);
       });
     }
+  }
+
+  private currentGrant(): string | null {
+    const { endpointId } = this.options;
+    return endpointId === undefined ? null : readGrant(endpointId);
   }
 
   private currentUrl(): string {
@@ -437,6 +444,9 @@ export class LiveSource {
 
   private readonly handleGrantStored = (): void => {
     if (this.disposed || (this.state === 'ended' && this.reason !== 'locked')) {
+      return;
+    }
+    if (this.source !== null && this.sourceGrant === this.currentGrant()) {
       return;
     }
     if (this.state === 'ended') {

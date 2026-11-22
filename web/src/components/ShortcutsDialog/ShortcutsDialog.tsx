@@ -1,5 +1,5 @@
 import * as Dialog from '@radix-ui/react-dialog';
-import { Fragment, useId } from 'react';
+import { Fragment, useId, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { displayKey, SHORTCUT_SCOPES, type ShortcutEntry, type ShortcutScope } from '../../features/shortcuts/registry';
 import type { SourceKey } from '../../i18n/keys';
@@ -26,6 +26,7 @@ export function ShortcutsDialog({ open, shortcuts, singleKey, onSingleKeyChange,
   const idPrefix = useId();
   const returnFocus = useReturnFocus();
   const switchLabelId = `${idPrefix}-switch`;
+  const titleRef = useRef<HTMLHeadingElement>(null);
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -33,10 +34,16 @@ export function ShortcutsDialog({ open, shortcuts, singleKey, onSingleKeyChange,
         <Dialog.Overlay className={styles.overlay} />
         <ModalContent
           className={styles.content}
-          onOpenAutoFocus={returnFocus.onOpenAutoFocus}
+          onOpenAutoFocus={(event) => {
+            returnFocus.onOpenAutoFocus();
+            event.preventDefault();
+            titleRef.current?.focus();
+          }}
           onCloseAutoFocus={returnFocus.onCloseAutoFocus}
         >
-          <Dialog.Title className={styles.title}>{t('wl.shortcuts.title')}</Dialog.Title>
+          <Dialog.Title ref={titleRef} tabIndex={-1} className={styles.title}>
+            {t('wl.shortcuts.title')}
+          </Dialog.Title>
           <Dialog.Description className={styles.hint}>{t('wl.shortcuts.hint')}</Dialog.Description>
           <div className={styles.preference}>
             <span id={switchLabelId} className={styles.preferenceLabel}>

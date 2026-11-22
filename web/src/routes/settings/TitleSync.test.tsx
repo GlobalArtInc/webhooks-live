@@ -28,7 +28,7 @@ describe('a saved endpoint title', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     expect(await within(nav).findByRole('link', { name: 'My title' })).toBeTruthy();
-    await waitFor(() => expect(document.title).toBe('Settings · General — webhooks.live'));
+    await waitFor(() => expect(document.title).toBe('My title · Settings · General — webhooks.live'));
   });
 
   it('puts the title into the document title of the capture list', async () => {

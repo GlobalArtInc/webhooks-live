@@ -5,6 +5,7 @@ import {
   forgetEndpoint,
   markEndpointOpened,
   recordEndpointLastSeen,
+  recordEndpointTitle,
   rememberEndpoint,
   renameMyEndpoint,
   useMyEndpoints,
@@ -61,5 +62,36 @@ describe('useMyEndpoints', () => {
     expect(result.current).toEqual([]);
     act(() => rememberEndpoint(ENDPOINT_ID));
     expect(result.current.map((item) => item.id)).toEqual([ENDPOINT_ID]);
+  });
+});
+
+describe('recordEndpointTitle', () => {
+  afterEach(() => {
+    cleanup();
+    window.localStorage.clear();
+  });
+
+  it('stores the title on a remembered endpoint only, and writes nothing when it is unchanged', () => {
+    const { result } = renderHook(() => useMyEndpoints());
+    act(() => rememberEndpoint(ENDPOINT_ID));
+
+    act(() => recordEndpointTitle(OTHER_ID, 'Unknown'));
+    expect(result.current).toHaveLength(1);
+
+    act(() => recordEndpointTitle(ENDPOINT_ID, 'Stripe test'));
+    expect(result.current[0]?.title).toBe('Stripe test');
+
+    const written = window.localStorage.getItem(ENDPOINTS_STORAGE_KEY);
+    act(() => recordEndpointTitle(ENDPOINT_ID, 'Stripe test'));
+    expect(window.localStorage.getItem(ENDPOINTS_STORAGE_KEY)).toBe(written);
+
+    act(() => recordEndpointTitle(ENDPOINT_ID, null));
+    expect(result.current[0]).not.toHaveProperty('title');
+  });
+
+  it('remembers the title known at creation', () => {
+    const { result } = renderHook(() => useMyEndpoints());
+    act(() => rememberEndpoint(ENDPOINT_ID, 'Created title'));
+    expect(result.current[0]?.title).toBe('Created title');
   });
 });

@@ -47,6 +47,7 @@
   "wl.composer.history.delete": "Delete",
   "wl.composer.history.deleteItem": "Delete {{method}} {{target}}",
   "wl.composer.history.signIn": "Sign in or open an endpoint to see its history.",
+  "wl.composer.history.noSignIn": "History is kept for signed-in accounts; this instance has no sign-in.",
   "wl.composer.history.failed": "History could not be loaded.",
   "wl.composer.history.disabled": "The composer is turned off on this server.",
   "wl.composer.error.failed": "The request could not be sent.",

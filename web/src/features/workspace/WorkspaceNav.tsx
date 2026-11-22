@@ -1,6 +1,8 @@
-import { Link } from '@tanstack/react-router';
+import { Link, useParams } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import type { Endpoint } from '../../api/types';
+import { useScrollCue } from '../../components/ScrollCue/useScrollCue';
+import cueStyles from '../../components/ScrollCue/ScrollCue.module.css';
 import { WORKSPACE_SECTIONS, type WorkspaceSection } from './sections';
 import styles from './WorkspaceNav.module.css';
 
@@ -23,9 +25,17 @@ function CountBadge({ section, endpoint }: { section: WorkspaceSection; endpoint
 export function WorkspaceNav({ endpointId, endpoint, variant }: WorkspaceNavProps) {
   const { t } = useTranslation();
   const sections = WORKSPACE_SECTIONS.filter((section) => section.listed !== false);
+  const activeId = useParams({ strict: false }).section ?? null;
+  const { ref, edges } = useScrollCue<HTMLUListElement>(activeId);
+  const scrolling = variant === 'tabs';
   return (
-    <nav aria-label={t('wl.workspace.nav.label')} className={styles[variant]}>
-      <ul className={styles.list}>
+    <nav
+      aria-label={t('wl.workspace.nav.label')}
+      className={scrolling ? `${styles[variant]} ${cueStyles.cue}` : styles[variant]}
+      data-fade-start={scrolling ? edges.start : undefined}
+      data-fade-end={scrolling ? edges.end : undefined}
+    >
+      <ul ref={ref} className={styles.list}>
         {sections.map((section) => {
           const label = t(section.labelKey);
           if (section.Component === null) {

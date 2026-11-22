@@ -19,6 +19,7 @@ registerMockServer();
 
 const URL_LABEL = 'Target URL';
 const SEND_LABEL = 'Send';
+const NO_SIGN_IN_HISTORY = 'History is kept for signed-in accounts; this instance has no sign-in.';
 const BLANK: ComposerSeed = { draft: emptyDraft(), banner: null, sourceCaptureId: null };
 const SIGNED_IN: User = { id: '0193a1c2-7e4b-7c11-9a2f-3b5d1e0f4a21', email: 'owner@example.test', name: 'Olga Owner' };
 
@@ -157,9 +158,31 @@ describe('composer workspace', () => {
     mockStore.instance = { ...mockStore.instance, user: null };
     renderWorkspace();
 
-    expect(await screen.findByText('No requests sent yet.')).toBeTruthy();
+    expect(await screen.findByText(NO_SIGN_IN_HISTORY)).toBeTruthy();
+    expect(screen.queryByText('No requests sent yet.')).toBeNull();
     expect(screen.queryByText('Sign in or open an endpoint to see its history.')).toBeNull();
     expect(historyRequests).toEqual([]);
+  });
+
+  it('points to sign-in for the history when the instance has one and nobody is signed in', async () => {
+    mockStore.instance = {
+      ...mockStore.instance,
+      user: null,
+      auth: { provider_name: 'Example', sign_in_available: true },
+    };
+    renderWorkspace();
+
+    expect(await screen.findByText('Sign in or open an endpoint to see its history.')).toBeTruthy();
+    expect(screen.queryByText('No requests sent yet.')).toBeNull();
+  });
+
+  it('keeps the empty history text for a signed-in account with no sent requests', async () => {
+    mockStore.instance = { ...mockStore.instance, user: SIGNED_IN };
+    mockServer.use(...sendHandlers());
+    renderWorkspace();
+
+    expect(await screen.findByText('No requests sent yet.')).toBeTruthy();
+    expect(screen.queryByText(NO_SIGN_IN_HISTORY)).toBeNull();
   });
 
   it('refreshes the history after a send that is stored', async () => {
@@ -199,7 +222,8 @@ describe('composer workspace', () => {
     fireEvent.click(screen.getByRole('button', { name: SEND_LABEL }));
 
     expect(await screen.findByText('200')).toBeTruthy();
-    expect(screen.getByText('No requests sent yet.')).toBeTruthy();
+    expect(screen.getByText(NO_SIGN_IN_HISTORY)).toBeTruthy();
+    expect(screen.queryByText('No requests sent yet.')).toBeNull();
     expect(historyRequests).toEqual([]);
   });
 

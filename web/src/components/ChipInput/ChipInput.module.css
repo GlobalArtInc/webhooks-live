@@ -6,6 +6,7 @@
 }
 
 .label {
+  overflow-wrap: anywhere;
   font: var(--text-data);
   font-weight: 600;
   color: var(--color-text);

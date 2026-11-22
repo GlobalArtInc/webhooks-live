@@ -93,6 +93,33 @@ test.describe('script editor', () => {
     await expect(editor).toContainText('hmac_sha256(');
   });
 
+  test('completion stays closed after an operator and opens on Ctrl+Space', async ({ page }) => {
+    const { editor } = await openSample(page);
+    const section = page.getByRole('region', { name: 'Step card' });
+    await page.route('**/api/v1/script/validate', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          diagnostics: [
+            { severity: 'error', code: 'syntax', message: "Unexpected ';'", line: 1, column: 9, length: 1 },
+          ],
+        }),
+      }),
+    );
+
+    await editor.click();
+    await page.keyboard.press('ControlOrMeta+A');
+    await page.keyboard.press('Backspace');
+    await page.keyboard.type('let a = ;');
+    await expect(section.getByText('Errors 1', { exact: true })).toBeVisible();
+    await expect(page.locator('.cm-tooltip-autocomplete')).toHaveCount(0);
+
+    await page.keyboard.press('ArrowLeft');
+    await page.keyboard.press('Control+Space');
+    await expect(page.getByRole('option', { name: /hmac_sha256/ })).toBeVisible();
+  });
+
   test('hovering a function or a variable shows its documentation', async ({ page }) => {
     const { editor } = await openSample(page);
 

@@ -8,6 +8,7 @@ import {
   renameEndpoint,
   serializeEndpoints,
   touchEndpoint,
+  withEndpointTitle,
   type MyEndpoint,
 } from './storage';
 
@@ -84,8 +85,18 @@ export function useMyEndpoints(): readonly MyEndpoint[] {
   return useSyncExternalStore(subscribe, currentEndpoints, () => NO_ENDPOINTS);
 }
 
-export function rememberEndpoint(id: string): void {
-  update((endpoints) => addEndpoint(endpoints, id, Date.now()));
+export function rememberEndpoint(id: string, title: string | null = null): void {
+  update((endpoints) => addEndpoint(endpoints, id, Date.now(), title));
+}
+
+export function recordEndpointTitle(id: string, title: string | null): void {
+  const current = currentEndpoints();
+  const next = withEndpointTitle(current, id, title);
+  if (next.every((entry, index) => entry === current[index])) {
+    return;
+  }
+  writeRaw(serializeEndpoints(next));
+  notify();
 }
 
 export function forgetEndpoint(id: string): void {

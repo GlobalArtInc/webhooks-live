@@ -3,6 +3,7 @@ import type { CompletionEntry, CompletionSource as EntrySource, TemplateDelimite
 
 const PREFIX_PATTERN = /[A-Za-z0-9_.$@:-]*/;
 const VALID_FOR = /^[A-Za-z0-9_.$@:-]*$/;
+const TYPING_IDENTIFIER = /[A-Za-z0-9_$.]$/;
 
 export function insideTemplate(before: string, delimiters: TemplateDelimiters | null): boolean {
   if (delimiters === null) {
@@ -49,6 +50,9 @@ export function completionBridge(readSettings: () => CompletionSettings): Comple
     const from = word === null ? context.pos : word.from;
     const inside = insideTemplate(context.state.doc.sliceString(0, from), delimiters);
     if (delimiters !== null && !inside && !context.explicit) {
+      return null;
+    }
+    if (delimiters === null && !context.explicit && !TYPING_IDENTIFIER.test(word?.text ?? '')) {
       return null;
     }
     const entries = await source({ prefix: word?.text ?? '', insideTemplate: inside, explicit: context.explicit });

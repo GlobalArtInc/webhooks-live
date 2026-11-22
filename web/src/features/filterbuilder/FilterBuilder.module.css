@@ -175,7 +175,10 @@
 }
 
 .primary:disabled {
-  opacity: 0.6;
+  color: var(--color-text-muted);
+  background: var(--color-surface-sunken);
+  border-color: var(--color-border);
+  opacity: 1;
   cursor: default;
 }
 
@@ -194,7 +197,8 @@
 }
 
 .secondary:disabled {
-  opacity: 0.6;
+  color: var(--color-text-muted);
+  border-color: var(--color-border);
   cursor: default;
 }
 

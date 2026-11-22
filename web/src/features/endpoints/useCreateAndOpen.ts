@@ -25,7 +25,7 @@ export function useCreateAndOpen(): CreateAndOpen {
     (input: EndpointInput) => {
       mutate(input, {
         onSuccess: (endpoint) => {
-          rememberEndpoint(endpoint.id);
+          rememberEndpoint(endpoint.id, endpoint.title);
           closeDrawer();
           void navigate({ to: '/e/$id', params: { id: endpoint.id } }).then(focusMain);
         },

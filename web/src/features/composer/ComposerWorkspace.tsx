@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { offersSendHistory } from '../../api/capabilities';
+import { canSignIn, offersSendHistory } from '../../api/capabilities';
 import { useInstance } from '../../api/queries';
 import type { SentRequest } from '../../api/types';
 import { ComposerForm } from './ComposerForm';
@@ -57,6 +57,8 @@ export function ComposerWorkspace({ endpointId, seed }: ComposerWorkspaceProps) 
       <HistoryList
         entries={history.data?.items}
         loading={instance === undefined || history.isLoading}
+        offered={historyOffered}
+        signInAvailable={canSignIn(instance)}
         failure={history.isError ? historyFailureOf(history.error) : null}
         deleting={remove.isPending}
         onReplay={replay}
