@@ -8,7 +8,7 @@ use axum::routing::get;
 use figment::Jail;
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener, TcpSocket, TcpStream};
 use tokio::sync::oneshot;
 use whl_core::config::{Config, ConfigError};
 use whl_store::Store;
@@ -239,10 +239,13 @@ async fn sso_mode_mounts_the_auth_router_and_keeps_the_probes_alive() {
     server.await.expect("joins").expect("stops cleanly");
 }
 
-async fn closed_issuer() -> (TcpListener, String) {
-    let listener = TcpListener::bind("127.0.0.1:0").await.expect("binds");
-    let base = format!("http://{}", listener.local_addr().expect("an address"));
-    (listener, base)
+fn closed_issuer() -> (TcpSocket, String) {
+    let socket = TcpSocket::new_v4().expect("a socket");
+    socket
+        .bind(SocketAddr::from(([127, 0, 0, 1], 0)))
+        .expect("binds");
+    let base = format!("http://{}", socket.local_addr().expect("an address"));
+    (socket, base)
 }
 
 fn endpoint_settings() -> whl_store::EndpointSettings {
@@ -261,8 +264,7 @@ fn endpoint_settings() -> whl_store::EndpointSettings {
 async fn sso_mode_with_an_unreachable_issuer_keeps_serving_and_answers_503_on_sign_in() {
     whl_telemetry::metrics::install().expect("the recorder installs");
     let db = TestDb::new().await;
-    let (listener, closed) = closed_issuer().await;
-    drop(listener);
+    let (_closed, closed) = closed_issuer();
     let config = try_load_config(db.url(), &sso_env(&closed)).expect("the configuration loads");
     let store = Store::connect(&config.database).await.expect("connects");
     let endpoint = store
@@ -311,9 +313,7 @@ async fn sso_mode_with_an_unreachable_issuer_keeps_serving_and_answers_503_on_si
 #[tokio::test]
 async fn sign_in_comes_back_once_the_identity_provider_does() {
     let db = TestDb::new().await;
-    let (listener, base) = closed_issuer().await;
-    let address = listener.local_addr().expect("an address");
-    drop(listener);
+    let (closed, base) = closed_issuer();
     let config = try_load_config(db.url(), &sso_env(&base)).expect("the configuration loads");
     let store = Store::connect(&config.database).await.expect("connects");
     let bound = whl_server::bind(&config).await.expect("binds");
@@ -328,9 +328,7 @@ async fn sign_in_comes_back_once_the_identity_provider_does() {
         .expect("public answers");
     assert_eq!(down.status, 503);
 
-    let listener = TcpListener::bind(address)
-        .await
-        .expect("the port is free again");
+    let listener = closed.listen(1024).expect("the identity provider listens");
     serve_discovery(listener, &base);
     let mut status = 0;
     for _ in 0..300 {
