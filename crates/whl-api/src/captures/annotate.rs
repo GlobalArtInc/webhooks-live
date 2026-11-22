@@ -5,14 +5,46 @@ use whl_core::capture_id::CaptureId;
 use whl_core::endpoint_id::EndpointId;
 use whl_store::{AnnotateOutcome, CaptureAnnotation};
 
-use super::dto::SummaryDto;
+use super::doc::CaptureIdParam;
+use super::dto::{CaptureInputDoc, SummaryDto};
 use crate::body::RawBody;
-use crate::error::{ApiError, FieldCode, FieldViolation};
+use crate::error::{ApiError, ErrorBody, FieldCode, FieldViolation};
+use crate::openapi::params::EndpointIdParam;
+use crate::openapi::responses::{
+    BadRequest, PayloadTooLarge, StoreUnavailable, Unauthenticated, UnsupportedMediaType,
+    ValidationFailed,
+};
 use crate::state::ApiState;
 
 const NOTE_MAX_CHARS: usize = 2000;
 const ANNOTATION_KEYS: &[&str] = &["note", "starred"];
 
+#[utoipa::path(
+    patch,
+    path = "/endpoints/{id}/captures/{capture_id}",
+    operation_id = "captures_update",
+    tag = "Captures",
+    summary = "Set the note or the star of a capture",
+    description = "Absent fields are unchanged. `note` null or an empty string removes the note; more than 2000 characters answers 422 `too_long`. `starred` must be a boolean. Unknown fields answer 422 `not_allowed`. Session only: a Bearer token is refused with 403 `session_required`. Needs an editor on the endpoint.",
+    security(("session_cookie" = [])),
+    params(
+        EndpointIdParam,
+        CaptureIdParam,
+    ),
+    request_body(content = CaptureInputDoc, content_type = "application/json"),
+    responses(
+        (status = 200, description = "The updated summary", body = SummaryDto),
+        (status = 400, response = BadRequest),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`session_required`: a Bearer token was used; `forbidden`: the role is below editor; `csrf_rejected`: the Origin check failed", body = ErrorBody),
+        (status = 404, description = "`capture_not_found`: unknown in this endpoint; `not_found`: malformed id", body = ErrorBody),
+        (status = 410, description = "`endpoint_gone`: unknown, expired or deleted endpoint, or no role on it in `sso`", body = ErrorBody),
+        (status = 413, response = PayloadTooLarge),
+        (status = 415, response = UnsupportedMediaType),
+        (status = 422, response = ValidationFailed),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 pub async fn update(
     State(state): State<ApiState>,
     Path((raw_id, raw_capture)): Path<(String, String)>,

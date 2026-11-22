@@ -1,3 +1,4 @@
+mod doc;
 mod dto;
 mod handlers;
 mod input;
@@ -5,6 +6,7 @@ mod settings;
 
 use crate::routing::{Routes, get, patch, post};
 
+pub use doc::SchedulesDoc;
 pub(crate) use handlers::{check_cron, check_request_with};
 pub(crate) use input::{ParsedSchedule, parse_schedule};
 pub use settings::ScheduleSettings;

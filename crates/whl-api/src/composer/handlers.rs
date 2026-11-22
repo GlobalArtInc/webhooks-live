@@ -14,14 +14,18 @@ use whl_store::composer::{
     MAX_SENT_PER_OWNER, NewSent, OUTBOUND_METRIC, QuotaCharge, QuotaWindow, SentOutcome, SentOwner,
 };
 
-use super::dto::{HistoryDto, SendResultDto, SentRequestDto, StoredEntry};
+use super::dto::{HistoryDto, SendRequestDoc, SendResultDto, SentRequestDto, StoredEntry};
 use super::input::{SendInput, parse_send};
 use super::outbound::{Executed, HOP_HEADER, run_external, run_local};
 use super::redact::PathPolicy;
 use super::settings::{Clients, MAX_HISTORY_PAGE, MAX_HOPS};
 use super::target::{Destination, PublicOrigin, classify};
 use crate::body::RawBody;
-use crate::error::{ApiError, FieldCode, FieldViolation};
+use crate::error::{ApiError, ErrorBody, FieldCode, FieldViolation};
+use crate::openapi::responses::{
+    BadRequest, PayloadTooLarge, StoreUnavailable, Unauthenticated, UnsupportedMediaType,
+    ValidationFailed,
+};
 use crate::state::ApiState;
 
 const OVERLOAD_RETRY_SECONDS: u64 = 1;
@@ -60,6 +64,30 @@ struct Identity {
     charges: Vec<QuotaCharge>,
 }
 
+#[utoipa::path(
+    post,
+    path = "/send",
+    operation_id = "composer_send",
+    tag = "Composer",
+    summary = "Send an HTTP request from the instance",
+    description = "Sends the request and answers the response in the same call. In `open` and `mixed` anyone may send; in `sso` a session is needed. A token needs the `send` scope. The composer must be on, else 404 `not_found`.\n\n`method` is GET, HEAD, POST, PUT, PATCH, DELETE or OPTIONS, in any case. `url` is an absolute `http` or `https` URL without user information, at most 2048 bytes. A `body` is `{encoding, data}`: `encoding` is `utf8` or `base64`, and the decoded body is at most 1 MiB. A capture URL of this instance (`/<endpoint id>/...` on the public host) is delivered inside the instance and `capture_id` names the capture; other URLs of this instance are refused. Private and reserved addresses are refused unless the operator's forward allow list covers them.\n\nA delivery that fails is still 200: `status` is null and `error` is `<code>: <detail>`, with the codes `timeout`, `refused_target`, `refused_redirect`, `dns_failure`, `connect_timeout`, `hop_timeout`, `total_timeout`, `too_many_redirects`, `transport`, `configuration` and `local_delivery`. `timeout_ms` defaults to 15000 and may not exceed it. Redirects are followed only with `follow_redirects: true`, at most 5. `Host`, `Content-Length`, `Transfer-Encoding`, `Connection` and the other hop-by-hop headers, `Forwarded`, `X-Forwarded-*`, `X-Real-IP`, `X-Client-IP`, `True-Client-IP`, `CF-Connecting-IP`, and any name starting with `Proxy-` or `X-Webhooks-Live-` answer 422 `not_allowed`.\n\nEach send is charged to the `outbound` quota: a signed-in caller per hour, an anonymous caller per network per day and, with `endpoint_id`, per endpoint per hour. A request that arrives with `X-Webhooks-Live-Hop` of 3 or more answers 422 `hop_limit`; each delivery carries the next count, so loops through the instance stop. A send by a signed-in caller, and an anonymous send with `endpoint_id`, is kept in the history.",
+    security(("session_cookie" = []), ("api_token" = []), ()),
+    request_body(content = SendRequestDoc, content_type = "application/json"),
+    responses(
+        (status = 200, description = "The result of the delivery, successful or not", body = SendResultDto),
+        (status = 400, response = BadRequest),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`csrf_rejected`: the Origin check failed; `insufficient_scope`: the token lacks `send`", body = ErrorBody),
+        (status = 404, description = "`not_found`: the composer is off on the instance", body = ErrorBody),
+        (status = 408, description = "`request_timeout`: the body did not arrive within 10 seconds", body = ErrorBody),
+        (status = 410, description = "`endpoint_gone`: `endpoint_id` names an endpoint that is unknown, expired or deleted, or the caller has no role on it in `sso`", body = ErrorBody),
+        (status = 413, response = PayloadTooLarge),
+        (status = 415, response = UnsupportedMediaType),
+        (status = 422, description = "`validation_failed`: `url` with `invalid_format`, `target_refused` (also a capture URL of another host, or user information) or `target_unresolvable`; `method` with `not_allowed`; `headers.<n>` fields; `body.data` with `too_long`; `timeout_ms` with `out_of_range`; unknown fields with `not_allowed`. Or `hop_limit`", body = ErrorBody),
+        (status = 429, description = "`rate_limited`: too many sends at once, `Retry-After: 1`; `quota_exceeded`: the `outbound` quota is used up, `error.limit` = `{name, window, max, resets_at}`, `Retry-After` set", body = ErrorBody),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 pub async fn send(
     State(state): State<ApiState>,
     caller: Caller,
@@ -262,6 +290,30 @@ async fn record(
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/send/history",
+    operation_id = "composer_history_list",
+    tag = "Composer",
+    summary = "List the sent-request history",
+    description = "Newest first, 50 per page at most; `limit` is 1 to 50 and defaults to 50, and `next_cursor` is the `id` of the last item. With `endpoint_id` it lists that endpoint's entries and needs the viewer role on it; without it, a signed-in caller gets their own entries. A token needs the `read` scope. Entries of a signed-in caller are kept under the user, so a send with `endpoint_id` made by a signed-in caller is not listed under the endpoint. Each entry's `request` is stored redacted: sensitive header values, sensitive query values and user information are replaced, and an endpoint's entries keep only the origin of the URL. A response body is kept only for JSON and form-encoded responses.",
+    params(
+        ("endpoint_id" = Option<String>, Query, min_length = 24, max_length = 24, description = "List the entries of this endpoint instead of the caller's own"),
+        ("cursor" = Option<String>, Query, description = "`next_cursor` of the previous page"),
+        ("limit" = Option<u32>, Query, minimum = 1, maximum = 50, description = "Page size, default 50")
+    ),
+    security(("session_cookie" = []), ("api_token" = []), ()),
+    responses(
+        (status = 200, description = "A page of entries", body = HistoryDto),
+        (status = 400, description = "`invalid_cursor`: the cursor is malformed", body = ErrorBody),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`sign_in_required` (`mixed`): no session and no `endpoint_id`; `insufficient_scope`: a token without `read`", body = ErrorBody),
+        (status = 404, description = "`not_found`: malformed `endpoint_id`, or the composer is off on the instance", body = ErrorBody),
+        (status = 410, description = "`endpoint_gone`: the endpoint is unknown, expired or deleted, or the caller has no role on it in `sso`", body = ErrorBody),
+        (status = 422, response = ValidationFailed),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 pub async fn history(
     State(state): State<ApiState>,
     caller: Caller,
@@ -294,6 +346,25 @@ pub async fn history(
     }))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/send/history/{sent_id}",
+    operation_id = "composer_history_delete",
+    tag = "Composer",
+    summary = "Delete a sent-request history entry",
+    description = "A signed-in caller deletes their own entries. An endpoint's entry needs the editor role on that endpoint. Entries of another owner, unknown ids and malformed ids all answer 404. A token needs the `send` scope.",
+    params(
+        ("sent_id" = String, Path, pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", description = "History entry id, the `id` of a sent request")
+    ),
+    security(("session_cookie" = []), ("api_token" = []), ()),
+    responses(
+        (status = 204, description = "The entry is deleted"),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`csrf_rejected`: the Origin check failed; `insufficient_scope`: a token without `send`", body = ErrorBody),
+        (status = 404, description = "`not_found`: unknown, malformed or not visible entry, or the composer is off on the instance", body = ErrorBody),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 pub async fn delete(
     State(state): State<ApiState>,
     caller: Caller,

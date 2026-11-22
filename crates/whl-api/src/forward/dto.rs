@@ -1,17 +1,30 @@
 use serde::Serialize;
+use utoipa::ToSchema;
 use whl_store::forward::{ForwardAttempt, ForwardJob, ForwardRule};
 
 use crate::dto::BodyDto;
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = ForwardRule)]
 pub struct RuleDto {
+    #[schema(
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        example = "0193a6c2-7d1e-7c3a-8f55-2b9e4c1a6d70"
+    )]
     id: String,
+    #[schema(example = true)]
     enabled: bool,
+    #[schema(example = "https://hooks.example.com/incoming")]
     target_url: String,
+    #[schema(example = "PUT")]
     method: Option<String>,
+    #[schema(example = "application/json")]
     content_type: Option<String>,
+    #[schema(example = json!(["x-signature"]))]
     header_allowlist: Vec<String>,
+    #[schema(example = false)]
     append_path: bool,
+    #[schema(format = DateTime)]
     created_at: String,
 }
 
@@ -30,14 +43,35 @@ impl From<&ForwardRule> for RuleDto {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = ForwardRuleList)]
 pub struct RuleListDto {
     pub items: Vec<RuleDto>,
 }
 
-#[derive(Serialize)]
+#[derive(ToSchema)]
+#[schema(as = ForwardRuleInput)]
+#[allow(dead_code)]
+pub struct ForwardRuleInputDoc {
+    #[schema(default = true, example = true)]
+    enabled: Option<bool>,
+    #[schema(max_length = 2048, example = "https://hooks.example.com/incoming")]
+    target_url: Option<String>,
+    #[schema(max_length = 16, example = "PUT")]
+    method: Option<String>,
+    #[schema(example = "application/json")]
+    content_type: Option<String>,
+    #[schema(max_items = 50, example = json!(["x-signature"]))]
+    header_allowlist: Option<Vec<String>>,
+    #[schema(default = false, example = false)]
+    append_path: Option<bool>,
+}
+
+#[derive(Serialize, ToSchema)]
+#[schema(as = ForwardAttempt)]
 pub struct AttemptDto {
     attempt: i16,
+    #[schema(format = DateTime)]
     started_at: String,
     duration_ms: i32,
     status: Option<i16>,
@@ -65,16 +99,21 @@ impl From<&ForwardAttempt> for AttemptDto {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = ForwardJob)]
 pub struct JobDto {
     id: String,
+    #[schema(pattern = "^(rule|manual)$")]
     kind: &'static str,
     rule_id: Option<String>,
     target_url: String,
     method: String,
+    #[schema(pattern = "^(pending|running|succeeded|failed)$")]
     state: &'static str,
     attempts: Vec<AttemptDto>,
+    #[schema(format = DateTime)]
     created_at: String,
+    #[schema(format = DateTime)]
     finished_at: Option<String>,
 }
 

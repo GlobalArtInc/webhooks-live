@@ -10,10 +10,14 @@ use whl_script::{EngineLimits, ScriptCompiler};
 use whl_store::Uuid;
 use whl_store::rules::{RuleChange, RuleRecord, RuleSet, RuleStoreError, WriteOutcome};
 
-use super::dto::{RuleDto, RuleSetDto};
+use super::dto::{RuleDto, RuleInputDoc, RuleOrderInputDoc, RuleSetDto};
 use super::input::{order_violation, parse_object, parse_order, violations};
 use crate::body::RawBody;
-use crate::error::{ApiError, FieldCode, FieldViolation};
+use crate::error::{ApiError, ErrorBody, FieldCode, FieldViolation};
+use crate::openapi::params::EndpointIdParam;
+use crate::openapi::responses::{
+    BadRequest, PayloadTooLarge, StoreUnavailable, Unauthenticated, UnsupportedMediaType,
+};
 use crate::state::ApiState;
 
 const WRITE_ATTEMPTS: usize = 3;
@@ -40,6 +44,24 @@ struct Plan {
     limits: RuleLimits,
 }
 
+#[utoipa::path(
+    get,
+    path = "/endpoints/{id}/rules",
+    operation_id = "rules_list",
+    tag = "Rules",
+    summary = "List the rules of an endpoint",
+    description = "The rules in execution order with the endpoint's `version`. Session only: a Bearer token answers 403 `session_required`. Needs a viewer on the endpoint.",
+    security(("session_cookie" = []), ()),
+    params(EndpointIdParam),
+    responses(
+        (status = 200, description = "The rules", body = RuleSetDto),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`session_required`: a Bearer token was used", body = ErrorBody),
+        (status = 404, description = "`not_found`: malformed endpoint id", body = ErrorBody),
+        (status = 410, description = "`endpoint_gone`: unknown, expired or deleted endpoint, or no role on it in `sso`", body = ErrorBody),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 pub async fn list(
     State(state): State<ApiState>,
     Path(raw_id): Path<String>,
@@ -50,6 +72,27 @@ pub async fn list(
     Ok(Json(RuleSetDto::from(&set)))
 }
 
+#[utoipa::path(
+    get,
+    path = "/endpoints/{id}/rules/{rule_id}",
+    operation_id = "rules_show",
+    tag = "Rules",
+    summary = "Get one rule",
+    description = "Session only: a Bearer token answers 403 `session_required`. Needs a viewer on the endpoint. A malformed rule id answers 404 `not_found`, an unknown one 404 `rule_not_found`.",
+    security(("session_cookie" = []), ()),
+    params(
+        EndpointIdParam,
+        ("rule_id" = String, Path, pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", description = "Rule id, lowercase hyphenated UUID")
+    ),
+    responses(
+        (status = 200, description = "The rule", body = RuleDto),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`session_required`: a Bearer token was used", body = ErrorBody),
+        (status = 404, description = "`not_found`: malformed endpoint or rule id; `rule_not_found`: no such rule on this endpoint", body = ErrorBody),
+        (status = 410, description = "`endpoint_gone`: unknown, expired or deleted endpoint, or no role on it in `sso`", body = ErrorBody),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 pub async fn show(
     State(state): State<ApiState>,
     Path((raw_id, raw_rule)): Path<(String, String)>,
@@ -66,6 +109,29 @@ pub async fn show(
     Ok(Json(RuleDto::from(rule)))
 }
 
+#[utoipa::path(
+    post,
+    path = "/endpoints/{id}/rules",
+    operation_id = "rules_create",
+    tag = "Rules",
+    summary = "Append a rule",
+    description = "The new rule is appended last. Editor role; session only. The number of rules is capped by the tier (`limit_reached`, `error.limit` = `{name: \"rules\", max}`). Every change emits `endpoint_updated` and bumps `version`.",
+    security(("session_cookie" = []), ()),
+    params(EndpointIdParam),
+    request_body(content = RuleInputDoc, content_type = "application/json"),
+    responses(
+        (status = 201, description = "The created rule", body = RuleDto),
+        (status = 400, response = BadRequest),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`forbidden`: the role is too low; `session_required`: a Bearer token was used; `csrf_rejected`: the Origin check failed", body = ErrorBody),
+        (status = 404, description = "`not_found`: malformed endpoint id", body = ErrorBody),
+        (status = 410, description = "`endpoint_gone`: unknown, expired or deleted endpoint, or no role on it in `sso`", body = ErrorBody),
+        (status = 413, response = PayloadTooLarge),
+        (status = 415, response = UnsupportedMediaType),
+        (status = 422, description = "`validation_failed` (see `error.fields`, field codes `required`, `invalid_format`, `too_long`, `out_of_range`, `too_many`, `duplicate`, `not_allowed`, `target_refused`, `target_unresolvable`); `limit_reached`: the endpoint already has the tier's rules", body = ErrorBody),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 pub async fn create(
     State(state): State<ApiState>,
     Path(raw_id): Path<String>,
@@ -83,6 +149,32 @@ pub async fn create(
     Ok((StatusCode::CREATED, Json(RuleDto::from(created))).into_response())
 }
 
+#[utoipa::path(
+    patch,
+    path = "/endpoints/{id}/rules/{rule_id}",
+    operation_id = "rules_update",
+    tag = "Rules",
+    summary = "Change a rule",
+    description = "Partial: a field that is absent keeps its value; `condition` and `steps`, when given, replace the whole value. An empty body answers 400 `invalid_json`. Editor role; session only. Every change emits `endpoint_updated` and bumps `version`.",
+    security(("session_cookie" = []), ()),
+    params(
+        EndpointIdParam,
+        ("rule_id" = String, Path, pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", description = "Rule id, lowercase hyphenated UUID")
+    ),
+    request_body(content = RuleInputDoc, content_type = "application/json"),
+    responses(
+        (status = 200, description = "The changed rule", body = RuleDto),
+        (status = 400, response = BadRequest),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`forbidden`: the role is too low; `session_required`: a Bearer token was used; `csrf_rejected`: the Origin check failed", body = ErrorBody),
+        (status = 404, description = "`not_found`: malformed endpoint or rule id; `rule_not_found`: no such rule on this endpoint", body = ErrorBody),
+        (status = 410, description = "`endpoint_gone`: unknown, expired or deleted endpoint, or no role on it in `sso`", body = ErrorBody),
+        (status = 413, response = PayloadTooLarge),
+        (status = 415, response = UnsupportedMediaType),
+        (status = 422, description = "`validation_failed` (see `error.fields`, same field codes as create)", body = ErrorBody),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 pub async fn update(
     State(state): State<ApiState>,
     Path((raw_id, raw_rule)): Path<(String, String)>,
@@ -101,6 +193,27 @@ pub async fn update(
     Ok(Json(RuleDto::from(rule)))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/endpoints/{id}/rules/{rule_id}",
+    operation_id = "rules_delete",
+    tag = "Rules",
+    summary = "Delete a rule",
+    description = "Editor role; session only. The other rules keep their order. Every change emits `endpoint_updated` and bumps `version`.",
+    security(("session_cookie" = []), ()),
+    params(
+        EndpointIdParam,
+        ("rule_id" = String, Path, pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", description = "Rule id, lowercase hyphenated UUID")
+    ),
+    responses(
+        (status = 204, description = "The rule is deleted"),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`forbidden`: the role is too low; `session_required`: a Bearer token was used; `csrf_rejected`: the Origin check failed", body = ErrorBody),
+        (status = 404, description = "`not_found`: malformed endpoint or rule id; `rule_not_found`: no such rule on this endpoint", body = ErrorBody),
+        (status = 410, description = "`endpoint_gone`: unknown, expired or deleted endpoint, or no role on it in `sso`", body = ErrorBody),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 pub async fn delete(
     State(state): State<ApiState>,
     Path((raw_id, raw_rule)): Path<(String, String)>,
@@ -112,6 +225,29 @@ pub async fn delete(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[utoipa::path(
+    put,
+    path = "/endpoints/{id}/rules/order",
+    operation_id = "rules_reorder",
+    tag = "Rules",
+    summary = "Reorder the rules",
+    description = "`ids` must list every rule of the endpoint exactly once. Violations answer 422 `validation_failed` with `error.fields`: `required` when `ids` is absent, `too_many` above 1024 entries, `invalid_format` for a value that is not a lowercase UUID or a list that is not a permutation of the endpoint's rules, `duplicate` for a repeated id; unknown fields are `not_allowed`. Editor role; session only. Every change emits `endpoint_updated` and bumps `version`.",
+    security(("session_cookie" = []), ()),
+    params(EndpointIdParam),
+    request_body(content = RuleOrderInputDoc, content_type = "application/json"),
+    responses(
+        (status = 200, description = "The rules in the new order", body = RuleSetDto),
+        (status = 400, response = BadRequest),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`forbidden`: the role is too low; `session_required`: a Bearer token was used; `csrf_rejected`: the Origin check failed", body = ErrorBody),
+        (status = 404, description = "`not_found`: malformed endpoint id", body = ErrorBody),
+        (status = 410, description = "`endpoint_gone`: unknown, expired or deleted endpoint, or no role on it in `sso`", body = ErrorBody),
+        (status = 413, response = PayloadTooLarge),
+        (status = 415, response = UnsupportedMediaType),
+        (status = 422, description = "`validation_failed` (see `error.fields`)", body = ErrorBody),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 pub async fn reorder(
     State(state): State<ApiState>,
     Path(raw_id): Path<String>,

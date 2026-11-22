@@ -15,6 +15,12 @@ pub struct BadRequest(ErrorBody);
 pub struct Unauthenticated(ErrorBody);
 
 #[derive(ToResponse)]
+#[response(
+    description = "`unauthenticated` or `invalid_token`: no valid session or Bearer token; `grant_required`: a view-protected endpoint the caller does not own, without a valid `X-Webhooks-Live-Grant`"
+)]
+pub struct UnauthenticatedOrGrantRequired(ErrorBody);
+
+#[derive(ToResponse)]
 #[response(description = "`payload_too_large`: the request body is over its limit")]
 pub struct PayloadTooLarge(ErrorBody);
 

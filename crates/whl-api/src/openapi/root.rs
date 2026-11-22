@@ -3,7 +3,7 @@ use utoipa::{Modify, OpenApi};
 
 use super::responses::{
     BadRequest, InternalError, PayloadTooLarge, RateLimited, StoreUnavailable, Unauthenticated,
-    UnsupportedMediaType, ValidationFailed,
+    UnauthenticatedOrGrantRequired, UnsupportedMediaType, ValidationFailed,
 };
 use super::serve;
 use crate::error::{
@@ -24,6 +24,7 @@ use crate::error::{
         responses(
             BadRequest,
             Unauthenticated,
+            UnauthenticatedOrGrantRequired,
             PayloadTooLarge,
             UnsupportedMediaType,
             ValidationFailed,

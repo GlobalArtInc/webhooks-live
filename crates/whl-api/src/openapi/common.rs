@@ -5,7 +5,7 @@ const COMMON: [(&str, &str); 2] = [("429", "RateLimited"), ("500", "InternalErro
 
 pub(super) fn add_common_responses(document: &mut OpenApi) {
     for item in document.paths.paths.values_mut() {
-        for operation in operations(item) {
+        for (_, operation) in operations(item) {
             for (status, name) in COMMON {
                 operation
                     .responses
@@ -17,18 +17,18 @@ pub(super) fn add_common_responses(document: &mut OpenApi) {
     }
 }
 
-fn operations(item: &mut PathItem) -> Vec<&mut Operation> {
+pub(super) fn operations(item: &mut PathItem) -> Vec<(&'static str, &mut Operation)> {
     [
-        item.get.as_mut(),
-        item.put.as_mut(),
-        item.post.as_mut(),
-        item.delete.as_mut(),
-        item.options.as_mut(),
-        item.head.as_mut(),
-        item.patch.as_mut(),
-        item.trace.as_mut(),
+        ("get", item.get.as_mut()),
+        ("put", item.put.as_mut()),
+        ("post", item.post.as_mut()),
+        ("delete", item.delete.as_mut()),
+        ("options", item.options.as_mut()),
+        ("head", item.head.as_mut()),
+        ("patch", item.patch.as_mut()),
+        ("trace", item.trace.as_mut()),
     ]
     .into_iter()
-    .flatten()
+    .filter_map(|(method, operation)| operation.map(|operation| (method, operation)))
     .collect()
 }

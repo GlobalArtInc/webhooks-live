@@ -4,6 +4,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 use serde::Serialize;
 use serde_json::Value;
+use utoipa::ToSchema;
 use whl_auth::{Caller, EndpointRole, decide_access};
 use whl_core::endpoint_id::EndpointId;
 use whl_store::Uuid;
@@ -11,15 +12,20 @@ use whl_store::templates::{
     CreateTemplateOutcome, RenameTemplateOutcome, TemplateRecord, TemplateSummary,
 };
 
+use super::doc::{TemplateInputDoc, TemplatePatchInputDoc};
 use super::document::ConfigDocument;
 use super::export::{ChannelUrls, Selection, export};
 use super::handlers::{create_from_document, sign_in_rejection};
 use super::prepare::Overrides;
 use crate::body::RawBody;
 use crate::dto::timestamp;
-use crate::error::{ApiError, FieldCode, FieldViolation};
+use crate::error::{ApiError, ErrorBody, FieldCode, FieldViolation};
 use crate::folders::{name_of, object_of, reject_unknown};
 use crate::input::parse_endpoint_input;
+use crate::openapi::responses::{
+    BadRequest, PayloadTooLarge, StoreUnavailable, Unauthenticated, UnsupportedMediaType,
+    ValidationFailed,
+};
 use crate::state::ApiState;
 
 const TEMPLATE_ID_KEY: &str = "template_id";
@@ -29,12 +35,18 @@ pub struct TemplateRequest {
     rest: Vec<u8>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = Template)]
 pub struct TemplateDto {
+    #[schema(example = "0193a6c2-7d1e-7c3a-8f55-2b9e4c1a6d70")]
     id: String,
+    #[schema(example = "Staging")]
     name: String,
+    #[schema(format = DateTime)]
     created_at: String,
+    #[schema(format = DateTime)]
     updated_at: String,
+    #[schema(value_type = Object)]
     config: Value,
 }
 
@@ -50,11 +62,16 @@ impl From<&TemplateRecord> for TemplateDto {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = TemplateSummary)]
 pub struct TemplateSummaryDto {
+    #[schema(example = "0193a6c2-7d1e-7c3a-8f55-2b9e4c1a6d70")]
     id: String,
+    #[schema(example = "Staging")]
     name: String,
+    #[schema(format = DateTime)]
     created_at: String,
+    #[schema(format = DateTime)]
     updated_at: String,
 }
 
@@ -69,7 +86,8 @@ impl From<&TemplateSummary> for TemplateSummaryDto {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = TemplateList)]
 pub struct TemplateListDto {
     items: Vec<TemplateSummaryDto>,
 }
@@ -132,6 +150,21 @@ pub async fn create_from_template(
     .await
 }
 
+#[utoipa::path(
+    get,
+    path = "/templates",
+    operation_id = "cloning_templates_list",
+    tag = "Cloning",
+    summary = "List the caller's templates",
+    description = "Lists the caller's templates without `config`; `GET /templates/{template_id}` returns the document. Needs a signed-in caller; a token is refused with 403 `session_required`.",
+    security(("session_cookie" = [])),
+    responses(
+        (status = 200, description = "The caller's templates", body = TemplateListDto),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`session_required`: a Bearer token was used; `sign_in_required`: `mixed` without a session; `not_available_in_mode`: the instance has no accounts", body = ErrorBody),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 pub async fn list(
     State(state): State<ApiState>,
     caller: Caller,
@@ -143,6 +176,23 @@ pub async fn list(
     }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/templates/{template_id}",
+    operation_id = "cloning_templates_get",
+    tag = "Cloning",
+    summary = "Get a template with its configuration document",
+    description = "`config` is the configuration document: `{version: 1, endpoint: {title, response, cors, overflow, tags, retention, capture_ttl_seconds, verifier, max_captures}, forward_rules: [{id, enabled, target_url, method, content_type, header_allowlist, append_path}], rules: [{name, enabled, condition, steps}], channels: [], schedules: [{name, cron, timezone, request, enabled: false}], secret_names: [string]}`. `channels` is always empty; `forward_rules` is empty when forwarding is off on the instance, `schedules` when schedules are off. Secret values and channel URLs are never in it; `secret_names` lists the secrets it uses. A template of another user, an unknown id and a malformed id all answer 404 `template_not_found`. Needs a signed-in caller; a token is refused with 403 `session_required`.",
+    security(("session_cookie" = [])),
+    params(("template_id" = String, Path, description = "Template id, UUID")),
+    responses(
+        (status = 200, description = "The template; `config` as described above", body = TemplateDto),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`session_required`: a Bearer token was used; `sign_in_required`: `mixed` without a session; `not_available_in_mode`: the instance has no accounts", body = ErrorBody),
+        (status = 404, description = "`template_not_found`", body = ErrorBody),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 pub async fn show(
     State(state): State<ApiState>,
     caller: Caller,
@@ -158,6 +208,28 @@ pub async fn show(
     Ok(Json(TemplateDto::from(&record)))
 }
 
+#[utoipa::path(
+    post,
+    path = "/templates",
+    operation_id = "cloning_templates_create",
+    tag = "Cloning",
+    summary = "Create a template from an endpoint",
+    description = "Stores the current configuration of `from_endpoint_id` as a template named `name` (1 to 64 characters, unique per user). The caller needs the viewer role on the source. A source the caller cannot read, or a view-protected one without a valid grant, answers 410 `endpoint_gone`. Channel URLs and secret values are not stored. At most 20 templates per user. Needs a signed-in caller; a token is refused with 403 `session_required`.",
+    security(("session_cookie" = [])),
+    request_body(content = TemplateInputDoc, content_type = "application/json"),
+    responses(
+        (status = 201, description = "The template; `config` as in GET", body = TemplateDto),
+        (status = 400, response = BadRequest),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`session_required`: a Bearer token was used; `sign_in_required`: `mixed` without a session; `not_available_in_mode`: the instance has no accounts; `csrf_rejected`: the Origin check failed", body = ErrorBody),
+        (status = 409, description = "`name_taken`: the user already has a template with this name", body = ErrorBody),
+        (status = 410, description = "`endpoint_gone`: the source is unknown, expired or deleted, or the caller has no viewer role on it", body = ErrorBody),
+        (status = 413, response = PayloadTooLarge),
+        (status = 415, response = UnsupportedMediaType),
+        (status = 422, description = "`validation_failed` (see `error.fields`: `name`, `from_endpoint_id`, or the exported configuration) or `limit_reached` (`error.limit` = `{name: \"templates\", max: 20}`)", body = ErrorBody),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 pub async fn create(
     State(state): State<ApiState>,
     caller: Caller,
@@ -209,6 +281,29 @@ pub async fn create(
     }
 }
 
+#[utoipa::path(
+    patch,
+    path = "/templates/{template_id}",
+    operation_id = "cloning_templates_update",
+    tag = "Cloning",
+    summary = "Rename a template",
+    description = "Only `name` changes (1 to 64 characters, unique per user); the configuration document is kept. An empty body is 400 `invalid_json`. Needs a signed-in caller; a token is refused with 403 `session_required`.",
+    security(("session_cookie" = [])),
+    params(("template_id" = String, Path, description = "Template id, UUID")),
+    request_body(content = TemplatePatchInputDoc, content_type = "application/json"),
+    responses(
+        (status = 200, description = "The renamed template", body = TemplateDto),
+        (status = 400, response = BadRequest),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`session_required`: a Bearer token was used; `sign_in_required`: `mixed` without a session; `not_available_in_mode`: the instance has no accounts; `csrf_rejected`: the Origin check failed", body = ErrorBody),
+        (status = 404, description = "`template_not_found`", body = ErrorBody),
+        (status = 409, description = "`name_taken`: the user already has a template with this name", body = ErrorBody),
+        (status = 413, response = PayloadTooLarge),
+        (status = 415, response = UnsupportedMediaType),
+        (status = 422, response = ValidationFailed),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 pub async fn rename(
     State(state): State<ApiState>,
     caller: Caller,
@@ -225,6 +320,23 @@ pub async fn rename(
     }
 }
 
+#[utoipa::path(
+    delete,
+    path = "/templates/{template_id}",
+    operation_id = "cloning_templates_delete",
+    tag = "Cloning",
+    summary = "Delete a template",
+    description = "A template of another user, an unknown id and a malformed id all answer 404 `template_not_found`. Needs a signed-in caller; a token is refused with 403 `session_required`.",
+    security(("session_cookie" = [])),
+    params(("template_id" = String, Path, description = "Template id, UUID")),
+    responses(
+        (status = 204, description = "The template is deleted"),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`session_required`: a Bearer token was used; `sign_in_required`: `mixed` without a session; `not_available_in_mode`: the instance has no accounts; `csrf_rejected`: the Origin check failed", body = ErrorBody),
+        (status = 404, description = "`template_not_found`", body = ErrorBody),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 pub async fn destroy(
     State(state): State<ApiState>,
     caller: Caller,

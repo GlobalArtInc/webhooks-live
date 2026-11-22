@@ -4,22 +4,36 @@ use axum::Json;
 use axum::extract::{Path, State};
 use serde::Serialize;
 use serde_json::Value;
+use utoipa::ToSchema;
 use whl_auth::{Caller, IssuedGrant, ViewPassword};
 use whl_core::endpoint_id::EndpointId;
 use whl_store::{EndpointChange, ViewPasswordChange, ViewPasswordHash};
 
 use crate::body::RawBody;
 use crate::dto::timestamp;
-use crate::error::{ApiError, FieldCode, FieldViolation};
+use crate::error::{ApiError, ErrorBody, FieldCode, FieldViolation};
+use crate::openapi::params::EndpointIdParam;
+use crate::openapi::responses::{
+    BadRequest, PayloadTooLarge, StoreUnavailable, UnsupportedMediaType, ValidationFailed,
+};
 use crate::state::ApiState;
 
 const PASSWORD_KEY: &str = "password";
 const FIELD: &str = "view_password";
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = Grant)]
 pub struct GrantDto {
     grant: String,
+    #[schema(format = DateTime)]
     expires_at: String,
+}
+
+#[derive(ToSchema)]
+#[schema(as = UnlockInput)]
+#[allow(dead_code)]
+pub struct UnlockInputDoc {
+    password: String,
 }
 
 impl From<&IssuedGrant> for GrantDto {
@@ -31,6 +45,27 @@ impl From<&IssuedGrant> for GrantDto {
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/endpoints/{id}/unlock",
+    operation_id = "endpoints_unlock",
+    tag = "Endpoints",
+    summary = "Exchange the view password of an endpoint for a grant",
+    description = "Returns a grant that is valid until `expires_at`. The grant comes in the body only: the response sets no cookie. The client keeps it and sends it as the `X-Webhooks-Live-Grant` header on every later request for the endpoint; the stream routes also accept `?grant=`. A request without a valid grant answers 401 `grant_required`. Anyone with the id may call it; a token needs the `read` scope. A wrong password answers 401 `wrong_password`, the same for an unknown or unprotected endpoint. Repeated attempts answer 429 `rate_limited`.",
+    security(("session_cookie" = []), ("api_token" = []), ()),
+    params(EndpointIdParam),
+    request_body(content = UnlockInputDoc, content_type = "application/json"),
+    responses(
+        (status = 200, description = "The grant", body = GrantDto),
+        (status = 400, response = BadRequest),
+        (status = 401, description = "`wrong_password`: see the description; `invalid_token`: a malformed, unknown, expired or revoked Bearer token", body = ErrorBody),
+        (status = 404, description = "`not_found`: malformed endpoint id", body = ErrorBody),
+        (status = 413, response = PayloadTooLarge),
+        (status = 415, response = UnsupportedMediaType),
+        (status = 422, response = ValidationFailed),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 pub async fn unlock(
     State(state): State<ApiState>,
     caller: Caller,

@@ -1,4 +1,5 @@
 mod cooldown;
+mod doc;
 mod handlers;
 mod run;
 mod upload;
@@ -6,6 +7,7 @@ mod upload;
 use std::time::Duration;
 
 pub use cooldown::ImportCooldown;
+pub use doc::ImportDoc;
 
 use crate::export::ExportSlots;
 use crate::routing::{Routes, post};

@@ -1,20 +1,23 @@
 use serde::Serialize;
+use utoipa::ToSchema;
 use whl_store::forward::ForwardJob;
 use whl_store::notify::Delivery;
 use whl_store::rule_exec::RunRecord;
 use whl_store::stream::CaptureSummary;
 use whl_store::{CaptureDetail, CaptureForm, NameValue};
 
-use crate::dto::BodyDto;
+use crate::dto::{BodyDto, NameValueDto};
 use crate::forward::JobDto;
 use crate::notify::DeliveryDto;
 use crate::rules::RuleRunDto;
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = CaptureSummary)]
 pub struct SummaryDto {
     id: String,
     seq: i64,
     endpoint_id: String,
+    #[schema(format = DateTime)]
     received_at: String,
     method: String,
     path: String,
@@ -24,10 +27,13 @@ pub struct SummaryDto {
     body_size: i32,
     status_override: Option<i16>,
     response_status: i16,
+    #[schema(pattern = "^(pending|succeeded|failed)$")]
     forward_state: Option<&'static str>,
+    #[schema(pattern = "^(http|email|dns|schedule)$")]
     kind: &'static str,
     starred: bool,
     has_note: bool,
+    #[schema(pattern = "^(valid|invalid|missing)$")]
     verification: Option<&'static str>,
     imported: bool,
 }
@@ -59,27 +65,33 @@ impl From<&CaptureSummary> for SummaryDto {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = CaptureList)]
 pub struct ListDto {
     pub items: Vec<SummaryDto>,
     pub next_cursor: Option<String>,
     pub total: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = Capture)]
 pub struct CaptureDto {
     #[serde(flatten)]
     summary: SummaryDto,
     url: String,
     host: String,
+    #[schema(value_type = Vec<NameValueDto>)]
     headers: Vec<NameValue>,
+    #[schema(value_type = Vec<NameValueDto>)]
     query: Vec<NameValue>,
+    #[schema(value_type = Option<CaptureFormDoc>)]
     form: Option<CaptureForm>,
     note: Option<String>,
     body: BodyDto,
     forwards: Vec<JobDto>,
     notifications: Vec<DeliveryDto>,
     rule_runs: Vec<RuleRunDto>,
+    #[schema(value_type = Object)]
     meta: serde_json::Value,
 }
 
@@ -105,4 +117,45 @@ impl CaptureDto {
             meta: detail.meta,
         }
     }
+}
+
+#[derive(ToSchema)]
+#[schema(as = FormFile)]
+#[allow(dead_code)]
+pub struct FormFileDoc {
+    name: String,
+    filename: Option<String>,
+    content_type: Option<String>,
+    size: i64,
+}
+
+#[derive(ToSchema)]
+#[schema(as = CaptureForm)]
+#[allow(dead_code)]
+pub struct CaptureFormDoc {
+    fields: Vec<NameValueDto>,
+    files: Vec<FormFileDoc>,
+}
+
+#[derive(ToSchema)]
+#[schema(as = CaptureInput)]
+#[allow(dead_code)]
+pub struct CaptureInputDoc {
+    #[schema(max_length = 2000)]
+    note: Option<String>,
+    starred: Option<bool>,
+}
+
+#[derive(ToSchema)]
+#[schema(as = ForwardRequest)]
+#[allow(dead_code)]
+pub struct ForwardRequestDoc {
+    rule_id: Option<String>,
+    #[schema(max_length = 2048)]
+    target_url: Option<String>,
+    #[schema(max_length = 16)]
+    method: Option<String>,
+    content_type: Option<String>,
+    #[schema(max_items = 50)]
+    header_allowlist: Option<Vec<String>>,
 }

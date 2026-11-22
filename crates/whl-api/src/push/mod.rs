@@ -1,8 +1,11 @@
+mod doc;
 mod dto;
 mod handlers;
 mod input;
 
 use crate::routing::{Routes, delete, get};
+
+pub use doc::PushDoc;
 
 pub fn routes() -> Routes {
     Routes::new()

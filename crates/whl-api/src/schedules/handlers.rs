@@ -18,15 +18,38 @@ use whl_store::schedules::{
     QueueRunOutcome, ScheduleRecord, ScheduleRequest, ScheduleUpdate,
 };
 
+use super::doc::ScheduleInputDoc;
 use super::dto::{QueuedDto, RunDto, RunListDto, ScheduleDto, ScheduleListDto};
 use super::input::{ParsedSchedule, parse_schedule};
 use crate::body::RawBody;
 use crate::dto::timestamp;
-use crate::error::{ApiError, FieldCode, FieldViolation};
+use crate::error::{ApiError, ErrorBody, FieldCode, FieldViolation};
+use crate::openapi::params::EndpointIdParam;
+use crate::openapi::responses::{
+    BadRequest, PayloadTooLarge, Unauthenticated, UnsupportedMediaType, ValidationFailed,
+};
 use crate::state::ApiState;
 
 const DEFAULT_TIMEZONE: &str = "UTC";
 
+#[utoipa::path(
+    get,
+    path = "/endpoints/{id}/schedules",
+    operation_id = "schedules_list",
+    tag = "Schedules",
+    summary = "List the schedules of an endpoint",
+    description = "Lists every schedule of the endpoint, enabled or paused, oldest first. Needs the viewer role on the endpoint. `open` answers 403 `not_available_in_mode`; a token is refused with 403 `session_required`.",
+    security(("session_cookie" = [])),
+    params(EndpointIdParam),
+    responses(
+        (status = 200, description = "The schedules", body = ScheduleListDto),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`session_required`: a Bearer token was used; `not_available_in_mode`: the instance has no accounts", body = ErrorBody),
+        (status = 404, description = "`not_found`: malformed endpoint id", body = ErrorBody),
+        (status = 410, description = "`endpoint_gone`: unknown, expired or deleted endpoint, or no role on it in `sso`", body = ErrorBody),
+        (status = 503, description = "`feature_disabled`: schedules are off on the instance; `store_unavailable`: the database timed out or is down (`Retry-After: 5`)", body = ErrorBody)
+    )
+)]
 pub async fn list(
     State(state): State<ApiState>,
     Path(raw_id): Path<String>,
@@ -40,6 +63,30 @@ pub async fn list(
     }))
 }
 
+#[utoipa::path(
+    post,
+    path = "/endpoints/{id}/schedules",
+    operation_id = "schedules_create",
+    tag = "Schedules",
+    summary = "Create a schedule",
+    description = "Needs the owner role on the endpoint and a signed-in caller; the schedule is owned by the caller. `name`, `cron` and `request` are required. `cron` has five fields and may not fire more often than the tier allows (`interval_too_short`); `timezone` is an IANA name, default `UTC`. `request.method` is one of `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`; `request.url` is `http` or `https` and may name endpoint secrets as `secret.<NAME>` (`secret_unknown` when missing); `request.headers` is optional, at most 20 entries (names up to 64 bytes, values up to 1024), and may use secrets too; `request.body` is optional, at most 64 KiB, and is a template. A target that fails the SSRF rules answers 422 `target_refused`. `enabled` defaults to true; an enabled schedule gets `next_run_at`. A token is refused with 403 `session_required`.",
+    security(("session_cookie" = [])),
+    params(EndpointIdParam),
+    request_body(content = ScheduleInputDoc, content_type = "application/json"),
+    responses(
+        (status = 201, description = "The schedule", body = ScheduleDto),
+        (status = 400, response = BadRequest),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`forbidden`: not the owner; `sign_in_required`: `mixed` without a session; `session_required`: a Bearer token was used; `not_available_in_mode`: the instance has no accounts; `csrf_rejected`: the Origin check failed", body = ErrorBody),
+        (status = 404, description = "`not_found`: malformed endpoint id", body = ErrorBody),
+        (status = 409, description = "`claim_required`: `mixed` endpoint with no owner yet", body = ErrorBody),
+        (status = 410, description = "`endpoint_gone`: unknown, expired or deleted endpoint", body = ErrorBody),
+        (status = 413, response = PayloadTooLarge),
+        (status = 415, response = UnsupportedMediaType),
+        (status = 422, description = "`validation_failed` (see `error.fields`; codes such as `cron_invalid`, `timezone_invalid`, `interval_too_short`, `secret_unknown`, `target_refused`) or `limit_reached` (`error.limit` = `{name: \"schedules\", max}`)", body = ErrorBody),
+        (status = 503, description = "`feature_disabled`: schedules are off on the instance; `store_unavailable`: the database timed out or is down (`Retry-After: 5`)", body = ErrorBody)
+    )
+)]
 pub async fn create(
     State(state): State<ApiState>,
     caller: Caller,
@@ -108,6 +155,29 @@ pub async fn create(
     }
 }
 
+#[utoipa::path(
+    patch,
+    path = "/endpoints/{id}/schedules/{schedule_id}",
+    operation_id = "schedules_update",
+    tag = "Schedules",
+    summary = "Change a schedule",
+    description = "A partial ScheduleInput: absent fields are unchanged; the same rules as create apply to the fields sent. Needs the editor role on the endpoint. Only the owner of the schedule may change `request` when the old or the new request uses secrets (403 `owner_required`). `enabled: true` clears a pause (`paused_reason`) and resets `consecutive_failures`. Changing `cron` or `timezone` recomputes `next_run_at`. An empty body is 400 `invalid_json`. A token is refused with 403 `session_required`.",
+    security(("session_cookie" = [])),
+    params(EndpointIdParam, ("schedule_id" = String, Path, pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", description = "Schedule id, lowercase hyphenated UUID")),
+    request_body(content = ScheduleInputDoc, content_type = "application/json"),
+    responses(
+        (status = 200, description = "The updated schedule", body = ScheduleDto),
+        (status = 400, response = BadRequest),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`forbidden`: below the editor role; `owner_required`: a non-owner changed a request that uses secrets; `session_required`: a Bearer token was used; `csrf_rejected`: the Origin check failed", body = ErrorBody),
+        (status = 404, description = "`schedule_not_found`: unknown in this endpoint; `not_found`: malformed id", body = ErrorBody),
+        (status = 410, description = "`endpoint_gone`: unknown, expired or deleted endpoint", body = ErrorBody),
+        (status = 413, response = PayloadTooLarge),
+        (status = 415, response = UnsupportedMediaType),
+        (status = 422, response = ValidationFailed),
+        (status = 503, description = "`feature_disabled`: schedules are off on the instance; `store_unavailable`: the database timed out or is down (`Retry-After: 5`)", body = ErrorBody)
+    )
+)]
 pub async fn update(
     State(state): State<ApiState>,
     access: Option<Extension<Access>>,
@@ -228,6 +298,24 @@ fn plan_update(
     })
 }
 
+#[utoipa::path(
+    delete,
+    path = "/endpoints/{id}/schedules/{schedule_id}",
+    operation_id = "schedules_delete",
+    tag = "Schedules",
+    summary = "Delete a schedule",
+    description = "Needs the editor role on the endpoint. A token is refused with 403 `session_required`.",
+    security(("session_cookie" = [])),
+    params(EndpointIdParam, ("schedule_id" = String, Path, pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", description = "Schedule id, lowercase hyphenated UUID")),
+    responses(
+        (status = 204, description = "The schedule is deleted"),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`forbidden`: below the editor role; `session_required`: a Bearer token was used; `not_available_in_mode`: the instance has no accounts; `csrf_rejected`: the Origin check failed", body = ErrorBody),
+        (status = 404, description = "`schedule_not_found`: unknown in this endpoint; `not_found`: malformed id", body = ErrorBody),
+        (status = 410, description = "`endpoint_gone`: unknown, expired or deleted endpoint", body = ErrorBody),
+        (status = 503, description = "`feature_disabled`: schedules are off on the instance; `store_unavailable`: the database timed out or is down (`Retry-After: 5`)", body = ErrorBody)
+    )
+)]
 pub async fn delete(
     State(state): State<ApiState>,
     Path((raw_id, raw_schedule)): Path<(String, String)>,
@@ -246,6 +334,25 @@ pub async fn delete(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/endpoints/{id}/schedules/{schedule_id}/run",
+    operation_id = "schedules_run",
+    tag = "Schedules",
+    summary = "Queue a run now",
+    description = "Queues one run of the schedule, ahead of its cron time, and answers 202 with the time it was queued. A disabled schedule answers 409 `schedule_disabled`. Needs the editor role on the endpoint. A token is refused with 403 `session_required`.",
+    security(("session_cookie" = [])),
+    params(EndpointIdParam, ("schedule_id" = String, Path, pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", description = "Schedule id, lowercase hyphenated UUID")),
+    responses(
+        (status = 202, description = "The run is queued", body = QueuedDto),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`forbidden`: below the editor role; `session_required`: a Bearer token was used; `not_available_in_mode`: the instance has no accounts; `csrf_rejected`: the Origin check failed", body = ErrorBody),
+        (status = 404, description = "`schedule_not_found`: unknown in this endpoint; `not_found`: malformed id", body = ErrorBody),
+        (status = 409, description = "`schedule_disabled`: the schedule is disabled", body = ErrorBody),
+        (status = 410, description = "`endpoint_gone`: unknown, expired or deleted endpoint", body = ErrorBody),
+        (status = 503, description = "`feature_disabled`: schedules are off on the instance; `store_unavailable`: the database timed out or is down (`Retry-After: 5`)", body = ErrorBody)
+    )
+)]
 pub async fn run(
     State(state): State<ApiState>,
     Path((raw_id, raw_schedule)): Path<(String, String)>,
@@ -273,6 +380,24 @@ pub async fn run(
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/endpoints/{id}/schedules/{schedule_id}/runs",
+    operation_id = "schedules_list_runs",
+    tag = "Schedules",
+    summary = "List the recent runs of a schedule",
+    description = "The 50 most recent runs, newest first. `outcome` is `succeeded`, `failed` or `skipped`; `status` is the HTTP status when the request got one; `capture_id` is set when the run stored a capture. Needs the viewer role on the endpoint. A token is refused with 403 `session_required`.",
+    security(("session_cookie" = [])),
+    params(EndpointIdParam, ("schedule_id" = String, Path, pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", description = "Schedule id, lowercase hyphenated UUID")),
+    responses(
+        (status = 200, description = "The runs", body = RunListDto),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`session_required`: a Bearer token was used; `not_available_in_mode`: the instance has no accounts", body = ErrorBody),
+        (status = 404, description = "`schedule_not_found`: unknown in this endpoint; `not_found`: malformed id", body = ErrorBody),
+        (status = 410, description = "`endpoint_gone`: unknown, expired or deleted endpoint, or no role on it in `sso`", body = ErrorBody),
+        (status = 503, description = "`feature_disabled`: schedules are off on the instance; `store_unavailable`: the database timed out or is down (`Retry-After: 5`)", body = ErrorBody)
+    )
+)]
 pub async fn runs(
     State(state): State<ApiState>,
     Path((raw_id, raw_schedule)): Path<(String, String)>,

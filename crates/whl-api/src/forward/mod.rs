@@ -1,3 +1,4 @@
+mod doc;
 mod dto;
 mod handlers;
 mod input;
@@ -5,6 +6,7 @@ mod settings;
 
 use crate::routing::{Routes, get, patch, post};
 
+pub use doc::ForwardDoc;
 pub(crate) use dto::{JobDto, RuleDto};
 pub(crate) use handlers::build_rule;
 pub(crate) use input::target_violation_for;

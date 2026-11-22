@@ -176,6 +176,35 @@ fn area_documents_never_claim_the_same_operation_or_a_different_schema_of_the_sa
 }
 
 #[test]
+fn every_endpoint_scoped_operation_takes_the_view_grant_except_the_two_the_gate_exempts() {
+    let document = json();
+    for (method, path, operation) in operations(&document) {
+        let exempt = (method == "post" && path == "/endpoints/{id}/unlock")
+            || (method == "delete" && path == "/folders/{folder_id}/endpoints/{id}");
+        let takes_grant = operation["parameters"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|parameter| parameter["name"] == "X-Webhooks-Live-Grant");
+        if exempt {
+            assert!(!takes_grant, "{method} {path} is exempt from the grant");
+        }
+        if path.contains("{id}") && !exempt {
+            assert!(takes_grant, "{method} {path} lacks the grant header");
+        }
+        if path.contains("{id}") && takes_grant {
+            let unauthorised = operation["responses"]["401"].to_string();
+            let reference = operation["responses"]["401"]["$ref"].as_str();
+            assert!(
+                unauthorised.contains("grant_required")
+                    || reference == Some("#/components/responses/UnauthenticatedOrGrantRequired"),
+                "{method} {path} does not document grant_required"
+            );
+        }
+    }
+}
+
+#[test]
 fn the_token_input_schema_keeps_the_limits_the_parser_enforces() {
     let document = json();
     let schema = &document["components"]["schemas"]["ApiTokenInput"]["properties"];

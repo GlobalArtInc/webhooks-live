@@ -1,13 +1,15 @@
+mod doc;
 mod dry_run;
 mod dto;
 mod handlers;
 mod input;
-mod runs;
+pub(crate) mod runs;
 
 pub(crate) use runs::RuleRunDto;
 
 use crate::routing::{Routes, get, post, put};
 
+pub use doc::RulesDoc;
 pub(crate) use handlers::vet_all;
 pub(crate) use input::violations as rule_violations;
 

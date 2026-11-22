@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use utoipa::ToSchema;
 use whl_forward::ResponseHeader;
 use whl_store::Uuid;
 use whl_store::composer::{MAX_STORED_RESPONSE_BODY_BYTES, SentRecord};
@@ -7,7 +8,7 @@ use whl_store::composer::{MAX_STORED_RESPONSE_BODY_BYTES, SentRecord};
 use super::input::SendInput;
 use super::outbound::Executed;
 use super::redact::{PathPolicy, redact_body, redact_header_value, redact_url};
-use crate::dto::BodyDto;
+use crate::dto::{BodyDto, BodyInputDoc, NameValueDto};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HeaderSnapshot {
@@ -36,14 +37,24 @@ pub struct ResultSnapshot {
     pub body_truncated: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = SendResult)]
 pub struct SendResultDto {
+    #[schema(
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        example = "0193a6c2-7d1e-7c3a-8f55-2b9e4c1a6d70"
+    )]
     id: String,
+    #[schema(example = 200)]
     status: Option<u16>,
+    #[schema(value_type = Vec<NameValueDto>)]
     headers: Vec<HeaderSnapshot>,
     body: Option<BodyDto>,
+    #[schema(example = 42)]
     duration_ms: u64,
+    #[schema(example = "https://hooks.example.com/incoming")]
     final_url: Option<String>,
+    #[schema(example = "connect_timeout: the connection took too long")]
     error: Option<String>,
     capture_id: Option<String>,
 }
@@ -66,17 +77,29 @@ impl SendResultDto {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = SentRequest)]
 pub struct SentRequestDto {
+    #[schema(
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        example = "0193a6c2-7d1e-7c3a-8f55-2b9e4c1a6d70"
+    )]
     id: String,
+    #[schema(example = 200)]
     status: Option<u16>,
+    #[schema(value_type = Vec<NameValueDto>)]
     headers: Vec<HeaderSnapshot>,
     body: Option<BodyDto>,
+    #[schema(example = 42)]
     duration_ms: u64,
+    #[schema(example = "https://hooks.example.com/incoming")]
     final_url: Option<String>,
+    #[schema(example = "connect_timeout: the connection took too long")]
     error: Option<String>,
     capture_id: Option<String>,
+    #[schema(value_type = SendRequestDoc)]
     request: Value,
+    #[schema(format = DateTime)]
     created_at: String,
 }
 
@@ -114,10 +137,36 @@ impl SentRequestDto {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = SentRequestList)]
 pub struct HistoryDto {
     pub items: Vec<SentRequestDto>,
+    #[schema(example = "0193a6c2-7d1e-7c3a-8f55-2b9e4c1a6d70")]
     pub next_cursor: Option<String>,
+}
+
+#[derive(ToSchema)]
+#[schema(as = SendRequest)]
+#[allow(dead_code)]
+pub struct SendRequestDoc {
+    #[schema(example = "POST")]
+    method: String,
+    #[schema(max_length = 2048, example = "https://hooks.example.com/incoming")]
+    url: String,
+    #[schema(max_items = 50)]
+    headers: Option<Vec<NameValueDto>>,
+    body: Option<BodyInputDoc>,
+    #[schema(minimum = 1, maximum = 15000, default = 15000)]
+    timeout_ms: Option<u64>,
+    #[schema(default = false)]
+    follow_redirects: Option<bool>,
+    #[schema(min_length = 24, max_length = 24, pattern = "^[0-9a-hjkmnp-tv-z]{24}$")]
+    endpoint_id: Option<String>,
+    #[schema(
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        example = "0193a6c2-7d1e-7c3a-8f55-2b9e4c1a6d70"
+    )]
+    source_capture_id: Option<String>,
 }
 
 #[derive(Serialize)]

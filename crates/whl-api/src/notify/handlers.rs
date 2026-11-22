@@ -15,16 +15,39 @@ use whl_store::notify::{
     NewChannel, TestOutcome, Trigger, UpdateChannelOutcome,
 };
 
-use super::dto::{ChannelDto, ChannelListDto, DeliveryDto};
+use super::dto::{ChannelDto, ChannelInputDoc, ChannelListDto, DeliveryDto};
 use super::email::signed_in_user;
 use super::input::{ChannelConfig, DEFAULT_PER_HOUR, ParsedChannel, parse_channel};
 use crate::body::RawBody;
-use crate::error::{ApiError, FieldCode, FieldViolation};
+use crate::error::{ApiError, ErrorBody, FieldCode, FieldViolation};
 use crate::forward::target_violation_for;
+use crate::openapi::params::EndpointIdParam;
+use crate::openapi::responses::{
+    BadRequest, PayloadTooLarge, RateLimited, StoreUnavailable, Unauthenticated,
+    UnsupportedMediaType,
+};
 use crate::state::ApiState;
 
 const TEST_RETRY_AFTER_SECS: u64 = 60;
 
+#[utoipa::path(
+    get,
+    path = "/endpoints/{id}/notifications",
+    operation_id = "notifications_list",
+    tag = "Notifications",
+    summary = "List the notification channels of an endpoint",
+    description = "Viewer role on the endpoint. Returns every channel, enabled or not. `config` never holds a full URL: see the Channel schema. A Bearer token is refused with 403 `session_required`. Answers 404 `not_found` when notifications are switched off on this instance.",
+    security(("session_cookie" = []), ()),
+    params(EndpointIdParam),
+    responses(
+        (status = 200, description = "The channels", body = ChannelListDto),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`session_required`: a Bearer token was used", body = ErrorBody),
+        (status = 404, description = "`not_found`: notifications are switched off, or the endpoint id is malformed", body = ErrorBody),
+        (status = 410, description = "`endpoint_gone`: unknown, expired or deleted endpoint, or no role on it in `sso`", body = ErrorBody),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 pub async fn list(
     State(state): State<ApiState>,
     Path(raw_id): Path<String>,
@@ -38,6 +61,29 @@ pub async fn list(
     }))
 }
 
+#[utoipa::path(
+    post,
+    path = "/endpoints/{id}/notifications",
+    operation_id = "notifications_create",
+    tag = "Notifications",
+    summary = "Create a notification channel",
+    description = "Editor role on the endpoint; at most 10 channels per endpoint. `kind`, `name` and `config` are required. Defaults: `enabled` true, `trigger` `capture`, `template` null, `per_hour` 30. `condition` must be null. `email` and `push` need a signed-in caller; `push` also needs a `push` instance with accounts. Webhook, Slack and Discord URLs are sealed with the instance keyring and only their masked form is returned. Without the keyring the route answers 503 `feature_disabled`, checked before the body is validated. A `kind` the tier does not allow answers 403 `tier_not_allowed` with `error.limit.name` = the kind. Bearer tokens are refused with 403 `session_required`.",
+    security(("session_cookie" = []), ()),
+    params(EndpointIdParam),
+    request_body(content = ChannelInputDoc, content_type = "application/json"),
+    responses(
+        (status = 201, description = "The created channel", body = ChannelDto),
+        (status = 400, response = BadRequest),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`session_required`: a Bearer token was used; `forbidden`: viewer role; `csrf_rejected`: the Origin check failed; `tier_not_allowed`: the kind is not in the tier; `sign_in_required`: `push` or `email` without a signed-in caller; `not_available_in_mode`: `push` on an instance without accounts", body = ErrorBody),
+        (status = 404, description = "`not_found`: notifications are switched off, or the endpoint id is malformed", body = ErrorBody),
+        (status = 410, description = "`endpoint_gone`: unknown, expired or deleted endpoint", body = ErrorBody),
+        (status = 413, response = PayloadTooLarge),
+        (status = 415, response = UnsupportedMediaType),
+        (status = 422, description = "`validation_failed` (`error.fields`): `not_allowed` for an unknown key, a non-null `condition`, a `kind` not yet available, or an address that is not a verified address of the caller or an e-mail channel on an endpoint without an owner; `invalid_format` for a Slack or Discord URL outside its pattern, a webhook URL that is masked or malformed, an unknown secret name, or a bad `chat_id`; `target_refused` for a webhook URL that is refused by the forward target rules or points at this instance; `limit_reached` (`error.limit` = `{name: \"notification_channels\", max: 10}`)", body = ErrorBody),
+        (status = 503, description = "`feature_disabled`: no secrets keyring, or push is not configured; `store_unavailable`", body = ErrorBody)
+    )
+)]
 pub async fn create(
     State(state): State<ApiState>,
     caller: Caller,
@@ -111,6 +157,32 @@ pub(crate) async fn build_channel(
     })
 }
 
+#[utoipa::path(
+    patch,
+    path = "/endpoints/{id}/notifications/{channel_id}",
+    operation_id = "notifications_update",
+    tag = "Notifications",
+    summary = "Change a notification channel",
+    description = "Editor role on the endpoint. Partial: absent fields are unchanged and `null` resets `template`. `kind` cannot change (422 `not_allowed`). A new `config` is checked like on create. An `email` channel: a request that only sets `enabled` to false works for any editor; any other change is refused with 403 `creator_only` unless the caller created the channel. Re-enabling an `email` channel without a new `config` re-checks its address. An empty body is 400 `invalid_json`. Bearer tokens are refused with 403 `session_required`.",
+    security(("session_cookie" = []), ()),
+    params(
+        EndpointIdParam,
+        ("channel_id" = String, Path, pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", description = "Channel id, lowercase hyphenated UUID")
+    ),
+    request_body(content = ChannelInputDoc, content_type = "application/json"),
+    responses(
+        (status = 200, description = "The changed channel", body = ChannelDto),
+        (status = 400, response = BadRequest),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`session_required`: a Bearer token was used; `forbidden`: viewer role; `csrf_rejected`: the Origin check failed; `creator_only`: an e-mail channel changed by someone other than its creator; `sign_in_required`: a re-enabled e-mail channel without a signed-in caller", body = ErrorBody),
+        (status = 404, description = "`channel_not_found`: unknown channel of this endpoint; `not_found`: notifications are switched off, or an id is malformed", body = ErrorBody),
+        (status = 410, description = "`endpoint_gone`: unknown, expired or deleted endpoint", body = ErrorBody),
+        (status = 413, response = PayloadTooLarge),
+        (status = 415, response = UnsupportedMediaType),
+        (status = 422, description = "`validation_failed` (`error.fields`), with the same field codes as create", body = ErrorBody),
+        (status = 503, description = "`feature_disabled`: no secrets keyring, needed when `config` is sent; `store_unavailable`", body = ErrorBody)
+    )
+)]
 pub async fn update(
     State(state): State<ApiState>,
     caller: Caller,
@@ -190,6 +262,27 @@ pub async fn update(
     }
 }
 
+#[utoipa::path(
+    delete,
+    path = "/endpoints/{id}/notifications/{channel_id}",
+    operation_id = "notifications_delete",
+    tag = "Notifications",
+    summary = "Delete a notification channel",
+    description = "Editor role on the endpoint. Bearer tokens are refused with 403 `session_required`.",
+    security(("session_cookie" = []), ()),
+    params(
+        EndpointIdParam,
+        ("channel_id" = String, Path, pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", description = "Channel id, lowercase hyphenated UUID")
+    ),
+    responses(
+        (status = 204, description = "The channel is deleted"),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`session_required`: a Bearer token was used; `forbidden`: viewer role; `csrf_rejected`: the Origin check failed", body = ErrorBody),
+        (status = 404, description = "`channel_not_found`: unknown channel of this endpoint; `not_found`: notifications are switched off, or an id is malformed", body = ErrorBody),
+        (status = 410, description = "`endpoint_gone`: unknown, expired or deleted endpoint", body = ErrorBody),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 pub async fn delete(
     State(state): State<ApiState>,
     Path((raw_id, raw_channel)): Path<(String, String)>,
@@ -208,6 +301,28 @@ pub async fn delete(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/endpoints/{id}/notifications/{channel_id}/test",
+    operation_id = "notifications_test",
+    tag = "Notifications",
+    summary = "Send a test notification through a channel",
+    description = "Editor role on the endpoint. Queues one `test` delivery for the channel and returns it; the send runs afterwards and the delivery's `state` moves on as it runs. At most 5 test deliveries per channel a minute; beyond that 429 `rate_limited` with `Retry-After: 60`. Bearer tokens are refused with 403 `session_required`.",
+    security(("session_cookie" = []), ()),
+    params(
+        EndpointIdParam,
+        ("channel_id" = String, Path, pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", description = "Channel id, lowercase hyphenated UUID")
+    ),
+    responses(
+        (status = 202, description = "The queued test delivery", body = DeliveryDto),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`session_required`: a Bearer token was used; `forbidden`: viewer role; `csrf_rejected`: the Origin check failed", body = ErrorBody),
+        (status = 404, description = "`channel_not_found`: unknown channel of this endpoint; `not_found`: notifications are switched off, or an id is malformed", body = ErrorBody),
+        (status = 410, description = "`endpoint_gone`: unknown, expired or deleted endpoint", body = ErrorBody),
+        (status = 429, response = RateLimited),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 pub async fn test(
     State(state): State<ApiState>,
     Path((raw_id, raw_channel)): Path<(String, String)>,

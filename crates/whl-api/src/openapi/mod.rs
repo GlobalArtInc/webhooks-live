@@ -1,4 +1,5 @@
 mod common;
+mod grant;
 pub(crate) mod params;
 mod registry;
 pub(crate) mod responses;
@@ -27,6 +28,7 @@ pub(crate) fn document() -> Document {
     for area in registry::area_docs() {
         document.merge(area);
     }
+    grant::add_view_grant(&mut document);
     common::add_common_responses(&mut document);
     document
 }

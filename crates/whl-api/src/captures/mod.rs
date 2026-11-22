@@ -1,14 +1,18 @@
 mod annotate;
 mod body;
 mod cursor;
+mod doc;
 mod dto;
 mod handlers;
 mod parts;
 pub(crate) mod query;
 mod stats;
 
+pub(crate) use doc::CaptureIdParam;
 pub(crate) use dto::SummaryDto;
 pub(crate) use query::{ListParams, inbox_query};
+
+pub use doc::CapturesDoc;
 
 use crate::routing::{Routes, get};
 

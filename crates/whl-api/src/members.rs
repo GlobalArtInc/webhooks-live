@@ -3,12 +3,17 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use serde::Serialize;
 use serde_json::{Map, Value};
+use utoipa::{OpenApi, ToSchema};
 use whl_core::endpoint_id::EndpointId;
 use whl_store::{GrantedRole, MemberRecord, RemoveMemberOutcome, SetMemberOutcome, Uuid};
 
 use crate::body::RawBody;
 use crate::dto::{UserDto, timestamp};
-use crate::error::{ApiError, FieldCode, FieldViolation};
+use crate::error::{ApiError, ErrorBody, FieldCode, FieldViolation};
+use crate::openapi::params::EndpointIdParam;
+use crate::openapi::responses::{
+    BadRequest, PayloadTooLarge, StoreUnavailable, UnsupportedMediaType, ValidationFailed,
+};
 use crate::routing::{Routes, delete, get};
 use crate::state::ApiState;
 
@@ -21,11 +26,32 @@ pub fn routes() -> Routes {
         .route("/endpoints/{id}/members/{user_id}", delete(remove))
 }
 
-#[derive(Serialize)]
+#[derive(OpenApi)]
+#[openapi(
+    paths(list, set, remove),
+    components(schemas(MemberDto, MemberListDto, MemberInputDoc)),
+    tags((name = "Members", description = "Endpoint members and their viewer or editor role; owner only, session only"))
+)]
+pub struct MembersDoc;
+
+#[derive(Serialize, ToSchema)]
+#[schema(as = Member)]
 struct MemberDto {
     user: UserDto,
+    #[schema(pattern = "^(viewer|editor)$")]
     role: &'static str,
+    #[schema(format = DateTime)]
     added_at: String,
+}
+
+#[derive(ToSchema)]
+#[schema(as = MemberInput)]
+#[allow(dead_code)]
+pub struct MemberInputDoc {
+    #[schema(max_length = 254)]
+    email: String,
+    #[schema(pattern = "^(viewer|editor)$")]
+    role: String,
 }
 
 impl From<&MemberRecord> for MemberDto {
@@ -38,7 +64,8 @@ impl From<&MemberRecord> for MemberDto {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = MemberList)]
 struct MemberListDto {
     items: Vec<MemberDto>,
 }
@@ -49,6 +76,27 @@ struct MemberInput {
     role: GrantedRole,
 }
 
+#[utoipa::path(
+    get,
+    path = "/endpoints/{id}/members",
+    operation_id = "members_list",
+    tag = "Members",
+    summary = "List the members of an endpoint",
+    description = "Owner only, `sso` and `mixed`. Session only: a Bearer token answers 403 `session_required`. In `mixed` an endpoint without an owner answers 409 `claim_required`.",
+    security(("session_cookie" = [])),
+    params(
+        EndpointIdParam,
+    ),
+    responses(
+        (status = 200, description = "The members, with their roles", body = MemberListDto),
+        (status = 401, description = "`unauthenticated`, `invalid_token` or `grant_required`", body = ErrorBody),
+        (status = 403, description = "`not_available_in_mode`: the instance is `open`; `session_required`: a Bearer token; `sign_in_required`: `mixed` without a signed-in caller", body = ErrorBody),
+        (status = 404, description = "`not_found`: malformed endpoint id", body = ErrorBody),
+        (status = 409, description = "`claim_required`: `mixed` and the endpoint has no owner yet", body = ErrorBody),
+        (status = 410, description = "`endpoint_gone`: unknown, expired or deleted endpoint, or one the caller does not own (`sso`)", body = ErrorBody),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 async fn list(
     State(state): State<ApiState>,
     Path(raw_id): Path<String>,
@@ -62,6 +110,32 @@ async fn list(
     }))
 }
 
+#[utoipa::path(
+    put,
+    path = "/endpoints/{id}/members",
+    operation_id = "members_set",
+    tag = "Members",
+    summary = "Add a member or change a member's role",
+    description = "Owner only, `sso` and `mixed`; session only. Looks the user up by `email` among the people who have signed in; no such user answers 404 `user_not_found`, an email shared by several accounts 409 `email_ambiguous`. The owner cannot be added (422 `validation_failed`, field `email`). Answers 200 both for a new member and for a changed role. A session cookie needs an `Origin` equal to the public origin, else 403 `csrf_rejected`.",
+    security(("session_cookie" = [])),
+    params(
+        EndpointIdParam,
+    ),
+    request_body(content = MemberInputDoc, content_type = "application/json"),
+    responses(
+        (status = 200, description = "The member after the change", body = MemberDto),
+        (status = 400, response = BadRequest),
+        (status = 401, description = "`unauthenticated`, `invalid_token` or `grant_required`", body = ErrorBody),
+        (status = 403, description = "`not_available_in_mode`: the instance is `open`; `session_required`: a Bearer token; `csrf_rejected`: the `Origin` check failed; `sign_in_required`: `mixed` without a signed-in caller", body = ErrorBody),
+        (status = 404, description = "`not_found`: malformed endpoint id; `user_not_found`: no account with this email", body = ErrorBody),
+        (status = 409, description = "`email_ambiguous`: several accounts share the email; `claim_required`: `mixed` and the endpoint has no owner yet", body = ErrorBody),
+        (status = 410, description = "`endpoint_gone`: unknown, expired or deleted endpoint, or one the caller does not own (`sso`)", body = ErrorBody),
+        (status = 413, response = PayloadTooLarge),
+        (status = 415, response = UnsupportedMediaType),
+        (status = 422, response = ValidationFailed),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 async fn set(
     State(state): State<ApiState>,
     Path(raw_id): Path<String>,
@@ -92,6 +166,28 @@ async fn set(
     }
 }
 
+#[utoipa::path(
+    delete,
+    path = "/endpoints/{id}/members/{user_id}",
+    operation_id = "members_remove",
+    tag = "Members",
+    summary = "Remove a member",
+    description = "Owner only, `sso` and `mixed`; session only. A session cookie needs an `Origin` equal to the public origin, else 403 `csrf_rejected`.",
+    security(("session_cookie" = [])),
+    params(
+        EndpointIdParam,
+        ("user_id" = String, Path, description = "User id, lowercase hyphenated UUID"),
+    ),
+    responses(
+        (status = 204, description = "The member is removed"),
+        (status = 401, description = "`unauthenticated`, `invalid_token` or `grant_required`", body = ErrorBody),
+        (status = 403, description = "`not_available_in_mode`: the instance is `open`; `session_required`: a Bearer token; `csrf_rejected`: the `Origin` check failed", body = ErrorBody),
+        (status = 404, description = "`member_not_found`: the user is not a member; `not_found`: malformed endpoint or user id", body = ErrorBody),
+        (status = 409, description = "`claim_required`: `mixed` and the endpoint has no owner yet", body = ErrorBody),
+        (status = 410, description = "`endpoint_gone`: unknown, expired or deleted endpoint, or one the caller does not own (`sso`)", body = ErrorBody),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 async fn remove(
     State(state): State<ApiState>,
     Path((raw_id, raw_user)): Path<(String, String)>,
