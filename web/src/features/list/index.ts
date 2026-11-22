@@ -16,6 +16,7 @@ export { useDeleteWithUndo, UNDO_WINDOW_MS, type DeleteWithUndo, type PendingDel
 export { useVisibleMinuteNow } from './useVisibleMinuteNow';
 export {
   clampListWidth,
+  defaultListWidth,
   LIST_WIDTH_DEFAULT,
   LIST_WIDTH_MAX,
   LIST_WIDTH_MIN,

@@ -1,13 +1,22 @@
 import { PREFS_STORAGE_KEY, readStoredPrefs, updatePrefsFields } from '../../prefs/theme';
 
 export const LIST_WIDTH_DEFAULT = 380;
+export const LIST_WIDTH_DEFAULT_MAX = 520;
 export const LIST_WIDTH_MIN = 300;
 export const LIST_WIDTH_MAX = 560;
 
 const LIST_WIDTH_FIELD = 'listWidth';
+const LIST_WIDTH_VIEWPORT_SHARE = 0.36;
 
 export function clampListWidth(value: number): number {
   return Math.min(LIST_WIDTH_MAX, Math.max(LIST_WIDTH_MIN, Math.round(value)));
+}
+
+export function defaultListWidth(viewportWidth: number): number {
+  return Math.min(
+    LIST_WIDTH_DEFAULT_MAX,
+    Math.max(LIST_WIDTH_DEFAULT, clampListWidth(Math.round(viewportWidth * LIST_WIDTH_VIEWPORT_SHARE))),
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -28,7 +37,9 @@ function parseFields(raw: string | null): Record<string, unknown> {
 
 export function parseListWidth(raw: string | null): number {
   const width = parseFields(raw)[LIST_WIDTH_FIELD];
-  return typeof width === 'number' && Number.isFinite(width) ? clampListWidth(width) : LIST_WIDTH_DEFAULT;
+  return typeof width === 'number' && Number.isFinite(width)
+    ? clampListWidth(width)
+    : defaultListWidth(window.innerWidth);
 }
 
 export function loadListWidth(): number {

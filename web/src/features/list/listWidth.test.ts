@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { PREFS_STORAGE_KEY } from '../../prefs/theme';
-import { LIST_WIDTH_DEFAULT, LIST_WIDTH_MAX, LIST_WIDTH_MIN, parseListWidth, saveListWidth } from './listWidth';
+import {
+  defaultListWidth,
+  LIST_WIDTH_DEFAULT,
+  LIST_WIDTH_MAX,
+  LIST_WIDTH_MIN,
+  parseListWidth,
+  saveListWidth,
+} from './listWidth';
 
 describe('list width preference', () => {
   afterEach(() => {
@@ -13,6 +20,12 @@ describe('list width preference', () => {
     expect(parseListWidth(JSON.stringify({ listWidth: 'wide' }))).toBe(LIST_WIDTH_DEFAULT);
     expect(parseListWidth(JSON.stringify({ listWidth: 10 }))).toBe(LIST_WIDTH_MIN);
     expect(parseListWidth(JSON.stringify({ listWidth: 9000 }))).toBe(LIST_WIDTH_MAX);
+  });
+
+  it('grows the default with the viewport between the floor and the cap', () => {
+    expect(defaultListWidth(1440)).toBe(518);
+    expect(defaultListWidth(1000)).toBe(380);
+    expect(defaultListWidth(2560)).toBe(520);
   });
 
   it('saves the width next to the other preference fields without dropping them', () => {

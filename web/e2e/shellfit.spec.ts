@@ -99,7 +99,7 @@ async function scrollToEnd(bar: Locator): Promise<void> {
   });
 }
 
-for (const size of [MEDIUM, MEDIUM_LOW, MEDIUM_FLOOR]) {
+for (const size of [WIDE, MEDIUM, MEDIUM_LOW, MEDIUM_FLOOR]) {
   test(`at ${size.width} px the list keeps 20 path characters and the header keeps a readable capture URL`, async ({
     page,
   }) => {
