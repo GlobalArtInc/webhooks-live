@@ -51,6 +51,8 @@ pub struct RuleEntry {
     pub rule_id: Uuid,
     pub rule_name: String,
     pub matched: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -122,6 +124,7 @@ impl Entry {
                 .get("matched")
                 .and_then(Value::as_bool)
                 .ok_or(LogReadError)?,
+            error: map.get("error").and_then(Value::as_str).map(str::to_owned),
         }))
     }
 }

@@ -363,6 +363,9 @@ fn refuse_new_http_before_cut(
     rules: &[Rule],
     scripts: &ScriptCompiler,
 ) -> Result<(), ApiError> {
+    if matches!(plan.change, Change::Remove(_)) {
+        return Ok(());
+    }
     let stored = load_set(&plan.stored, scripts)
         .map_err(|_| ApiError::InternalFault("the stored rules could not be read"))?;
     let known: BTreeSet<(Uuid, usize)> = http_before_cut(&stored)

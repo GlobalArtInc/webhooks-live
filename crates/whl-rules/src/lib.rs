@@ -39,8 +39,9 @@ pub use log::{
 pub use machine::{
     Advance, Answer, Effect, Finished, ForwardCall, HttpCall, MAX_HTTP_BODY_BYTES,
     MAX_HTTP_URL_BYTES, MAX_PAYLOAD_BYTES, MAX_VARS_BYTES, Machine, MachineInput, Mode, NotifyCall,
-    OutboundCall, OutboundDone, OutboundStep, Progress, RESPOND_BUDGET, Resumption, RunOutcome,
-    STEP_BUDGET, ScriptCall, StateError, StoreCall, StoreS3Call, StoreValue, request_json,
+    OutboundCall, OutboundDone, OutboundStep, Progress, RESPOND_BUDGET, Resumption, RunDeadline,
+    RunOutcome, STEP_BUDGET, ScriptCall, StateError, StoreCall, StoreS3Call, StoreValue,
+    request_json,
 };
 pub use model::{Action, Argument, BodySource, Condition, Header, Leaf, Op, Rule, S3Content, Step};
 pub use pattern::{

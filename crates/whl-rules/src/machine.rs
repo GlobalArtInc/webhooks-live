@@ -32,6 +32,21 @@ use crate::log::{
 };
 use crate::model::{BodySource, S3Content};
 
+pub trait RunDeadline: Send + Sync {
+    fn expired(&self) -> bool;
+    fn remaining(&self) -> Duration;
+}
+
+impl RunDeadline for Instant {
+    fn expired(&self) -> bool {
+        Instant::now() >= *self
+    }
+
+    fn remaining(&self) -> Duration {
+        self.saturating_duration_since(Instant::now())
+    }
+}
+
 pub const RESPOND_BUDGET: Duration = Duration::from_millis(100);
 pub const STEP_BUDGET: Duration = Duration::from_secs(2);
 pub const MAX_VARS_BYTES: usize = 16 * 1024;
@@ -298,6 +313,7 @@ pub struct Machine {
     pending: Option<Pending>,
     checkpoint_due: bool,
     step_data: Option<StepData>,
+    deadline: Option<Arc<dyn RunDeadline>>,
 }
 
 fn locate(rules: &CompiledRules, position: usize) -> (usize, usize) {
@@ -338,7 +354,13 @@ impl Machine {
             pending: None,
             checkpoint_due: false,
             step_data: None,
+            deadline: None,
         }
+    }
+
+    pub fn with_deadline(mut self, deadline: Arc<dyn RunDeadline>) -> Self {
+        self.deadline = Some(deadline);
+        self
     }
 
     pub fn resumed(input: MachineInput, resumption: Resumption) -> Self {
@@ -400,6 +422,17 @@ impl Machine {
             if self.failure.is_some() || self.stopped {
                 return self.finish(&rules);
             }
+            if self
+                .deadline
+                .as_ref()
+                .is_some_and(|deadline| deadline.expired())
+            {
+                self.failure = Some(Failure::new(
+                    FailureCode::Budget,
+                    "the dry run reached its time limit",
+                ));
+                continue;
+            }
             let Some(rule) = rules.rules().get(self.rule) else {
                 return self.finish(&rules);
             };
@@ -411,7 +444,10 @@ impl Machine {
                 return Advance::Checkpoint;
             }
             if after || self.dry_run_after_cut() {
-                self.budget = ResponseBudget::start(&self.clock, STEP_BUDGET);
+                let allowance = self.deadline.as_ref().map_or(STEP_BUDGET, |deadline| {
+                    STEP_BUDGET.min(deadline.remaining())
+                });
+                self.budget = ResponseBudget::start(&self.clock, allowance);
             }
             if !self.entered {
                 if !after && self.budget_spent() {
@@ -429,7 +465,10 @@ impl Machine {
                         self.checkpoint_due = after;
                         continue;
                     }
-                    Err(_) if self.dry_run_after_cut() => {
+                    Err(failure) if self.dry_run_after_cut() => {
+                        if let Some(Entry::Rule(entry)) = self.log.last_mut() {
+                            entry.error = Some(bound_text(&failure.detail, MAX_DETAIL_BYTES));
+                        }
                         self.rule += 1;
                         self.step = 0;
                         continue;
@@ -557,6 +596,7 @@ impl Machine {
             rule_id: rule.id,
             rule_name: rule.name.clone(),
             matched: matched.as_ref().is_ok_and(|matched| *matched),
+            error: None,
         }));
         matched.map_err(|issue| issue.failure)
     }

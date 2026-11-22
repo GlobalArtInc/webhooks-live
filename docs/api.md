@@ -789,13 +789,16 @@ read its result) and `continue_on_error` (default false). Unknown fields anywher
 
 **Before and after the response.** The plan is cut after the last `respond` step (architecture §22). `forward`,
 `notify` and `store_s3` before the cut are deferred and run after the response with the variables of that moment.
-`http` steps may stand only after the cut: a save that leaves an `http` step before it (create, update, delete or
-reorder) is refused with 422 `validation_failed`, field code `not_allowed` on that step's `kind`. Why: the
+`http` steps may stand only after the cut: a write that puts an `http` step before it (create, update, enable,
+reorder) is refused with 422 `validation_failed`, field code `not_allowed` on that step's `kind` (`steps.N.kind` for
+the rule being changed, `rules.R.steps.N.kind` for another rule that the write pushes before the cut). A set that
+already holds such a step from before this rule existed can still be edited: a write is refused only when the
+violation is in the rule being changed or did not exist before, and a delete is never refused. Why: the
 before-response part has no HTTP budget in v1, and an accepted rule that fails every capture is a trap; refusing at
 save shows the error where it can be fixed. Rejected: silently moving the step after the response (its result
 would be missing for the response it was placed to shape). `limits.sync_http_steps` is 0 in v1; HTTP before the
-response for higher tiers is planned. (The current server accepts such a save and fails each synchronous run with
-`X-Webhooks-Live-Rule-Error: http`; code follow-up.)
+response for higher tiers is planned. A stored set that still has such a step fails each synchronous run with
+`X-Webhooks-Live-Rule-Error: http`.
 
 **Not in v1.** Per-rule capture-kind triggers, an "on match" choice and per-step guards (`if`) are not part of the
 rule model; such fields answer `not_allowed`. Equivalents: a leaf `{"value": "request.kind", "op": "in", "arg":
@@ -809,8 +812,12 @@ log `no_op` with "would set ..."; side effects before the cut log `deferred`; af
 `execute_http` is accepted for compatibility, must be a boolean and has no effect: a dry run never sends HTTP. Why:
 a test click must not spend the outbound quota or reach third parties; the rendered request answers what the
 tester asks. Rejected: implementing `execute_http` (a second outbound path to guard and charge). The answer is a
-RuleRun with `trigger: "dry_run"` and `id` = the capture id. (The current server stops at the cut, so rules without
-a `respond` step and everything after the cut produce no entries; code follow-up.)
+RuleRun with `trigger: "dry_run"` and `id` = the capture id. Every step of every matched rule appears in
+`entries`, also in rules without a `respond` step and after the cut. Secrets are never resolved: `{{ secret.NAME }}`
+renders as `[secret:NAME]`. An error after the cut is recorded in that entry and does not change the run's state or
+`response_status` (as in a live run, where the response is already sent); a rule condition that fails after the cut
+reports `matched: false` with the error text. When the 10 s limit is reached the entries collected so far are
+returned, the last one naming the limit.
 
 RuleRun:
 

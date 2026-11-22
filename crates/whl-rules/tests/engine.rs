@@ -1,7 +1,7 @@
 mod common;
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use common::{
@@ -10,8 +10,8 @@ use common::{
 };
 use serde_json::{Value, json};
 use whl_rules::{
-    Advance, DriveEnv, FailureCode, HeaderOp, Mode, Outcome, RunOutcome, STATE_STEP_TIMEOUT,
-    SliceHook, StateError, StoreCall, drive,
+    Advance, DriveEnv, FailureCode, HeaderOp, Mode, Outcome, RunDeadline, RunOutcome,
+    STATE_STEP_TIMEOUT, SliceHook, StateError, StoreCall, drive,
 };
 use whl_script::DEFAULT_MEMORY_BYTES;
 
@@ -476,6 +476,106 @@ async fn a_dry_run_records_a_failure_after_the_cut_without_failing_the_run() {
         .map(|entry| entry.outcome)
         .collect();
     assert_eq!(outcomes, vec![Outcome::Ok, Outcome::Failed, Outcome::Ok]);
+}
+
+struct ScriptedDeadline {
+    checks_allowed: usize,
+    checks: AtomicUsize,
+    remaining: Duration,
+}
+
+impl RunDeadline for ScriptedDeadline {
+    fn expired(&self) -> bool {
+        self.checks.fetch_add(1, Ordering::SeqCst) >= self.checks_allowed
+    }
+
+    fn remaining(&self) -> Duration {
+        self.remaining
+    }
+}
+
+async fn dry_run_under(
+    rules: &Arc<whl_rules::CompiledRules>,
+    context: whl_template::Context,
+    deadline: ScriptedDeadline,
+) -> whl_rules::Finished {
+    let state = Recorder::default();
+    let env = DriveEnv {
+        pool: None,
+        state: &state,
+        script_memory_bytes: DEFAULT_MEMORY_BYTES,
+        state_timeout: STATE_STEP_TIMEOUT,
+        slice_hook: None,
+    };
+    let limited = machine(rules, context, Mode::DryRun, Duration::from_secs(5))
+        .with_deadline(Arc::new(deadline));
+    drive(limited, &env, Duration::from_secs(5), ()).await
+}
+
+#[tokio::test]
+async fn a_dry_run_reports_a_condition_error_after_the_cut_on_the_rule_entry() {
+    let rules = compile(vec![
+        rule("answer", always(), vec![respond("200", "x")]),
+        rule(
+            "late",
+            json!({"value": "request.body", "op": "matches", "arg": r"(?:foo|bar|baz|qux){1,50}\d+"}),
+            vec![json!({"kind": "set_var", "into": "a", "value": "b"})],
+        ),
+    ]);
+    let mut big = context();
+    big.request.body = whl_template::BodyData::from_text(&"a".repeat(5000));
+    let deadline = ScriptedDeadline {
+        checks_allowed: usize::MAX,
+        checks: AtomicUsize::new(0),
+        remaining: Duration::from_millis(1),
+    };
+
+    let dry = dry_run_under(&rules, big, deadline).await;
+
+    assert_eq!(dry.outcome, RunOutcome::Succeeded);
+    assert_eq!(dry.response.status, Some(200));
+    let entries = rule_entries(&dry);
+    assert_eq!(entries.len(), 2);
+    assert!(entries[0].matched && entries[0].error.is_none());
+    assert!(!entries[1].matched);
+    assert!(
+        entries[1]
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("time budget"))
+    );
+    assert_eq!(step_entries(&dry).len(), 1);
+}
+
+#[tokio::test]
+async fn a_dry_run_that_reaches_its_deadline_returns_the_trace_so_far_with_a_budget_failure() {
+    let mut steps = vec![respond("200", "x")];
+    steps.extend((0..4).map(|_| json!({"kind": "set_var", "into": "a", "value": "b"})));
+    let rules = compile(vec![rule("many", always(), steps)]);
+    let deadline = ScriptedDeadline {
+        checks_allowed: 2,
+        checks: AtomicUsize::new(0),
+        remaining: Duration::from_secs(1),
+    };
+
+    let dry = dry_run_under(&rules, context(), deadline).await;
+
+    match &dry.outcome {
+        RunOutcome::Failed(failure) => {
+            assert_eq!(failure.code, FailureCode::Budget);
+            assert_eq!(failure.detail, "the dry run reached its time limit");
+        }
+        RunOutcome::Succeeded => panic!("the run succeeded"),
+    }
+    assert_eq!(rule_entries(&dry).len(), 1);
+    let steps: Vec<(&str, Outcome)> = step_entries(&dry)
+        .iter()
+        .map(|entry| (entry.kind, entry.outcome))
+        .collect();
+    assert_eq!(
+        steps,
+        vec![("respond", Outcome::Ok), ("set_var", Outcome::Ok)]
+    );
 }
 
 #[tokio::test]

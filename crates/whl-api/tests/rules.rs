@@ -460,3 +460,30 @@ async fn a_reorder_that_moves_the_cut_past_an_http_step_is_refused_with_the_new_
         vec![("rules.0.steps.0.kind".to_owned(), "not_allowed".to_owned())]
     );
 }
+
+#[tokio::test]
+async fn a_stored_rule_that_no_longer_loads_can_still_be_deleted() {
+    let harness = harness().await;
+    let endpoint = endpoint(&harness.app).await;
+    let id: whl_store::Uuid = sqlx::query_scalar(
+        "INSERT INTO rules (id, endpoint_id, position, name, steps) \
+         VALUES (gen_random_uuid(), $1, 1, 'broken', '[{\"kind\": \"teleport\"}]'::jsonb) \
+         RETURNING id",
+    )
+    .bind(&endpoint)
+    .fetch_one(harness.db.pool())
+    .await
+    .expect("the broken rule is inserted");
+
+    let reply = send(
+        &harness.app,
+        bodiless(
+            Method::DELETE,
+            &format!("/api/v1/endpoints/{endpoint}/rules/{id}"),
+        ),
+    )
+    .await;
+
+    assert_eq!(reply.status, StatusCode::NO_CONTENT);
+    assert_eq!(listing(&harness.app, &endpoint).await["items"], json!([]));
+}

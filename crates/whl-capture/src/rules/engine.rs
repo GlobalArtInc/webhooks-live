@@ -38,6 +38,7 @@ pub const DEFAULT_PER_ENDPOINT: usize = 8;
 pub const DEFAULT_DRY_RUN_CONCURRENCY: usize = 4;
 pub const DEFAULT_VARIABLES_DEADLINE: Duration = Duration::from_millis(50);
 const DRY_RUN_VARIABLES_DEADLINE: Duration = Duration::from_millis(500);
+const DRY_RUN_GRACE: Duration = Duration::from_millis(500);
 const WRITE_RESERVE: Duration = Duration::from_millis(500);
 const COMPILE_SLOTS: usize = 4;
 const SEED_KEY_BYTES: usize = 32;
@@ -60,6 +61,7 @@ pub struct RulesSettings {
     pub sync_concurrency: usize,
     pub per_endpoint: usize,
     pub dry_run_concurrency: usize,
+    pub dry_run_limit: Duration,
     pub cache_bytes: usize,
     pub variables_deadline: Duration,
     pub plan_deadline: Duration,
@@ -75,6 +77,7 @@ impl Default for RulesSettings {
             sync_concurrency: DEFAULT_SYNC_CONCURRENCY,
             per_endpoint: DEFAULT_PER_ENDPOINT,
             dry_run_concurrency: DEFAULT_DRY_RUN_CONCURRENCY,
+            dry_run_limit: MAX_SYNC_BUDGET,
             cache_bytes: DEFAULT_CACHE_BYTES,
             variables_deadline: DEFAULT_VARIABLES_DEADLINE,
             plan_deadline: PLAN_LOAD_DEADLINE,
@@ -289,7 +292,11 @@ fn dry_seed(capture: &Uuid) -> RandomSeed {
 
 impl RulesRuntime {
     pub fn new(settings: RulesSettings, pool: Option<Arc<ScriptPool>>) -> Result<Self, RulesError> {
-        if settings.sync_budget.is_zero() || settings.sync_budget > MAX_SYNC_BUDGET {
+        if settings.sync_budget.is_zero()
+            || settings.sync_budget > MAX_SYNC_BUDGET
+            || settings.dry_run_limit.is_zero()
+            || settings.dry_run_limit > MAX_SYNC_BUDGET
+        {
             return Err(RulesError::Budget);
         }
         if !within(settings.sync_concurrency)
@@ -742,7 +749,9 @@ impl RulesRuntime {
             .take_dry_slot(input.endpoint.unpack())
             .ok_or(DryRunError::Busy)?;
         let started = Instant::now();
-        let budget = self.inner.settings.sync_budget;
+        let limit = self.inner.settings.dry_run_limit;
+        let deadline = started + limit;
+        let budget = self.inner.settings.sync_budget.min(limit);
         let compiler = self.inner.compiler;
         let rules = input.rules;
         let (built, slot) =
@@ -781,7 +790,8 @@ impl RulesRuntime {
                     budget: remaining,
                     mode: Mode::DryRun,
                     tenant: input.endpoint.unpack().to_owned(),
-                });
+                })
+                .with_deadline(Arc::new(deadline));
                 let env = DriveEnv {
                     pool: self.inner.pool.as_deref(),
                     state: &NoState,
@@ -789,7 +799,8 @@ impl RulesRuntime {
                     state_timeout: self.inner.settings.state_timeout,
                     slice_hook: None,
                 };
-                drive(machine, &env, MAX_SYNC_BUDGET, slot).await
+                let hard_stop = limit.saturating_sub(started.elapsed()) + DRY_RUN_GRACE;
+                drive(machine, &env, hard_stop, slot).await
             }
         };
         let failure = finished.failure().cloned();
