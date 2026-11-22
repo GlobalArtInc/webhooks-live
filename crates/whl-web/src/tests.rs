@@ -124,6 +124,8 @@ async fn every_ui_route_serves_index() {
         "/inbox/abc123/def456",
         "/account",
         "/usage",
+        "/docs/api",
+        "/docs/api/endpoints_create",
         "/email/verify",
         "/notifications/disable",
         "/e/abc123/unlock",

@@ -33,6 +33,7 @@ import { installGrantGuard } from '../features/access/grantGuard';
 import { installGrantResolver } from '../features/access/grants';
 import { UnlockScreen } from '../features/access/UnlockScreen';
 import { validateCaptureSearch } from '../features/filters/captureSearch';
+import { validateApiReferenceSearch } from '../features/apireference/search';
 import { validateComposeSearch } from '../features/composer/search';
 import { validateEndpointsSearch } from '../features/folders/search';
 import { isCaptureId, isEndpointId } from './ids';
@@ -144,6 +145,18 @@ const composeRoute = createRoute({
   path: '/send',
   validateSearch: validateComposeSearch,
   component: lazyRouteComponent(() => import('../routes/compose/ComposeScreen'), 'ComposeScreen'),
+});
+
+const apiReferenceRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/docs/api',
+  validateSearch: validateApiReferenceSearch,
+  component: lazyRouteComponent(() => import('../routes/docs/ApiReferenceScreen'), 'ApiReferenceScreen'),
+});
+
+const apiOperationRoute = createRoute({
+  getParentRoute: () => apiReferenceRoute,
+  path: '$operationId',
 });
 
 const tokensRoute = createRoute({
@@ -327,6 +340,7 @@ const routeTree = rootRoute.addChildren([
     composeRoute,
     tokensRoute,
     usageRoute,
+    apiReferenceRoute.addChildren([apiOperationRoute]),
     endpointRoute.addChildren([
       captureRoute,
       endpointSettingsRoute.addChildren([settingsIndexRoute, settingsSectionRoute, ruleEditorRoute]),

@@ -23,6 +23,9 @@ export function AccountControls({ instance }: AccountControlsProps) {
           {t('wl.account.signIn')}
         </a>
       )}
+      <Link to="/docs/api" className={styles.link} activeProps={{ 'aria-current': 'page' }}>
+        {t('wl.account.menu.apiReference')}
+      </Link>
       <Link to="/settings" className={styles.link} activeProps={{ 'aria-current': 'page' }}>
         {t('wl.account.preferences')}
       </Link>

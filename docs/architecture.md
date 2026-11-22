@@ -359,7 +359,7 @@ server or container (two images to version, plus cross-origin cookies).
 | Host `{endpoint_id}.<subdomain capture host>` | Capture through a subdomain, any path (§24) |
 | `/auth/login`, `/auth/callback`, `/auth/logout` | OIDC |
 | `/assets/{file}` | Hashed build output: `Cache-Control: public, max-age=31536000, immutable` |
-| `/`, `/e/{endpoint_id}`, `/e/{endpoint_id}/c/{capture_id}`, `/e/{endpoint_id}/settings`, `/e/{endpoint_id}/forwarding`, `/e/{endpoint_id}/diff/{a}/{b}`, `/endpoints`, `/signin`, `/settings` | `index.html`, `Cache-Control: no-cache`, UI headers and Content-Security-Policy of §9; the list follows ui-design.md §2 |
+| `/`, `/e/{endpoint_id}`, `/e/{endpoint_id}/c/{capture_id}`, `/e/{endpoint_id}/settings`, `/e/{endpoint_id}/forwarding`, `/e/{endpoint_id}/diff/{a}/{b}`, `/endpoints`, `/signin`, `/settings`, `/docs/api`, `/docs/api/{operation_id}` | `index.html`, `Cache-Control: no-cache`, UI headers and Content-Security-Policy of §9; the list follows ui-design.md §2 |
 | `/favicon.ico`, `/robots.txt` | Static, `max-age=86400`; `robots.txt` disallows everything |
 | `/sw.js` | The Web Push worker (`web/public/sw.js`), served at exactly this path: `Content-Type: text/javascript; charset=utf-8`, `Cache-Control: no-cache` with an `ETag`, `Service-Worker-Allowed: /`, `X-Content-Type-Options: nosniff` and its own `Content-Security-Policy: default-src 'none'; img-src 'self'`. No other path serves it (`/sw.js/`, `/sw.js.map`, other case and encoded forms answer 404) |
 | anything else | 404 |

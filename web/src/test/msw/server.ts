@@ -2,6 +2,7 @@ import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll } from 'vitest';
 import { generalHandlers } from './general';
 import { handlers } from './handlers';
+import { openApiHandlers, resetOpenApiStore } from './openapi';
 import { organizeHandlers } from './organize';
 import { resetRuleRunStore, ruleRunHandlers } from './runLogs';
 import { resetMockStore } from './store';
@@ -13,6 +14,7 @@ export const mockServer = setupServer(
   ...handlers,
   ...generalHandlers,
   ...usageHandlers,
+  ...openApiHandlers,
 );
 
 export function registerMockServer(): void {
@@ -23,6 +25,7 @@ export function registerMockServer(): void {
     mockServer.resetHandlers();
     resetMockStore();
     resetUsageStore();
+    resetOpenApiStore();
     resetRuleRunStore();
   });
   afterAll(() => {

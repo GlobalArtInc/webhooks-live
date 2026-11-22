@@ -1,0 +1,16 @@
+.paragraph {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.paragraph + .paragraph {
+  margin-top: var(--space-2);
+}
+
+.code {
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-sunken);
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+}

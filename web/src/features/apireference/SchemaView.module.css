@@ -1,0 +1,122 @@
+.block {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.tree {
+  display: grid;
+  gap: var(--space-1);
+  margin: var(--space-1) 0 0;
+  padding: 0 0 0 var(--space-4);
+  border-left: 1px solid var(--color-border);
+  list-style: none;
+}
+
+.row {
+  display: grid;
+  gap: var(--space-0);
+  min-width: 0;
+}
+
+.line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  min-width: 0;
+  font: var(--text-data);
+  color: var(--color-text);
+}
+
+.name {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.toggle:focus-visible,
+.expand:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.chevron {
+  display: inline-block;
+  flex: none;
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 7px solid currentcolor;
+  transition: transform var(--duration-fast) linear;
+}
+
+.chevron[data-open='true'] {
+  transform: rotate(90deg);
+}
+
+.type {
+  color: var(--color-accent-text);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.facts {
+  color: var(--color-text-muted);
+  font: var(--text-meta);
+  overflow-wrap: anywhere;
+}
+
+.flag {
+  color: var(--color-text-muted);
+  font: var(--text-meta);
+}
+
+.flag[data-required='true'] {
+  color: var(--color-danger);
+  font-weight: 600;
+}
+
+.description {
+  color: var(--color-text-muted);
+  font: var(--text-meta);
+}
+
+.expand {
+  min-height: 24px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: var(--text-meta);
+  cursor: pointer;
+}
+
+.expand:hover {
+  background: var(--color-surface-sunken);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chevron {
+    transition: none;
+  }
+}

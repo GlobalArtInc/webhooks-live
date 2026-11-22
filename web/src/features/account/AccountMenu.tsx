@@ -35,6 +35,9 @@ export function AccountMenu({ user }: AccountMenuProps) {
           <DropdownMenu.Item asChild className={styles.menuItem}>
             <Link to="/settings">{t('wl.account.preferences')}</Link>
           </DropdownMenu.Item>
+          <DropdownMenu.Item asChild className={styles.menuItem}>
+            <Link to="/docs/api">{t('wl.account.menu.apiReference')}</Link>
+          </DropdownMenu.Item>
           <DropdownMenu.Separator className={styles.separator} />
           <DropdownMenu.Item className={styles.menuItem} onSelect={() => void signOut()}>
             {t('wl.account.signOut')}

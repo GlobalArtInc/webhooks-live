@@ -1,5 +1,6 @@
 import access from './en/access.json';
 import account from './en/account.json';
+import apireference from './en/apireference.json';
 import cli from './en/cli.json';
 import common from './en/common.json';
 import composer from './en/composer.json';
@@ -38,6 +39,7 @@ import workspace from './en/workspace.json';
 
 export type SourceMessages = typeof access &
   typeof account &
+  typeof apireference &
   typeof cli &
   typeof common &
   typeof composer &

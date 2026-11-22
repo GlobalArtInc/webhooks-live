@@ -8,6 +8,7 @@
   "wl.account.menu.account": "Account",
   "wl.account.menu.tokens": "API tokens",
   "wl.account.menu.usage": "Usage",
+  "wl.account.menu.apiReference": "API reference",
   "wl.account.profile.name": "Name",
   "wl.account.profile.email": "Email",
   "wl.account.profile.provider": "Sign-in provider",

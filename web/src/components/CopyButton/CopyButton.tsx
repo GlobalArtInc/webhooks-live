@@ -8,11 +8,12 @@ type CopyState = 'idle' | 'copied' | 'failed';
 interface CopyButtonProps {
   value: string;
   label: string;
+  onCopied?: (copied: boolean) => void;
 }
 
 const FEEDBACK_MS = 1500;
 
-export function CopyButton({ value, label }: CopyButtonProps) {
+export function CopyButton({ value, label, onCopied }: CopyButtonProps) {
   const { t } = useTranslation();
   const [state, setState] = useState<CopyState>('idle');
 
@@ -44,6 +45,7 @@ export function CopyButton({ value, label }: CopyButtonProps) {
       onClick={() => {
         void copyText(value).then((copied) => {
           setState(copied ? 'copied' : 'failed');
+          onCopied?.(copied);
         });
       }}
     >
