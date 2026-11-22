@@ -21,6 +21,7 @@ pub(super) fn area_docs() -> Vec<Document> {
         crate::schedules::SchedulesDoc::openapi(),
         crate::secrets::SecretsDoc::openapi(),
         super::streams::StreamsDoc::openapi(),
+        crate::templating::TemplatingDoc::openapi(),
         crate::tokens::TokensDoc::openapi(),
         crate::vars::VarsDoc::openapi(),
     ]

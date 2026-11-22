@@ -18,6 +18,7 @@ use crate::limit::ApiLimits;
 use crate::notify::{EmailApi, NotifyApiSettings};
 use crate::schedules::ScheduleSettings;
 use crate::settings::{ApiSettings, DEFAULT_ALIAS_QUARANTINE};
+use crate::templating::PreviewSlots;
 
 #[derive(Clone)]
 pub struct ApiState {
@@ -38,6 +39,7 @@ pub struct ApiState {
     pub(crate) push: Option<PushService>,
     pub(crate) tiers: Tiers,
     pub(crate) rules: Option<RulesRuntime>,
+    pub(crate) previews: PreviewSlots,
 }
 
 impl ApiState {
@@ -63,7 +65,13 @@ impl ApiState {
             push: None,
             tiers: Tiers::default(),
             rules: None,
+            previews: PreviewSlots::default(),
         }
+    }
+
+    pub fn with_preview_slots(mut self, slots: usize) -> Self {
+        self.previews = PreviewSlots::new(slots);
+        self
     }
 
     pub fn with_import_cooldown(mut self, window: std::time::Duration) -> Self {

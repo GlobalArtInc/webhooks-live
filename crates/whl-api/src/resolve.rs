@@ -97,7 +97,7 @@ fn verifier_violation(issue: &ConfigIssue) -> FieldViolation {
     )
 }
 
-fn validate_response(
+pub(crate) fn validate_response(
     base: &ResponseConfig,
     patch: &ResponsePatch,
 ) -> Result<ResponseConfig, ValidationError> {

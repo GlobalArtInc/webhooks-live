@@ -27,7 +27,7 @@ function valuesOf(capture: Capture): Record<string, string> {
   return {
     'request.method': capture.method,
     'request.path': capture.path,
-    'request.json.id': `evt_${capture.seq}`,
+    'json("$.id")': `evt_${capture.seq}`,
     now: capture.received_at,
   };
 }
@@ -52,11 +52,11 @@ function renderText(source: string, field: string, values: Record<string, string
     if (value === undefined) {
       diagnostics.push({
         field,
-        code: 'variable_unknown',
+        code: 'value_missing',
         severity: 'warning',
         ...positionOf(source, offset),
         length: match.length,
-        message: `Unknown variable "${path}" renders empty`,
+        message: `${path} has no value and renders empty`,
       });
       return '';
     }
@@ -67,10 +67,10 @@ function renderText(source: string, field: string, values: Record<string, string
 
 export function renderFake(request: PreviewRequest, capture: Capture | null): PreviewResult {
   const values = capture === null ? {} : valuesOf(capture);
-  const body = renderText(request.response.body.data, 'body', values);
+  const body = renderText(request.response.body.data, 'response.body', values);
   const headers = request.response.headers.map((header, index) => ({
     name: header.name,
-    ...renderText(header.value, `headers.${index}.value`, values),
+    ...renderText(header.value, `response.headers.${index}.value`, values),
   }));
   const diagnostics = [...body.diagnostics, ...headers.flatMap((header) => header.diagnostics)];
   const failed = diagnostics.some((diagnostic) => diagnostic.severity === 'error');

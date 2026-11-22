@@ -560,6 +560,37 @@
         ],
         "type": "object"
       },
+      "CatalogueVariable": {
+        "properties": {
+          "description": {
+            "type": ["string", "null"]
+          },
+          "group": {
+            "example": "request",
+            "pattern": "^(request|time|variables|helpers)$",
+            "type": "string"
+          },
+          "insert_text": {
+            "example": "{{ request.query.mode }}",
+            "type": "string"
+          },
+          "path": {
+            "example": "request.query.mode",
+            "type": "string"
+          },
+          "sample": {
+            "example": "\"test\"",
+            "type": ["string", "null"]
+          },
+          "type": {
+            "example": "string",
+            "pattern": "^(string|integer|number|boolean|null|object|array|json|time|function)$",
+            "type": "string"
+          }
+        },
+        "required": ["path", "insert_text", "group", "type"],
+        "type": "object"
+      },
       "Channel": {
         "description": "A notification channel of an endpoint. `config` per kind: `webhook`, `slack`, `discord`: `{url}`, write-only in full, responses carry only the masked form (`scheme://host/...`, `https://hooks.slack.com/services/...`, `https://discord.com/api/webhooks/...`); `telegram`: `{token_secret, chat_id}`, where `token_secret` is the name of an endpoint secret (its value is never returned) and `chat_id` is a numeric id, optionally negative, or `@username`; `email`: `{address_id}`, a verified address of the creator; `push`: `{}`, the creator's push subscriptions. `condition` is always null. `template` null means the default message; at most 4096 characters. `per_hour` is 1 to 3600.",
         "properties": {
@@ -1976,6 +2007,43 @@
         "required": ["name", "value"],
         "type": "object"
       },
+      "PreviewDiagnostic": {
+        "properties": {
+          "code": {
+            "example": "template_invalid",
+            "type": "string"
+          },
+          "column": {
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "field": {
+            "example": "response.body",
+            "type": "string"
+          },
+          "length": {
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "line": {
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          },
+          "severity": {
+            "example": "error",
+            "pattern": "^(error|warning)$",
+            "type": "string"
+          }
+        },
+        "required": ["field", "code", "severity", "line", "column", "length", "message"],
+        "type": "object"
+      },
       "PushPublicKey": {
         "properties": {
           "public_key": {
@@ -2057,6 +2125,40 @@
           }
         },
         "required": ["items"],
+        "type": "object"
+      },
+      "RenderedResponse": {
+        "properties": {
+          "body": {
+            "$ref": "#/components/schemas/Body"
+          },
+          "body_size": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "content_type": {
+            "type": "string"
+          },
+          "duration_ms": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "headers": {
+            "items": {
+              "$ref": "#/components/schemas/NameValue"
+            },
+            "type": "array"
+          },
+          "status": {
+            "format": "int32",
+            "maximum": 599,
+            "minimum": 100,
+            "type": "integer"
+          }
+        },
+        "required": ["status", "content_type", "headers", "body", "body_size", "duration_ms"],
         "type": "object"
       },
       "Retention": {
@@ -2841,6 +2943,20 @@
         "required": ["id", "name", "created_at", "updated_at", "config"],
         "type": "object"
       },
+      "TemplateDelimiters": {
+        "properties": {
+          "close": {
+            "example": "}}",
+            "type": "string"
+          },
+          "open": {
+            "example": "{{",
+            "type": "string"
+          }
+        },
+        "required": ["open", "close"],
+        "type": "object"
+      },
       "TemplateInput": {
         "properties": {
           "from_endpoint_id": {
@@ -2882,6 +2998,82 @@
           }
         },
         "required": ["name"],
+        "type": "object"
+      },
+      "TemplatePreview": {
+        "description": "`rendered` is null when the draft has error diagnostics, or when no capture was named; warnings leave it set.",
+        "properties": {
+          "capture_id": {
+            "type": ["string", "null"]
+          },
+          "diagnostics": {
+            "items": {
+              "$ref": "#/components/schemas/PreviewDiagnostic"
+            },
+            "type": "array"
+          },
+          "rendered": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RenderedResponse"
+              }
+            ]
+          }
+        },
+        "required": ["diagnostics"],
+        "type": "object"
+      },
+      "TemplatePreviewInput": {
+        "properties": {
+          "capture_id": {
+            "example": "0193a1c2-7e4b-7c11-9a2f-3b5d1e0f4a21",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "type": ["string", "null"]
+          },
+          "response": {
+            "$ref": "#/components/schemas/TemplatePreviewResponseInput"
+          }
+        },
+        "required": ["response"],
+        "type": "object"
+      },
+      "TemplatePreviewResponseInput": {
+        "properties": {
+          "body": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BodyInput"
+              }
+            ]
+          },
+          "content_type": {
+            "type": ["string", "null"]
+          },
+          "headers": {
+            "items": {
+              "$ref": "#/components/schemas/NameValue"
+            },
+            "maxItems": 20,
+            "type": ["array", "null"]
+          },
+          "status": {
+            "default": 200,
+            "format": "int32",
+            "maximum": 599,
+            "minimum": 100,
+            "type": ["integer", "null"]
+          },
+          "status_template": {
+            "maxLength": 1024,
+            "type": ["string", "null"]
+          }
+        },
         "type": "object"
       },
       "TemplateSummary": {
@@ -3018,6 +3210,21 @@
           }
         },
         "required": ["items"],
+        "type": "object"
+      },
+      "VariableCatalogue": {
+        "properties": {
+          "delimiters": {
+            "$ref": "#/components/schemas/TemplateDelimiters"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogueVariable"
+            },
+            "type": "array"
+          }
+        },
+        "required": ["delimiters", "items"],
         "type": "object"
       },
       "Verifier": {
@@ -10369,6 +10576,230 @@
         "tags": ["Streams"]
       }
     },
+    "/endpoints/{id}/template/preview": {
+      "post": {
+        "description": "Renders the draft `response` (`status`, `content_type`, `headers`, `body`, optional `status_template`, the shapes of `EndpointInput`) as a templated response, with the engine, limits and context the live responder uses: 100 ms in total, 50 ms per template, body 1 MiB, header value 1024 bytes, secrets refused. Nothing is sent, stored or counted, and persistent variables are only read. `capture_id` names a capture of this endpoint; `null` or absent checks the draft without rendering. `rendered` is null when any diagnostic has severity `error` or no capture was named; a header that renders an invalid value is dropped with a `warning`, as live. Diagnostics carry `field` (`response.body`, `response.headers.N.value`, `response.status_template`, or a plain response field such as `response.headers.N.name` when the draft itself is invalid), `code`, `severity`, and `line`, `column`, `length` (1-based, in characters) of the offending text. Viewer role (viewers see the editor read-only and can still preview); session only: a Bearer token answers 403 `session_required`. At most 8 previews and catalogue requests run at once on a replica.",
+        "operationId": "templating_preview",
+        "parameters": [
+          {
+            "example": "7k2m9q4xw8c1d5f3h6j0n2p4",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "maxLength": 24,
+              "minLength": 24,
+              "pattern": "^[0-9a-hjkmnp-tv-z]{24}$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "View grant of a view-protected endpoint the caller does not own, from `POST /endpoints/{id}/unlock`. Owners need none.",
+            "in": "header",
+            "name": "X-Webhooks-Live-Grant",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemplatePreviewInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplatePreview"
+                }
+              }
+            },
+            "description": "The diagnostics and, when the draft is clean, the rendered response"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthenticatedOrGrantRequired"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`session_required`: a Bearer token was used; `csrf_rejected`: the Origin check failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`: malformed endpoint id; `capture_not_found`: no such capture on this endpoint"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`endpoint_gone`: unknown, expired or deleted endpoint, or no role on it in `sso`"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`validation_failed` (see `error.fields`): `capture_id` must be a capture id, `response` is required and takes only `status`, `content_type`, `headers`, `body` and `status_template` of the endpoint input; unknown fields are `not_allowed`"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StoreUnavailable"
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {}
+        ],
+        "summary": "Render a draft response template against a stored capture",
+        "tags": ["Templating"]
+      }
+    },
+    "/endpoints/{id}/template/variables": {
+      "get": {
+        "description": "The names a response template can read, as the template engine defines them, with the `insert_text` for each, a `sample` taken from the named capture and a `description`. `group` is `request` (request, capture and endpoint roots, plus the names and JSON body keys of the capture: JSON keys appear as `json(\"$.path\")` calls, at most 4 levels deep and 100 entries), `time`, `variables` (the persistent variables and counters of the endpoint) or `helpers`. `type` is a JSON type, `integer`, `time`, `json` or `function`. Without `capture_id` the fixed names, variables and helpers are listed without samples. `delimiters` are the template delimiters. Run variables (`var.*`), steps and secrets are not listed. Viewer role (viewers see the editor read-only and can still preview); session only: a Bearer token answers 403 `session_required`.",
+        "operationId": "templating_variables",
+        "parameters": [
+          {
+            "example": "7k2m9q4xw8c1d5f3h6j0n2p4",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "maxLength": 24,
+              "minLength": 24,
+              "pattern": "^[0-9a-hjkmnp-tv-z]{24}$",
+              "type": "string"
+            }
+          },
+          {
+            "example": "0193a1c2-7e4b-7c11-9a2f-3b5d1e0f4a21",
+            "in": "query",
+            "name": "capture_id",
+            "required": false,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "View grant of a view-protected endpoint the caller does not own, from `POST /endpoints/{id}/unlock`. Owners need none.",
+            "in": "header",
+            "name": "X-Webhooks-Live-Grant",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VariableCatalogue"
+                }
+              }
+            },
+            "description": "The catalogue"
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthenticatedOrGrantRequired"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`session_required`: a Bearer token was used"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`not_found`: malformed endpoint id; `capture_not_found`: no such capture on this endpoint"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "`endpoint_gone`: unknown, expired or deleted endpoint, or no role on it in `sso`"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/StoreUnavailable"
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          },
+          {}
+        ],
+        "summary": "The variable catalogue of a capture",
+        "tags": ["Templating"]
+      }
+    },
     "/endpoints/{id}/unlock": {
       "post": {
         "description": "Returns a grant that is valid until `expires_at`. The grant comes in the body only: the response sets no cookie. The client keeps it and sends it as the `X-Webhooks-Live-Grant` header on every later request for the endpoint; the stream routes also accept `?grant=`. A request without a valid grant answers 401 `grant_required`. Anyone with the id may call it; a token needs the `read` scope. A wrong password answers 401 `wrong_password`, the same for an unknown or unprotected endpoint. Repeated attempts answer 429 `rate_limited`.",
@@ -12949,6 +13380,10 @@
     {
       "description": "Persistent variables of an endpoint: named JSON values that rules read, set and count",
       "name": "Variables"
+    },
+    {
+      "description": "Response templating: the variable catalogue of a capture and a server-side preview of a draft response",
+      "name": "Templating"
     }
   ]
 }

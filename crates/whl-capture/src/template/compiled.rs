@@ -33,6 +33,7 @@ impl ViolationKind {
 pub struct SourcePosition {
     pub line: u32,
     pub column: u32,
+    pub length: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -96,6 +97,7 @@ fn parse(
                     position: Some(SourcePosition {
                         line: diagnostic.position.line,
                         column: diagnostic.position.column,
+                        length: u32::try_from(diagnostic.position.length).unwrap_or(u32::MAX),
                     }),
                 });
             }

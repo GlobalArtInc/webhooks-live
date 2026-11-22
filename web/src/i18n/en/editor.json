@@ -55,6 +55,7 @@
   "wl.variables.group.request": "Request",
   "wl.variables.group.time": "Time",
   "wl.variables.group.rules": "Rule variables",
+  "wl.variables.group.variables": "Variables",
   "wl.variables.group.helpers": "Helpers",
   "wl.picker.label": "Preview with",
   "wl.picker.latest": "Latest, follows new arrivals",

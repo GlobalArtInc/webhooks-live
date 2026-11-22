@@ -1,3 +1,4 @@
+mod catalogue;
 mod common;
 mod determinism;
 mod filters;

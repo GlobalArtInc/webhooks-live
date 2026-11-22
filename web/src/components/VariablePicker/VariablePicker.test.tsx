@@ -100,4 +100,20 @@ describe('VariablePicker', () => {
     expect(screen.getByRole('status').textContent).toBe('Loading variables');
     expect(screen.getByRole('listbox').getAttribute('aria-busy')).toBe('true');
   });
+
+  it('titles the persistent variables group of the server catalogue', () => {
+    render(
+      <I18nextProvider i18n={createI18nInstance()}>
+        <VariablePicker
+          catalogue={[{ path: 'counter.hits', insertText: '{{ counter.hits }}', group: 'variables', type: 'integer' }]}
+          onInsert={vi.fn()}
+          loading={false}
+          sampleCapture="POST /stripe"
+        />
+      </I18nextProvider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Insert variable' }));
+
+    expect(screen.getByRole('group', { name: 'Variables' })).toBeTruthy();
+  });
 });

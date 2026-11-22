@@ -134,11 +134,11 @@ test.describe('response templating', () => {
     const body = page.getByRole('textbox', { name: BODY_LABEL, exact: true });
 
     await page.getByRole('button', { name: 'Insert variable' }).click();
-    await page.getByRole('combobox', { name: 'Filter variables' }).fill('json.id');
+    await page.getByRole('combobox', { name: 'Filter variables' }).fill('$.id');
     await page.keyboard.press('Enter');
 
     await expect(body).toBeFocused();
-    await expect(body).toContainText('{{ request.json.id }}');
+    await expect(body).toContainText('{{ json("$.id") }}');
   });
 
   test('saving sends the Use variables flag with the response', async ({ page }) => {

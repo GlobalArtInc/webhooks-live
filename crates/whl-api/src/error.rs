@@ -90,14 +90,16 @@ impl FieldViolation {
         self
     }
 
-    #[cfg(test)]
     pub fn field(&self) -> &str {
         &self.field
     }
 
-    #[cfg(test)]
     pub fn code(&self) -> FieldCode {
         self.code
+    }
+
+    pub fn message(&self) -> &str {
+        &self.message
     }
 
     pub fn prefixed(self, prefix: &str) -> Self {
@@ -140,6 +142,32 @@ pub(crate) fn core_code(code: ViolationCode) -> FieldCode {
         | ViolationCode::InvalidToken
         | ViolationCode::InvalidMediaType
         | ViolationCode::Duplicate => FieldCode::InvalidFormat,
+    }
+}
+
+impl FieldCode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Required => "required",
+            Self::InvalidFormat => "invalid_format",
+            Self::TooLong => "too_long",
+            Self::OutOfRange => "out_of_range",
+            Self::TooMany => "too_many",
+            Self::Duplicate => "duplicate",
+            Self::NotAllowed => "not_allowed",
+            Self::Reserved => "reserved",
+            Self::TargetRefused => "target_refused",
+            Self::TargetUnresolvable => "target_unresolvable",
+            Self::SecretUnknown => "secret_unknown",
+            Self::TemplateInvalid => "template_invalid",
+            Self::JsonPathInvalid => "json_path_invalid",
+            Self::SecretNotAllowed => "secret_not_allowed",
+            Self::StepUnknown => "step_unknown",
+            Self::CronInvalid => "cron_invalid",
+            Self::TimezoneInvalid => "timezone_invalid",
+            Self::IntervalTooShort => "interval_too_short",
+            Self::HostNotAllowed => "host_not_allowed",
+        }
     }
 }
 

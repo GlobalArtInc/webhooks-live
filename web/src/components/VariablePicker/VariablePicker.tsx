@@ -53,6 +53,8 @@ export function VariablePicker({
         return t('wl.variables.group.time');
       case 'rules':
         return t('wl.variables.group.rules');
+      case 'variables':
+        return t('wl.variables.group.variables');
       case 'helpers':
         return t('wl.variables.group.helpers');
       default:
@@ -61,7 +63,7 @@ export function VariablePicker({
   }
 
   function isKnownGroup(group: string): boolean {
-    return group === 'request' || group === 'time' || group === 'rules' || group === 'helpers';
+    return group === 'request' || group === 'time' || group === 'rules' || group === 'variables' || group === 'helpers';
   }
 
   useEffect(() => {

@@ -1,5 +1,6 @@
 mod ast;
 mod budget;
+mod catalogue;
 mod context;
 mod env;
 mod error;
@@ -16,6 +17,10 @@ mod writer;
 
 pub use ast::Template;
 pub use budget::ResponseBudget;
+pub use catalogue::{
+    CLOSE_DELIMITER, CatalogueBasis, CatalogueEntry, CatalogueGroup, CatalogueType, DELIMITERS,
+    Delimiters, MAX_SAMPLE_CHARS, OPEN_DELIMITER, catalogue,
+};
 pub use context::{
     BodyData, CaptureData, Context, EndpointData, NameValue, RequestData, Secrets, SignatureState,
     StepData,

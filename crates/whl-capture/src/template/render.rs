@@ -254,7 +254,7 @@ pub(crate) fn run(job: &RenderJob) -> Rendering {
     }
 }
 
-fn parse_status(output: &str) -> Option<HttpStatus> {
+pub(super) fn parse_status(output: &str) -> Option<HttpStatus> {
     if output.len() != 3 || !output.bytes().all(|byte| byte.is_ascii_digit()) {
         return None;
     }
@@ -262,7 +262,7 @@ fn parse_status(output: &str) -> Option<HttpStatus> {
     HttpStatus::new(code)
 }
 
-fn validated_header(name: &str, value: String) -> Option<RenderedHeader> {
+pub(super) fn validated_header(name: &str, value: String) -> Option<RenderedHeader> {
     HeaderName::parse(name).ok()?;
     HeaderValue::parse(&value).ok()?;
     Some(RenderedHeader {

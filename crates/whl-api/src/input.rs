@@ -153,6 +153,21 @@ pub fn parse_endpoint_input(bytes: &[u8], allow_empty: bool) -> Result<ParsedInp
     })
 }
 
+pub fn parse_response_object(object: &Map<String, Value>) -> ParsedResponse {
+    let mut walk = Walk::default();
+    let patch = walk.response(object);
+    ParsedResponse {
+        patch,
+        violations: walk.violations,
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct ParsedResponse {
+    pub patch: ResponsePatch,
+    pub violations: Vec<FieldViolation>,
+}
+
 #[derive(Default)]
 struct Walk {
     violations: Vec<FieldViolation>,

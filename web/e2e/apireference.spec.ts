@@ -2,12 +2,14 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { parseOpenApiDocument } from '../src/features/apireference/document';
+import { buildReference } from '../src/features/apireference/reference';
 import { SIGNED_IN_USER } from '../src/test/fixtures/usage';
 import { instanceWith, mockApi, type Reply } from './support/mockApi';
 
 const FIXTURE_PATH = fileURLToPath(new URL('../src/test/fixtures/openapi.json', import.meta.url));
 const document: unknown = JSON.parse(readFileSync(FIXTURE_PATH, 'utf8'));
-const OPERATION_COUNT = 94;
+const OPERATION_COUNT = buildReference(parseOpenApiDocument(document)).operations.length;
 const WIDTHS = [
   { width: 360, height: 740 },
   { width: 1440, height: 900 },

@@ -193,6 +193,8 @@ fn endpoint_role(method: &Method, tail: &str) -> EndpointRole {
         "/secrets/{name}" if matches!(*method, Method::PUT | Method::DELETE) => {
             EndpointRole::Editor
         }
+        "/template/variables" if read => EndpointRole::Viewer,
+        "/template/preview" if *method == Method::POST => EndpointRole::Viewer,
         "/vars" if read => EndpointRole::Viewer,
         "/vars/{name}" if matches!(*method, Method::PUT | Method::DELETE) => EndpointRole::Editor,
         "/captures/{capture_id}/forward" | "/captures/{capture_id}/resend"
@@ -253,7 +255,14 @@ mod tests {
     #[test]
     fn every_documented_route_needs_the_role_of_the_api_table() {
         use EndpointRole::{Editor, Owner, Viewer};
-        let table: [(&Method, &str, Requirement); 49] = [
+        let table: [(&Method, &str, Requirement); 52] = [
+            (&GET, "/template/variables", Requirement::Role(Viewer)),
+            (
+                &Method::HEAD,
+                "/template/variables",
+                Requirement::Role(Viewer),
+            ),
+            (&POST, "/template/preview", Requirement::Role(Viewer)),
             (&GET, "/vars", Requirement::Role(Viewer)),
             (&Method::HEAD, "/vars", Requirement::Role(Viewer)),
             (&PUT, "/vars/{name}", Requirement::Role(Editor)),
@@ -412,6 +421,29 @@ mod tests {
                     "{method} {tail}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn template_routes_need_a_viewer_and_refuse_every_token() {
+        for mode in MODES {
+            for (method, tail) in [(&GET, "/template/variables"), (&POST, "/template/preview")] {
+                let pattern = format!("/api/v1/endpoints/{{id}}{tail}");
+                assert_eq!(
+                    requirement(mode, method, &pattern),
+                    Requirement::Role(EndpointRole::Viewer),
+                    "{mode:?} {method} {tail}"
+                );
+                assert_eq!(
+                    token_policy(method, &pattern),
+                    TokenPolicy::SessionOnly,
+                    "{method} {tail}"
+                );
+            }
+            assert_eq!(
+                requirement(mode, &GET, "/api/v1/endpoints/{id}/template/preview"),
+                Requirement::Role(EndpointRole::Owner)
+            );
         }
     }
 

@@ -2,15 +2,13 @@ use crate::ast::{
     Arg, CompiledJsonPath, Expression, Filter, FilterKind, Function, JsonSource, Key, Part,
     Primary, Reference, Segment, StepField, Template,
 };
+use crate::catalogue::{CLOSE_DELIMITER as CLOSE, OPEN_DELIMITER as OPEN};
 use crate::error::{Diagnostic, ErrorCode, TemplateError};
 use crate::format;
 use crate::jsonpath;
 use crate::limits::{MAX_ARGUMENTS, MAX_IDENTIFIER_BYTES, MAX_KEY_BYTES};
 use crate::span::{ByteRange, locate};
 use crate::target::{Policy, RenderTarget, SecretPolicy, StepPolicy};
-
-const OPEN: &str = "{{";
-const CLOSE: &str = "}}";
 
 struct Failed;
 
@@ -92,7 +90,7 @@ fn is_ident_continue(character: char) -> bool {
     character.is_ascii_alphanumeric() || character == '_'
 }
 
-fn is_valid_name(name: &str) -> bool {
+pub(crate) fn is_valid_name(name: &str) -> bool {
     let mut characters = name.chars();
     let Some(first) = characters.next() else {
         return false;
@@ -104,7 +102,7 @@ fn is_valid_name(name: &str) -> bool {
         })
 }
 
-fn is_key_character(character: char) -> bool {
+pub(crate) fn is_key_character(character: char) -> bool {
     character.is_ascii_alphanumeric() || character == '_' || character == '-'
 }
 

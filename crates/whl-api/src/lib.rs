@@ -32,6 +32,7 @@ mod secrets;
 mod settings;
 mod state;
 mod stream;
+mod templating;
 mod tokens;
 mod vars;
 mod view_password;
@@ -89,6 +90,7 @@ fn api_routes() -> Routes {
         .merge(composer::routes())
         .merge(tokens::routes())
         .merge(quota::routes())
+        .merge(templating::routes())
         .merge(vars::routes())
         .merge(openapi::routes())
 }

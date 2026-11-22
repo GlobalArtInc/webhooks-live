@@ -291,6 +291,15 @@ pub(crate) struct NameValueDto {
     value: String,
 }
 
+impl NameValueDto {
+    pub(crate) fn new(name: &str, value: &str) -> Self {
+        Self {
+            name: name.to_owned(),
+            value: value.to_owned(),
+        }
+    }
+}
+
 #[derive(Serialize, ToSchema)]
 #[schema(as = Body)]
 pub(crate) struct BodyDto {

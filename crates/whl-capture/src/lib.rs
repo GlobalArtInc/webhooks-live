@@ -40,8 +40,10 @@ pub use state::{
     StateError, SystemSource,
 };
 pub use template::{
-    BODY_FIELD, ResponseSources, STATUS_FIELD, SourcePosition, TemplateSettings, TemplateViolation,
-    ViolationKind, validate_response_templates,
+    BODY_FIELD, PreviewDiagnostic, PreviewRendered, PreviewReport, PreviewSeverity,
+    ResponseSources, STATUS_FIELD, SourcePosition, TemplateDraft, TemplateSettings,
+    TemplateViolation, ViolationKind, persistent_context, render_preview, response_context,
+    validate_response_templates,
 };
 pub use verification::INLINE_VERIFY_BYTES;
 

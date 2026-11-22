@@ -1,5 +1,6 @@
 mod compiled;
 mod engine;
+mod preview;
 mod render;
 mod report;
 
@@ -8,6 +9,10 @@ pub use compiled::{
 };
 pub use engine::TemplateSettings;
 pub(crate) use engine::{RenderInput, TemplateEngine};
+pub use preview::{
+    PreviewDiagnostic, PreviewRendered, PreviewReport, PreviewSeverity, TemplateDraft,
+    persistent_context, render_preview, response_context,
+};
 pub(crate) use report::{FallbackCode, RenderedParts, Served};
 
 pub fn validate_response_templates(
