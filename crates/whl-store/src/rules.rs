@@ -148,6 +148,13 @@ async fn current_version(
         .map_err(classify)
 }
 
+pub(crate) async fn read_rule_records(
+    conn: &mut PgConnection,
+    endpoint: &EndpointId,
+) -> Result<Vec<RuleRecord>, RuleStoreError> {
+    Ok(read_set(conn, endpoint).await?.rules)
+}
+
 async fn read_set(
     conn: &mut PgConnection,
     endpoint: &EndpointId,

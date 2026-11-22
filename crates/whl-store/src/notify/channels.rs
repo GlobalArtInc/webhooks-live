@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use sqlx::postgres::PgRow;
-use sqlx::{Postgres, Row, Transaction};
+use sqlx::{PgConnection, Postgres, Row, Transaction};
 use uuid::Uuid;
 use whl_core::endpoint_id::EndpointId;
 use whl_secrets::SealedSecret;
@@ -71,6 +71,22 @@ fn columns() -> String {
          config::text AS config, template, per_hour, created_by, \
          to_char(created_at AT TIME ZONE 'UTC', {TIMESTAMP_SQL}) AS created_at"
     )
+}
+
+pub(crate) async fn read_channels(
+    conn: &mut PgConnection,
+    endpoint: &EndpointId,
+) -> Result<Vec<Channel>, NotifyStoreError> {
+    let sql = format!(
+        "SELECT {} FROM notification_channels WHERE endpoint_id = $1 ORDER BY created_at, id",
+        columns()
+    );
+    let rows = sqlx::query(&sql)
+        .bind(endpoint.unpack())
+        .fetch_all(conn)
+        .await
+        .map_err(classify)?;
+    rows.iter().map(channel_from_row).collect()
 }
 
 impl Store {

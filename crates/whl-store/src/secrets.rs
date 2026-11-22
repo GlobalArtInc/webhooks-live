@@ -7,6 +7,9 @@ use whl_secrets::{KeyId, SealedSecret, SecretName};
 
 use crate::Store;
 use crate::forward::{ForwardStoreError, TIMESTAMP_SQL, lock_live_endpoint};
+use crate::notify::{Channel, NotifyStoreError, read_channels};
+use crate::rules::{RuleRecord, RuleStoreError, read_rule_records};
+use crate::schedules::{ScheduleRecord, ScheduleStoreError, read_schedule_records};
 
 #[derive(Debug, thiserror::Error)]
 pub enum SecretStoreError {
@@ -29,6 +32,36 @@ impl From<ForwardStoreError> for SecretStoreError {
         match error {
             ForwardStoreError::Unavailable(source) => Self::Unavailable(source),
             ForwardStoreError::Query(source) => Self::Query(source),
+            other => Self::Invalid(other.to_string()),
+        }
+    }
+}
+
+impl From<RuleStoreError> for SecretStoreError {
+    fn from(error: RuleStoreError) -> Self {
+        match error {
+            RuleStoreError::Unavailable(source) => Self::Unavailable(source),
+            RuleStoreError::Query(source) => Self::Query(source),
+            other => Self::Invalid(other.to_string()),
+        }
+    }
+}
+
+impl From<NotifyStoreError> for SecretStoreError {
+    fn from(error: NotifyStoreError) -> Self {
+        match error {
+            NotifyStoreError::Unavailable(source) => Self::Unavailable(source),
+            NotifyStoreError::Query(source) => Self::Query(source),
+            other => Self::Invalid(other.to_string()),
+        }
+    }
+}
+
+impl From<ScheduleStoreError> for SecretStoreError {
+    fn from(error: ScheduleStoreError) -> Self {
+        match error {
+            ScheduleStoreError::Unavailable(source) => Self::Unavailable(source),
+            ScheduleStoreError::Query(source) => Self::Query(source),
             other => Self::Invalid(other.to_string()),
         }
     }
@@ -64,11 +97,44 @@ pub enum PutSecretOutcome {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReferenceKind {
+    Verifier,
+    Rule,
+    Channel,
+    Schedule,
+}
+
+impl ReferenceKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Verifier => "verifier",
+            Self::Rule => "rule",
+            Self::Channel => "channel",
+            Self::Schedule => "schedule",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SecretReference {
+    pub kind: ReferenceKind,
+    pub id: String,
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReferenceSnapshot {
+    pub rules: Vec<RuleRecord>,
+    pub channels: Vec<Channel>,
+    pub schedules: Vec<ScheduleRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeleteSecretOutcome {
     Deleted,
     EndpointGone,
     NotFound,
-    InUse,
+    InUse(Vec<SecretReference>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -193,17 +259,25 @@ impl Store {
         Ok(PutSecretOutcome::Stored(meta))
     }
 
-    pub async fn delete_secret(
+    pub async fn delete_secret<F>(
         &self,
         endpoint: &EndpointId,
         retention: Duration,
         name: &SecretName,
-    ) -> Result<DeleteSecretOutcome, SecretStoreError> {
+        scan: F,
+    ) -> Result<DeleteSecretOutcome, SecretStoreError>
+    where
+        F: FnOnce(&ReferenceSnapshot) -> Result<Vec<SecretReference>, SecretStoreError>,
+    {
         let mut tx = self.pool().begin().await.map_err(classify)?;
         if !lock_live_endpoint(&mut tx, endpoint, retention).await? {
             return Ok(DeleteSecretOutcome::EndpointGone);
         }
-        let referenced: bool = sqlx::query_scalar(
+        if !secret_exists(&mut tx, endpoint, name).await? {
+            return Ok(DeleteSecretOutcome::NotFound);
+        }
+        let mut references = Vec::new();
+        let verifier_reads: bool = sqlx::query_scalar(
             "SELECT EXISTS (SELECT 1 FROM endpoints WHERE id = $1 AND verifier ->> 'secret_name' = $2)",
         )
         .bind(endpoint.unpack())
@@ -211,8 +285,21 @@ impl Store {
         .fetch_one(&mut *tx)
         .await
         .map_err(classify)?;
-        if referenced {
-            return Ok(DeleteSecretOutcome::InUse);
+        if verifier_reads {
+            references.push(SecretReference {
+                kind: ReferenceKind::Verifier,
+                id: endpoint.unpack().to_owned(),
+                name: None,
+            });
+        }
+        let snapshot = ReferenceSnapshot {
+            rules: read_rule_records(&mut tx, endpoint).await?,
+            channels: read_channels(&mut tx, endpoint).await?,
+            schedules: read_schedule_records(&mut tx, endpoint).await?,
+        };
+        references.extend(scan(&snapshot)?);
+        if !references.is_empty() {
+            return Ok(DeleteSecretOutcome::InUse(references));
         }
         let deleted =
             sqlx::query("DELETE FROM endpoint_secrets WHERE endpoint_id = $1 AND name = $2")

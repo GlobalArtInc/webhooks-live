@@ -171,6 +171,7 @@ pub struct CompiledRule {
     pub(crate) name: String,
     pub(crate) condition: CompiledCondition,
     pub(crate) steps: Vec<CompiledStep>,
+    pub(crate) secrets: BTreeSet<String>,
     pub(crate) source: Rule,
 }
 
@@ -189,6 +190,10 @@ impl CompiledRule {
 
     pub fn steps(&self) -> &[CompiledStep] {
         &self.steps
+    }
+
+    pub fn secret_names(&self) -> &BTreeSet<String> {
+        &self.secrets
     }
 }
 
@@ -435,16 +440,20 @@ fn compile_rule(
     scripts: &ScriptCompiler,
     collector: &mut Collector<'_>,
 ) -> Result<CompiledRule, CompileError> {
+    let carried = std::mem::take(&mut collector.secrets);
     let condition = compile_condition(index, &source.rule.condition, collector)?;
     let mut steps = Vec::with_capacity(source.rule.steps.len());
     for (step_index, step) in source.rule.steps.iter().enumerate() {
         steps.push(compile_step(index, step_index, step, scripts, collector)?);
     }
+    let secrets = std::mem::replace(&mut collector.secrets, carried);
+    collector.secrets.extend(secrets.iter().cloned());
     Ok(CompiledRule {
         id: source.id,
         name: source.rule.name.clone(),
         condition,
         steps,
+        secrets,
         source: source.rule,
     })
 }

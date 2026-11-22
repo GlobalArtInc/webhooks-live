@@ -6,7 +6,8 @@ use common::{compile, compiler, context, respond, rule, rule_id, run};
 use serde_json::{Value, json};
 use uuid::Uuid;
 use whl_rules::{
-    PlanReadError, References, Rule, StoredRule, load_stored, rules_from_plan, validate_set,
+    CompiledRules, PlanReadError, References, Rule, StoredRule, load_stored, rules_from_plan,
+    validate_set,
 };
 
 fn every_shape() -> Vec<Value> {
@@ -120,4 +121,54 @@ fn a_plan_of_another_version_is_refused_instead_of_misread() {
         rules_from_plan(&none),
         Err(PlanReadError::Version { found: None })
     ));
+}
+
+#[test]
+fn each_compiled_rule_lists_the_secrets_it_alone_reads() {
+    let inputs = vec![
+        rule(
+            "calls",
+            json!({}),
+            vec![
+                json!({"kind": "http", "method": "GET", "url": "https://h.example/{{ secret.API_KEY }}"}),
+            ],
+        ),
+        rule(
+            "stores",
+            json!({}),
+            vec![
+                json!({"kind": "store_s3", "bucket_url": "https://s3.example/b", "region": "eu-1",
+                "access_key_secret": "S3_ID", "secret_key_secret": "S3_KEY", "content": "body"}),
+            ],
+        ),
+        rule("plain", json!({}), vec![json!({"kind": "stop"})]),
+    ];
+    let references = References {
+        secrets: ["API_KEY", "S3_ID", "S3_KEY"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
+        ..References::default()
+    };
+    let scripts = compiler();
+    let rules = validate_set(&inputs, &references, &scripts).expect("the rules are valid");
+    let stored = stored_of(&rules);
+
+    let sources = load_stored(&stored, &scripts).expect("the stored rules load");
+    let compiled = CompiledRules::compile(sources, &scripts).expect("the rules compile");
+
+    let names: Vec<Vec<String>> = compiled
+        .rules()
+        .iter()
+        .map(|rule| rule.secret_names().iter().cloned().collect())
+        .collect();
+    assert_eq!(
+        names,
+        vec![
+            vec!["API_KEY".to_owned()],
+            vec!["S3_ID".to_owned(), "S3_KEY".to_owned()],
+            Vec::<String>::new()
+        ]
+    );
+    assert_eq!(compiled.secret_names().len(), 3);
 }

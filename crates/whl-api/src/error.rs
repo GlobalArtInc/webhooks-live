@@ -16,7 +16,7 @@ use whl_store::notify::{
 };
 use whl_store::rules::RuleStoreError;
 use whl_store::schedules::ScheduleStoreError;
-use whl_store::secrets::SecretStoreError;
+use whl_store::secrets::{SecretReference, SecretStoreError};
 use whl_store::templates::{MAX_TEMPLATES_PER_USER, TemplateError};
 use whl_store::vars::{MAX_VARS_PER_ENDPOINT, VarStoreError};
 use whl_store::{
@@ -229,8 +229,10 @@ pub enum ApiError {
     OwnerRequired,
     #[error("the owner already has the maximum of {max} never-expire endpoints")]
     NeverExpireLimit { max: u32 },
-    #[error("the secret is still used by the signature verifier of this endpoint")]
-    SecretInUse { endpoint: String },
+    #[error(
+        "the secret is still referenced by this endpoint's verifier, rules, channels or schedules"
+    )]
+    SecretInUse { references: Vec<SecretReference> },
     #[error("the selection is larger than the export limit")]
     ExportTooLarge,
     #[error("the import is larger than the import limit")]
@@ -542,6 +544,9 @@ pub(crate) struct ErrorDetail {
 pub(crate) struct ReferenceDetail {
     kind: &'static str,
     id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
+    name: Option<String>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -647,10 +652,16 @@ impl IntoResponse for ApiError {
             _ => None,
         };
         let references = match &self {
-            Self::SecretInUse { endpoint } => Some(vec![ReferenceDetail {
-                kind: "verifier",
-                id: endpoint.clone(),
-            }]),
+            Self::SecretInUse { references } => Some(
+                references
+                    .iter()
+                    .map(|reference| ReferenceDetail {
+                        kind: reference.kind.as_str(),
+                        id: reference.id.clone(),
+                        name: reference.name.clone(),
+                    })
+                    .collect(),
+            ),
             _ => None,
         };
         let (status, code, message, fields) = match self {

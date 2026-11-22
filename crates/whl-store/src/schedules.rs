@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
-use sqlx::{Row, Transaction};
+use sqlx::{PgConnection, Row, Transaction};
 use time::OffsetDateTime;
 use uuid::Uuid;
 use whl_core::endpoint_id::EndpointId;
@@ -278,6 +278,20 @@ pub struct ScheduleSettlement {
 pub enum SettleOutcome {
     Settled,
     LeaseLost,
+}
+
+pub(crate) async fn read_schedule_records(
+    conn: &mut PgConnection,
+    endpoint: &EndpointId,
+) -> Result<Vec<ScheduleRecord>, ScheduleStoreError> {
+    let sql =
+        format!("SELECT {COLUMNS} FROM schedules WHERE endpoint_id = $1 ORDER BY created_at, id");
+    let rows = sqlx::query(&sql)
+        .bind(endpoint.unpack())
+        .fetch_all(conn)
+        .await
+        .map_err(classify)?;
+    rows.iter().map(schedule_from_row).collect()
 }
 
 impl Store {

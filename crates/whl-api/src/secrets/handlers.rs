@@ -7,6 +7,7 @@ use whl_store::secrets::{DeleteSecretOutcome, PutSecretOutcome};
 
 use super::dto::{SecretDto, SecretInputDoc, SecretListDto};
 use super::input::parse_put;
+use super::references;
 use crate::body::RawBody;
 use crate::error::{ApiError, ErrorBody, FieldCode, FieldViolation};
 use crate::openapi::params::EndpointIdParam;
@@ -117,7 +118,7 @@ pub async fn put(
     operation_id = "secrets_delete",
     tag = "Secrets",
     summary = "Delete a secret",
-    description = "Editor role; a token needs the `endpoints:write` scope. A name that does not match the secret pattern answers 404 `secret_not_found`, as does an unknown name. Answers 409 `secret_in_use` while the endpoint's verifier reads the secret, with `error.references` = `[{kind: \"verifier\", id}]`, where `id` is the endpoint id.",
+    description = "Editor role; a token needs the `endpoints:write` scope. A name that does not match the secret pattern answers 404 `secret_not_found`, as does an unknown name. Answers 409 `secret_in_use` while anything on the endpoint still reads the secret: its verifier, a rule step or condition (enabled or not), a Telegram channel (`token_secret`) or a schedule URL or header. `error.references` lists every holder as `{kind, id, name?}` with `kind` one of `verifier` (`id` is the endpoint id, no `name`), `rule`, `channel`, `schedule` (`id` and `name` of the object). The check and the delete run in one transaction under the endpoint lock.",
     security(("session_cookie" = []), ("api_token" = []), ()),
     params(
         EndpointIdParam,
@@ -128,7 +129,7 @@ pub async fn put(
         (status = 401, response = Unauthenticated),
         (status = 403, description = "`forbidden`: the role is too low; `insufficient_scope`: the token lacks `endpoints:write`; `csrf_rejected`: the Origin check failed", body = ErrorBody),
         (status = 404, description = "`not_found`: malformed endpoint id; `secret_not_found`: no such secret", body = ErrorBody),
-        (status = 409, description = "`secret_in_use`: the endpoint's verifier reads the secret; `error.references` names it", body = ErrorBody),
+        (status = 409, description = "`secret_in_use`: the verifier, a rule, a Telegram channel or a schedule of the endpoint reads the secret; `error.references` lists them as `{kind: verifier|rule|channel|schedule, id, name?}`", body = ErrorBody),
         (status = 410, description = "`endpoint_gone`: unknown, expired or deleted endpoint, or no role on it in `sso`", body = ErrorBody),
         (status = 503, description = "`feature_disabled`: the instance has no secrets key; `store_unavailable`: the database timed out or is down (`Retry-After: 5`)", body = ErrorBody)
     )
@@ -142,7 +143,9 @@ pub async fn delete(
     let name = SecretName::parse(&raw_name).map_err(|_| ApiError::SecretNotFound)?;
     match state
         .store
-        .delete_secret(&endpoint, state.settings.retention, &name)
+        .delete_secret(&endpoint, state.settings.retention, &name, |snapshot| {
+            references::find(snapshot, &name)
+        })
         .await?
     {
         DeleteSecretOutcome::Deleted => {
@@ -151,9 +154,7 @@ pub async fn delete(
         }
         DeleteSecretOutcome::EndpointGone => Err(ApiError::EndpointGone),
         DeleteSecretOutcome::NotFound => Err(ApiError::SecretNotFound),
-        DeleteSecretOutcome::InUse => Err(ApiError::SecretInUse {
-            endpoint: endpoint.unpack().to_owned(),
-        }),
+        DeleteSecretOutcome::InUse(references) => Err(ApiError::SecretInUse { references }),
     }
 }
 

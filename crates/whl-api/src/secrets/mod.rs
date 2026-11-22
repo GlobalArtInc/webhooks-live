@@ -2,6 +2,7 @@ mod doc;
 mod dto;
 mod handlers;
 mod input;
+mod references;
 
 use crate::routing::{Routes, get, put};
 

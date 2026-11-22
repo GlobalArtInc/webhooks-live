@@ -6,10 +6,13 @@ use std::sync::{Arc, Mutex, OnceLock};
 use axum::Router;
 use axum::http::{Method, StatusCode};
 use common::matrix::cast;
-use common::{RETENTION, Reply, SsoHarness, UNKNOWN_ID, api_settings, bodiless, request, send};
+use common::{
+    Actor, RETENTION, Reply, SsoHarness, UNKNOWN_ID, api_settings, bodiless,
+    mixed_harness_configured, request, send,
+};
 use serde_json::json;
 use tracing_subscriber::fmt::MakeWriter;
-use whl_api::ApiState;
+use whl_api::{ApiState, NotifyApiSettings, ScheduleSettings};
 use whl_core::endpoint_id::EndpointId;
 use whl_secrets::{Keyring, MAX_SECRETS_PER_ENDPOINT, SecretName};
 use whl_store::{GrantedRole, Store};
@@ -508,4 +511,223 @@ async fn neither_tracing_output_nor_error_bodies_contain_the_value() {
     for reply in [&stored, &invalid, &broken, &broken_list] {
         assert_no_value(reply);
     }
+}
+
+async fn references_rig() -> (SsoHarness, Actor, String) {
+    let harness = mixed_harness_configured(|state| {
+        state
+            .with_secrets(keyring())
+            .with_notifications(NotifyApiSettings { enabled: true })
+            .with_schedules(ScheduleSettings::enabled())
+    })
+    .await;
+    let owner = harness.actor("owner", "owner@example.test", true).await;
+    let endpoint = harness.endpoint_for(&owner).await;
+    (harness, owner, endpoint)
+}
+
+async fn as_owner(
+    harness: &SsoHarness,
+    owner: &Actor,
+    method: Method,
+    uri: &str,
+    body: serde_json::Value,
+) -> Reply {
+    let text = if body.is_null() {
+        String::new()
+    } else {
+        body.to_string()
+    };
+    harness.send_as(Some(owner), method, uri, &text).await
+}
+
+async fn store_secret(harness: &SsoHarness, owner: &Actor, endpoint: &str, name: &str) {
+    let reply = as_owner(
+        harness,
+        owner,
+        Method::PUT,
+        &secret_uri(endpoint, name),
+        json!({ "value": VALUE }),
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::OK);
+}
+
+async fn delete_secret(harness: &SsoHarness, owner: &Actor, endpoint: &str, name: &str) -> Reply {
+    as_owner(
+        harness,
+        owner,
+        Method::DELETE,
+        &secret_uri(endpoint, name),
+        serde_json::Value::Null,
+    )
+    .await
+}
+
+async fn create_object(
+    harness: &SsoHarness,
+    owner: &Actor,
+    endpoint: &str,
+    collection: &str,
+    body: serde_json::Value,
+) -> String {
+    let reply = as_owner(
+        harness,
+        owner,
+        Method::POST,
+        &format!("/api/v1/endpoints/{endpoint}/{collection}"),
+        body,
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.json());
+    reply.json()["id"]
+        .as_str()
+        .expect("the object has an id")
+        .to_owned()
+}
+
+fn rule_reading(name: &str, secret: &str) -> serde_json::Value {
+    json!({"name": name, "steps": [{
+        "kind": "http", "method": "GET", "url": format!("https://h.example/{{{{ secret.{secret} }}}}")
+    }]})
+}
+
+#[tokio::test]
+async fn a_secret_read_by_a_rule_cannot_be_deleted_until_the_rule_is_gone() {
+    let (harness, owner, endpoint) = references_rig().await;
+    store_secret(&harness, &owner, &endpoint, "API_KEY").await;
+    let rule = create_object(
+        &harness,
+        &owner,
+        &endpoint,
+        "rules",
+        rule_reading("call", "API_KEY"),
+    )
+    .await;
+
+    let refused = delete_secret(&harness, &owner, &endpoint, "API_KEY").await;
+
+    assert_eq!(refused.status, StatusCode::CONFLICT);
+    assert_eq!(code(&refused), "secret_in_use");
+    assert_eq!(
+        refused.json()["error"]["references"],
+        json!([{ "kind": "rule", "id": rule, "name": "call" }])
+    );
+    let removed = as_owner(
+        &harness,
+        &owner,
+        Method::DELETE,
+        &format!("/api/v1/endpoints/{endpoint}/rules/{rule}"),
+        serde_json::Value::Null,
+    )
+    .await;
+    assert_eq!(removed.status, StatusCode::NO_CONTENT);
+    let allowed = delete_secret(&harness, &owner, &endpoint, "API_KEY").await;
+    assert_eq!(allowed.status, StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn a_secret_named_by_a_telegram_channel_cannot_be_deleted() {
+    let (harness, owner, endpoint) = references_rig().await;
+    store_secret(&harness, &owner, &endpoint, "BOT_TOKEN").await;
+    let channel = create_object(
+        &harness,
+        &owner,
+        &endpoint,
+        "notifications",
+        json!({
+            "kind": "telegram", "name": "alerts",
+            "config": { "token_secret": "BOT_TOKEN", "chat_id": "123" }
+        }),
+    )
+    .await;
+
+    let refused = delete_secret(&harness, &owner, &endpoint, "BOT_TOKEN").await;
+
+    assert_eq!(refused.status, StatusCode::CONFLICT);
+    assert_eq!(
+        refused.json()["error"]["references"],
+        json!([{ "kind": "channel", "id": channel, "name": "alerts" }])
+    );
+}
+
+#[tokio::test]
+async fn a_secret_read_by_a_schedule_cannot_be_deleted() {
+    let (harness, owner, endpoint) = references_rig().await;
+    store_secret(&harness, &owner, &endpoint, "PROBE_KEY").await;
+    let schedule = create_object(
+        &harness,
+        &owner,
+        &endpoint,
+        "schedules",
+        json!({
+            "name": "probe", "cron": "*/5 * * * *",
+            "request": { "method": "GET", "url": "https://8.8.8.8/?k={{ secret.PROBE_KEY }}" }
+        }),
+    )
+    .await;
+
+    let refused = delete_secret(&harness, &owner, &endpoint, "PROBE_KEY").await;
+
+    assert_eq!(refused.status, StatusCode::CONFLICT);
+    assert_eq!(
+        refused.json()["error"]["references"],
+        json!([{ "kind": "schedule", "id": schedule, "name": "probe" }])
+    );
+}
+
+#[tokio::test]
+async fn a_secret_named_by_the_verifier_is_listed_with_the_other_holders() {
+    let (harness, owner, endpoint) = references_rig().await;
+    store_secret(&harness, &owner, &endpoint, "HOOK").await;
+    let patched = as_owner(
+        &harness,
+        &owner,
+        Method::PATCH,
+        &format!("/api/v1/endpoints/{endpoint}"),
+        json!({ "verifier": { "scheme": "github", "secret_name": "HOOK" } }),
+    )
+    .await;
+    assert_eq!(patched.status, StatusCode::OK, "{}", patched.json());
+    let rule = create_object(
+        &harness,
+        &owner,
+        &endpoint,
+        "rules",
+        rule_reading("call", "HOOK"),
+    )
+    .await;
+
+    let refused = delete_secret(&harness, &owner, &endpoint, "HOOK").await;
+
+    assert_eq!(refused.status, StatusCode::CONFLICT);
+    assert_eq!(
+        refused.json()["error"]["references"],
+        json!([
+            { "kind": "verifier", "id": endpoint },
+            { "kind": "rule", "id": rule, "name": "call" }
+        ])
+    );
+}
+
+#[tokio::test]
+async fn an_unreferenced_secret_is_deleted_and_another_endpoint_does_not_hold_it() {
+    let (harness, owner, endpoint) = references_rig().await;
+    let other = harness.endpoint_for(&owner).await;
+    store_secret(&harness, &owner, &endpoint, "SHARED_NAME").await;
+    store_secret(&harness, &owner, &other, "SHARED_NAME").await;
+    create_object(
+        &harness,
+        &owner,
+        &other,
+        "rules",
+        rule_reading("call", "SHARED_NAME"),
+    )
+    .await;
+
+    let allowed = delete_secret(&harness, &owner, &endpoint, "SHARED_NAME").await;
+
+    assert_eq!(allowed.status, StatusCode::NO_CONTENT);
+    let refused = delete_secret(&harness, &owner, &other, "SHARED_NAME").await;
+    assert_eq!(refused.status, StatusCode::CONFLICT);
 }
