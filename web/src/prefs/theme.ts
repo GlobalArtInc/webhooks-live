@@ -42,7 +42,12 @@ export function resolveThemeAttribute(raw: string | null): ThemeAttribute | null
   return toThemeAttribute(parseThemePreference(raw));
 }
 
+let unsavedPrefs: string | null = null;
+
 export function readStoredPrefs(): string | null {
+  if (unsavedPrefs !== null) {
+    return unsavedPrefs;
+  }
   try {
     return window.localStorage.getItem(PREFS_STORAGE_KEY);
   } catch {
@@ -64,11 +69,12 @@ export function applyThemeAttribute(attribute: ThemeAttribute | null): void {
 }
 
 export function updatePrefsFields(change: Readonly<Record<string, unknown>>): void {
+  const serialized = JSON.stringify({ ...parsePrefsFields(readStoredPrefs()), ...change });
   try {
-    const fields = parsePrefsFields(readStoredPrefs());
-    window.localStorage.setItem(PREFS_STORAGE_KEY, JSON.stringify({ ...fields, ...change }));
+    window.localStorage.setItem(PREFS_STORAGE_KEY, serialized);
+    unsavedPrefs = null;
   } catch {
-    return;
+    unsavedPrefs = serialized;
   }
 }
 

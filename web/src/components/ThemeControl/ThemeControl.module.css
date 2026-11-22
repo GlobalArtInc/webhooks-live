@@ -31,7 +31,8 @@
 }
 
 .option:has(input:checked):has(input:focus-visible) {
-  outline-color: var(--color-accent-brand);
+  outline-color: var(--color-surface);
+  box-shadow: inset 0 0 0 2px var(--color-focus);
 }
 
 .option input {

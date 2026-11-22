@@ -1,4 +1,5 @@
 import { Link } from '@tanstack/react-router';
+import type { Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronsRight, Folder, List, Plus, Send, Tag } from '../../components/icons';
 import { RailTip } from '../../components/RailTip/RailTip';
@@ -19,6 +20,7 @@ export interface CollapsedRailProps {
   createError: Error | null;
   onCreate: () => void;
   onExpand: () => void;
+  expandRef: Ref<HTMLButtonElement>;
 }
 
 export function avatarText(row: OrganizedEndpoint): string {
@@ -26,7 +28,15 @@ export function avatarText(row: OrganizedEndpoint): string {
   return Array.from(source).slice(0, AVATAR_CHARACTERS).join('').toUpperCase();
 }
 
-export function CollapsedRail({ headingId, listId, creating, createError, onCreate, onExpand }: CollapsedRailProps) {
+export function CollapsedRail({
+  headingId,
+  listId,
+  creating,
+  createError,
+  onCreate,
+  onExpand,
+  expandRef,
+}: CollapsedRailProps) {
   const { t } = useTranslation();
   const { allRows } = useOrganizeData(NO_FILTER);
   const shown = allRows.slice(0, MAX_AVATARS);
@@ -40,7 +50,14 @@ export function CollapsedRail({ headingId, listId, creating, createError, onCrea
         {t('wl.home.rail.heading')}
       </h2>
       <RailTip label={expandLabel}>
-        <button type="button" className={styles.item} aria-expanded="false" aria-controls={listId} onClick={onExpand}>
+        <button
+          type="button"
+          className={styles.item}
+          aria-expanded="false"
+          aria-controls={listId}
+          ref={expandRef}
+          onClick={onExpand}
+        >
           <ChevronsRight />
           <span className={styles.srOnly}>{expandLabel}</span>
         </button>

@@ -95,15 +95,14 @@ test('the curl example uses a placeholder without endpoints and copies the exact
 }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await openHome(page, WIDE);
-  const origin = new URL(page.url()).origin;
-  const expected = `curl -X POST ${origin}/YOUR_ENDPOINT_ID/hello -d '{"hello":"world"}'`;
+  const expected = `curl -X POST ${PUBLIC_URL}/YOUR_ENDPOINT_ID/hello -d '{"hello":"world"}'`;
 
   await expect(page.getByText('Then send a request')).toBeVisible();
   await expect(page.getByText(expected, { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Copy the curl command' }).click();
 
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(expected);
-  await expect(page.getByRole('status').filter({ hasText: 'Copied' })).toBeAttached();
+  await expect(page.getByRole('status').filter({ hasText: 'Copied' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Copy the curl command' })).toContainText('Copied');
 });
 

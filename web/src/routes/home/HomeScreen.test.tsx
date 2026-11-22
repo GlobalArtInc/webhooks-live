@@ -181,7 +181,7 @@ describe('home screen', () => {
     expect(screen.getByText('1 · Create')).toBeTruthy();
     expect(screen.getByText('Then send a request')).toBeTruthy();
     expect(
-      screen.getByText(`curl -X POST ${window.location.origin}/YOUR_ENDPOINT_ID/hello -d '{"hello":"world"}'`),
+      await screen.findByText(`curl -X POST ${PUBLIC_URL}/YOUR_ENDPOINT_ID/hello -d '{"hello":"world"}'`),
     ).toBeTruthy();
     expect(screen.queryByRole('button', { name: /^Copy URL of/ })).toBeNull();
   });

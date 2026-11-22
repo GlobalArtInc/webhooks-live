@@ -25,7 +25,7 @@ async function smallTexts(page: Page, min: number): Promise<SmallText[]> {
       return box.width <= 1 || box.height <= 1;
     }
 
-    const found: { tag: string; text: string; size: number }[] = [];
+    const found: SmallText[] = [];
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
       const element = node.parentElement;

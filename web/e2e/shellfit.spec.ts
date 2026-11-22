@@ -150,12 +150,19 @@ for (const size of [WIDE, MEDIUM, NARROW]) {
     };
     expect(await docked()).toBeLessThanOrEqual(EDGE_TOLERANCE);
 
-    await scrollToEnd(bar);
+    await expect(page.getByRole('textbox', { name: 'Response body (template)', exact: true })).toBeVisible();
+
+    const aboveOf = (): Promise<number> =>
+      bar.evaluate((element) => element.previousElementSibling?.getBoundingClientRect().bottom ?? 0);
+    await expect
+      .poll(async () => {
+        await scrollToEnd(bar);
+        const barBox = await bar.boundingBox();
+        return (barBox?.y ?? 0) + EDGE_TOLERANCE - (await aboveOf());
+      })
+      .toBeGreaterThanOrEqual(0);
     expect(await docked()).toBeLessThanOrEqual(EDGE_TOLERANCE);
-    const barBox = await bar.boundingBox();
-    const above = await bar.evaluate((element) => element.previousElementSibling?.getBoundingClientRect().bottom ?? 0);
-    expect(above).toBeLessThanOrEqual((barBox?.y ?? 0) + EDGE_TOLERANCE);
-    expect(above).toBeGreaterThan(0);
+    expect(await aboveOf()).toBeGreaterThan(0);
   });
 }
 

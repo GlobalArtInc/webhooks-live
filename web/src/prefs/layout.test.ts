@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { act, renderHook } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   MAX_CLOSED_GROUPS,
   parseBodyView,
@@ -8,6 +9,9 @@ import {
   saveBodyView,
   saveGroupOpen,
   saveRail,
+  toggleBodyMode,
+  useBodyViewPreference,
+  useRailPreference,
 } from './layout';
 import { PREFS_STORAGE_KEY } from './theme';
 
@@ -82,5 +86,29 @@ describe('saving', () => {
     resetLayoutPrefs();
 
     expect(stored()).toEqual({ theme: 'dark' });
+  });
+});
+
+describe('denied storage', () => {
+  it('keeps the view choices for the rest of the session when a write throws', () => {
+    const denied = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('denied', 'SecurityError');
+    });
+    try {
+      const rail = renderHook(() => useRailPreference());
+      const body = renderHook(() => useBodyViewPreference());
+      expect(rail.result.current).toBe('expanded');
+
+      act(() => {
+        saveRail('collapsed');
+        toggleBodyMode();
+      });
+
+      expect(rail.result.current).toBe('collapsed');
+      expect(body.result.current.mode).toBe('raw');
+    } finally {
+      denied.mockRestore();
+      saveRail('expanded');
+    }
   });
 });

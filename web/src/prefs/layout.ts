@@ -26,8 +26,18 @@ type LayoutListener = () => void;
 
 const listeners = new Set<LayoutListener>();
 
-let bodyViewSnapshot: { raw: string | null; value: BodyViewPreference } | null = null;
-let groupsSnapshot: { raw: string | null; value: readonly string[] } | null = null;
+interface BodyViewSnapshot {
+  raw: string | null;
+  value: BodyViewPreference;
+}
+
+interface GroupsSnapshot {
+  raw: string | null;
+  value: readonly string[];
+}
+
+let bodyViewSnapshot: BodyViewSnapshot | null = null;
+let groupsSnapshot: GroupsSnapshot | null = null;
 
 function isOneOf<Value extends string>(values: readonly Value[], value: unknown): value is Value {
   return values.some((candidate) => candidate === value);

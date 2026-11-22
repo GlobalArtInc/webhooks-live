@@ -194,9 +194,6 @@
   .wordmark {
     font-size: 21px;
     line-height: 28px;
-  }
-
-  .wordmark {
     white-space: nowrap;
   }
 }

@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router';
-import { useId } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useRailState } from '../../app/shell/railState';
 import { FolderRail } from '../folders/FolderRail';
@@ -14,6 +14,22 @@ export function EndpointRail() {
   const { collapsed, toggleCollapsed } = useRailState();
   const headingId = useId();
   const listId = useId();
+  const collapseRef = useRef<HTMLButtonElement>(null);
+  const expandRef = useRef<HTMLButtonElement>(null);
+  const toggledFrom = useRef<boolean | null>(null);
+
+  useEffect(() => {
+    const from = toggledFrom.current;
+    toggledFrom.current = null;
+    if (from !== null && from !== collapsed) {
+      (collapsed ? expandRef : collapseRef).current?.focus();
+    }
+  });
+
+  function toggleByUser() {
+    toggledFrom.current = collapsed;
+    toggleCollapsed();
+  }
 
   const folders = (
     <div className={styles.folders} hidden={collapsed}>
@@ -30,7 +46,8 @@ export function EndpointRail() {
           creating={isPending}
           createError={error}
           onCreate={() => create({})}
-          onExpand={toggleCollapsed}
+          onExpand={toggleByUser}
+          expandRef={expandRef}
         />
         {folders}
       </nav>
@@ -49,7 +66,8 @@ export function EndpointRail() {
           aria-label={t('wl.home.rail.collapseLabel')}
           aria-expanded="true"
           aria-controls={listId}
-          onClick={toggleCollapsed}
+          ref={collapseRef}
+          onClick={toggleByUser}
         >
           {t('wl.home.rail.collapse')}
         </button>

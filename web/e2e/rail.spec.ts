@@ -184,6 +184,7 @@ test('the rail keeps the manual choice across reloads, collapses on Response and
   await collapse.click();
   const expand = rail.getByRole('button', { name: 'Expand sidebar' });
   await expect(expand).toHaveAttribute('aria-expanded', 'false');
+  await expect(expand).toBeFocused();
 
   await page.reload();
   await expect(rail.getByRole('button', { name: 'Expand sidebar' })).toBeVisible();
@@ -196,7 +197,7 @@ test('the rail keeps the manual choice across reloads, collapses on Response and
   await expect(rail.getByRole('button', { name: 'Expand sidebar' })).toBeVisible();
 
   await rail.getByRole('button', { name: 'Expand sidebar' }).click();
-  await expect(rail.getByRole('button', { name: 'Collapse sidebar' })).toBeVisible();
+  await expect(rail.getByRole('button', { name: 'Collapse sidebar' })).toBeFocused();
   await page.reload();
   await expect(rail.getByRole('button', { name: 'Collapse sidebar' })).toBeVisible();
 });
