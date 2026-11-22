@@ -39,11 +39,7 @@ const CLONING: &[Route] = &[
     route("PATCH", "/templates/{template_id}"),
 ];
 
-const COMPOSER: &[Route] = &[
-    route("POST", "/send"),
-    route("GET", "/send/history"),
-    route("DELETE", "/send/history/{sent_id}"),
-];
+const COMPOSER: &[Route] = &[];
 
 const ENDPOINTS: &[Route] = &[
     route("GET", "/endpoints"),
@@ -56,11 +52,7 @@ const ENDPOINTS: &[Route] = &[
     route("GET", "/instance"),
 ];
 
-const EXPORT: &[Route] = &[
-    route("GET", "/endpoints/{id}/export"),
-    route("HEAD", "/endpoints/{id}/export"),
-    route("POST", "/endpoints/{id}/export"),
-];
+const EXPORT: &[Route] = &[];
 
 const FOLDERS: &[Route] = &[
     route("GET", "/folders"),
@@ -71,17 +63,9 @@ const FOLDERS: &[Route] = &[
     route("PUT", "/folders/{folder_id}/endpoints/{id}"),
 ];
 
-const FORWARD: &[Route] = &[
-    route("GET", "/endpoints/{id}/forward-rules"),
-    route("POST", "/endpoints/{id}/forward-rules"),
-    route("DELETE", "/endpoints/{id}/forward-rules/{rule_id}"),
-    route("PATCH", "/endpoints/{id}/forward-rules/{rule_id}"),
-];
+const FORWARD: &[Route] = &[];
 
-const IMPORT: &[Route] = &[
-    route("POST", "/endpoints/import"),
-    route("POST", "/endpoints/{id}/import"),
-];
+const IMPORT: &[Route] = &[];
 
 const INBOX: &[Route] = &[route("GET", "/inbox/captures")];
 

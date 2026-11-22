@@ -1,8 +1,10 @@
+mod doc;
 mod handlers;
 mod params;
 mod slots;
 mod stream;
 
+pub use doc::ExportDoc;
 pub use slots::ExportSlots;
 
 use crate::routing::{Routes, get};

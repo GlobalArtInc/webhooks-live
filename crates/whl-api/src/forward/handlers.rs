@@ -11,12 +11,35 @@ use whl_store::forward::{
     ManualTarget, NewForwardRule, UpdateRuleOutcome,
 };
 
-use super::dto::{JobDto, RuleDto, RuleListDto};
+use super::dto::{ForwardRuleInputDoc, JobDto, RuleDto, RuleListDto};
 use super::input::{parse_request, parse_rule, target_violation};
 use crate::body::RawBody;
-use crate::error::{ApiError, FieldCode, FieldViolation};
+use crate::error::{ApiError, ErrorBody, FieldCode, FieldViolation};
+use crate::openapi::params::EndpointIdParam;
+use crate::openapi::responses::{
+    BadRequest, PayloadTooLarge, StoreUnavailable, Unauthenticated, UnsupportedMediaType,
+    ValidationFailed,
+};
 use crate::state::ApiState;
 
+#[utoipa::path(
+    get,
+    path = "/endpoints/{id}/forward-rules",
+    operation_id = "forward_list",
+    tag = "Forwarding",
+    summary = "List the forward rules of an endpoint",
+    description = "Rules come in creation order and are not paginated. Answers even when forwarding is off on the instance. A token needs the `read` scope.",
+    params(EndpointIdParam),
+    security(("session_cookie" = []), ("api_token" = []), ()),
+    responses(
+        (status = 200, description = "The rules of the endpoint", body = RuleListDto),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`insufficient_scope`: the token lacks `read` or is limited to other endpoints", body = ErrorBody),
+        (status = 404, description = "`not_found`: malformed endpoint id", body = ErrorBody),
+        (status = 410, description = "`endpoint_gone`: unknown, expired or deleted endpoint, or no role on it in `sso`", body = ErrorBody),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 pub async fn list(
     State(state): State<ApiState>,
     Path(raw_id): Path<String>,
@@ -29,6 +52,29 @@ pub async fn list(
     }))
 }
 
+#[utoipa::path(
+    post,
+    path = "/endpoints/{id}/forward-rules",
+    operation_id = "forward_create",
+    tag = "Forwarding",
+    summary = "Add a forward rule to an endpoint",
+    description = "Needs the editor role; a token needs the `rules:write` scope. `target_url` is required. The target is checked when the rule is saved (scheme, host, refused address ranges, DNS) and again on every attempt and redirect. At most 5 rules per endpoint. Answers 404 `not_found` when forwarding is off on the instance. Emits `endpoint_updated` on the stream. Field codes on `target_url`: `invalid_format`, `target_refused`, `target_unresolvable`.",
+    params(EndpointIdParam),
+    security(("session_cookie" = []), ("api_token" = []), ()),
+    request_body(content = ForwardRuleInputDoc, content_type = "application/json"),
+    responses(
+        (status = 201, description = "The created rule", body = RuleDto),
+        (status = 400, response = BadRequest),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`forbidden`: the role is viewer; `csrf_rejected`: the Origin check failed; `insufficient_scope`: the token lacks `rules:write` or is limited to other endpoints", body = ErrorBody),
+        (status = 404, description = "`not_found`: malformed endpoint id, or forwarding is off on the instance", body = ErrorBody),
+        (status = 410, description = "`endpoint_gone`", body = ErrorBody),
+        (status = 413, response = PayloadTooLarge),
+        (status = 415, response = UnsupportedMediaType),
+        (status = 422, description = "`validation_failed`: field violations in `error.fields`, for example `target_url` with `required` or `target_refused`, `method` with `invalid_format`, `header_allowlist` with `too_many`; or `forward_rule_limit`: the endpoint already has 5 rules", body = ErrorBody),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 pub async fn create(
     State(state): State<ApiState>,
     Path(raw_id): Path<String>,
@@ -69,6 +115,32 @@ pub(crate) async fn build_rule(state: &ApiState, body: &[u8]) -> Result<NewForwa
     })
 }
 
+#[utoipa::path(
+    patch,
+    path = "/endpoints/{id}/forward-rules/{rule_id}",
+    operation_id = "forward_update",
+    tag = "Forwarding",
+    summary = "Change a forward rule",
+    description = "Needs the editor role; a token needs the `rules:write` scope. Absent fields are unchanged; `null` resets `method` or `content_type` and is `required` for `target_url`. A `target_url` in the body is checked as on create. An empty body is `invalid_json`. Emits `endpoint_updated` on the stream.",
+    params(
+        EndpointIdParam,
+        ("rule_id" = String, Path, pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", description = "Rule id, lowercase hyphenated UUID")
+    ),
+    security(("session_cookie" = []), ("api_token" = []), ()),
+    request_body(content = ForwardRuleInputDoc, content_type = "application/json"),
+    responses(
+        (status = 200, description = "The changed rule", body = RuleDto),
+        (status = 400, response = BadRequest),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`forbidden`: the role is viewer; `csrf_rejected`: the Origin check failed; `insufficient_scope`: the token lacks `rules:write` or is limited to other endpoints", body = ErrorBody),
+        (status = 404, description = "`forward_rule_not_found`: unknown rule id in this endpoint; `not_found`: malformed id, or forwarding is off on the instance", body = ErrorBody),
+        (status = 410, description = "`endpoint_gone`", body = ErrorBody),
+        (status = 413, response = PayloadTooLarge),
+        (status = 415, response = UnsupportedMediaType),
+        (status = 422, response = ValidationFailed),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 pub async fn update(
     State(state): State<ApiState>,
     Path((raw_id, raw_rule)): Path<(String, String)>,
@@ -96,6 +168,27 @@ pub async fn update(
     }
 }
 
+#[utoipa::path(
+    delete,
+    path = "/endpoints/{id}/forward-rules/{rule_id}",
+    operation_id = "forward_delete",
+    tag = "Forwarding",
+    summary = "Delete a forward rule",
+    description = "Needs the editor role; a token needs the `rules:write` scope. Emits `endpoint_updated` on the stream.",
+    params(
+        EndpointIdParam,
+        ("rule_id" = String, Path, pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", description = "Rule id, lowercase hyphenated UUID")
+    ),
+    security(("session_cookie" = []), ("api_token" = []), ()),
+    responses(
+        (status = 204, description = "The rule is deleted"),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`forbidden`: the role is viewer; `csrf_rejected`: the Origin check failed; `insufficient_scope`: the token lacks `rules:write` or is limited to other endpoints", body = ErrorBody),
+        (status = 404, description = "`forward_rule_not_found`: unknown rule id in this endpoint; `not_found`: malformed id, or forwarding is off on the instance", body = ErrorBody),
+        (status = 410, description = "`endpoint_gone`", body = ErrorBody),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 pub async fn delete(
     State(state): State<ApiState>,
     Path((raw_id, raw_rule)): Path<(String, String)>,

@@ -1,3 +1,4 @@
+mod doc;
 mod dto;
 mod handlers;
 mod input;
@@ -8,6 +9,7 @@ mod target;
 
 use crate::routing::{Routes, delete, get, post};
 
+pub use doc::ComposerDoc;
 pub use settings::{
     ComposerLimits, ComposerSettings, LocalDelivery, LocalError, LocalFuture, LocalReply,
     LocalRequest, MAX_SEND_BODY_BYTES,
