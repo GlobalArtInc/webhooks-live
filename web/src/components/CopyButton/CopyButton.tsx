@@ -9,12 +9,13 @@ interface CopyButtonProps {
   value: string;
   label: string;
   idleText?: string;
+  size?: 'large';
   onCopied?: (copied: boolean) => void;
 }
 
 const FEEDBACK_MS = 1500;
 
-export function CopyButton({ value, label, idleText, onCopied }: CopyButtonProps) {
+export function CopyButton({ value, label, idleText, size, onCopied }: CopyButtonProps) {
   const { t } = useTranslation();
   const [state, setState] = useState<CopyState>('idle');
 
@@ -43,6 +44,7 @@ export function CopyButton({ value, label, idleText, onCopied }: CopyButtonProps
       className={styles.button}
       aria-label={label}
       data-state={state}
+      data-size={size}
       onClick={() => {
         void copyText(value).then((copied) => {
           setState(copied ? 'copied' : 'failed');

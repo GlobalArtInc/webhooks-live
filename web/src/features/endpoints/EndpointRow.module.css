@@ -1,11 +1,12 @@
-.row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2) var(--space-3);
-  padding: var(--space-2) 0;
-  border-bottom: 1px solid var(--color-border);
+.card {
+  display: grid;
+  align-content: start;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
 }
 
 .identity {
@@ -31,7 +32,25 @@
   color: var(--color-text-muted);
 }
 
+.urlRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.url {
+  flex: 1 1 0;
+  min-width: 0;
+  font: var(--mono-data);
+  color: var(--color-text-secondary);
+}
+
 .meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-3);
+  margin: 0;
   font: var(--text-meta);
   color: var(--color-text-muted);
 }
@@ -43,8 +62,10 @@
 }
 
 .action {
-  min-height: 24px;
-  padding: var(--space-1) var(--space-3);
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 var(--space-4);
   font: var(--text-data);
   color: var(--color-text);
   background: var(--color-surface);
@@ -54,8 +75,24 @@
   cursor: pointer;
 }
 
+.action:hover {
+  background: var(--color-surface-sunken);
+}
+
+.action:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
 @media (max-width: 767px) {
-  .action {
-    min-height: 44px;
+  .urlRow {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+  }
+
+  .url {
+    flex: none;
+    width: 100%;
   }
 }

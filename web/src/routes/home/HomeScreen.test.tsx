@@ -3,7 +3,7 @@ import { http } from 'msw';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ENDPOINT_ID } from '../../test/fixtures/endpoint';
 import { errorResponse, jsonResponse } from '../../test/msw/responses';
-import { instanceFixture } from '../../test/fixtures/instance';
+import { instanceFixture, PUBLIC_URL } from '../../test/fixtures/instance';
 import { mockServer, registerMockServer } from '../../test/msw/server';
 import { mockStore } from '../../test/msw/store';
 import { renderAppAt } from '../../features/endpoints/renderApp';
@@ -172,5 +172,32 @@ describe('home screen', () => {
       within(listOf()).getByText('No endpoints yet. Endpoints you create appear here, saved in this browser only.'),
     ).toBeTruthy();
     expect(parseEndpoints(window.localStorage.getItem(ENDPOINTS_STORAGE_KEY))).toEqual([]);
+  });
+
+  it('shows the three steps and a curl example with a placeholder address when nothing is remembered', async () => {
+    await openHome();
+
+    expect(screen.getByRole('heading', { level: 2, name: 'Try it in three steps' })).toBeTruthy();
+    expect(screen.getByText('1 · Create')).toBeTruthy();
+    expect(screen.getByText('Then send a request')).toBeTruthy();
+    expect(
+      screen.getByText(`curl -X POST ${window.location.origin}/YOUR_ENDPOINT_ID/hello -d '{"hello":"world"}'`),
+    ).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^Copy URL of/ })).toBeNull();
+  });
+
+  it('builds the curl example and the card from the capture URL of the latest endpoint, without request counts it has not seen', async () => {
+    seedOne('stripe-dev');
+    await openHome();
+    const url = `${PUBLIC_URL}/${ENDPOINT_ID}`;
+
+    await waitFor(() => expect(screen.getByText('Send a request to your latest endpoint')).toBeTruthy());
+    expect(screen.getByText(`curl -X POST ${url}/hello -d '{"hello":"world"}'`)).toBeTruthy();
+    const card = within(screen.getByRole('region', { name: 'My endpoints' })).getByRole('listitem');
+    expect(within(card).getByRole('button', { name: 'Copy URL of stripe-dev' })).toBeTruthy();
+    expect(within(card).getByText(/^Created /)).toBeTruthy();
+    expect(within(card).getByText(/^Last opened /)).toBeTruthy();
+    expect(within(card).queryByText(/request/)).toBeNull();
+    expect(within(card).getByRole('link', { name: 'Open stripe-dev' }).getAttribute('href')).toBe(`/e/${ENDPOINT_ID}`);
   });
 });

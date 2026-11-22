@@ -8,6 +8,28 @@ function titleOf(endpoint: Endpoint): string | null {
   return title === undefined || title === '' ? null : title;
 }
 
+export interface CachedEndpointInfo {
+  title: string | null;
+  url: string;
+  captureCount: number;
+}
+
+function infoOf(endpoint: Endpoint): CachedEndpointInfo {
+  return { title: titleOf(endpoint), url: endpoint.url, captureCount: endpoint.capture_count };
+}
+
+export function useCachedEndpointInfos(endpointIds: readonly string[]): readonly (CachedEndpointInfo | null)[] {
+  return useQueries({
+    queries: endpointIds.map((id) => ({
+      queryKey: queryKeys.endpoint(id),
+      queryFn: () => getEndpoint(id),
+      enabled: false,
+      select: infoOf,
+    })),
+    combine: (results) => results.map((result) => result.data ?? null),
+  });
+}
+
 export function useCachedEndpointTitle(endpointId: string | null): string | null {
   const id = endpointId ?? '';
   const query = useQuery({

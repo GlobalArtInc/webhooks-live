@@ -85,3 +85,11 @@ export function Tag(props: IconProps) {
     </Glyph>
   );
 }
+
+export function Copy(props: IconProps) {
+  return (
+    <Glyph {...props}>
+      <path d="M9 9h10v10H9zM5 15V5h10" />
+    </Glyph>
+  );
+}

@@ -1,4 +1,5 @@
 import type { MyEndpoint } from './storage';
+import type { CachedEndpointInfo } from './titleCache';
 
 const SHORT_ID_HEAD = 6;
 const SHORT_ID_TAIL = 3;
@@ -40,4 +41,11 @@ export function formatRelativeTime(then: number, now: number, locale: string): s
     }
   }
   return formatter.format(0, 'second');
+}
+
+export function captureUrlOf(id: string, cached: CachedEndpointInfo | null, publicUrl: string | null): string | null {
+  if (cached !== null) {
+    return cached.url;
+  }
+  return publicUrl === null ? null : `${publicUrl.replace(/\/+$/, '')}/${id}`;
 }

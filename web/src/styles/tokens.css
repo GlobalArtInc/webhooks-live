@@ -15,6 +15,10 @@
   --color-accent-text: #7a4a00;
   --color-accent-brand: #9a6200;
   --color-accent-soft: #fbefd9;
+  --color-code-bg: #1b2330;
+  --color-code-text: #f6f5f1;
+  --color-code-muted: #c4ccd8;
+  --color-code-border: #8c97a8;
   --color-focus: #2a5bd7;
   --color-success: #1e7a46;
   --color-warning: #8a5a00;
@@ -55,6 +59,7 @@
   --mono-data: 400 15px / 22px var(--font-mono);
   --text-body: 400 17px / 26px var(--font-sans);
   --text-label: 600 14px / 20px var(--font-sans);
+  --text-lede: 400 20px / 30px var(--font-sans);
   --text-nav: 500 16px / 24px var(--font-sans);
   --text-action: 600 16px / 24px var(--font-sans);
   --text-section: 600 18px / 26px var(--font-sans);
@@ -120,6 +125,10 @@
   --color-accent-text: #f0b85a;
   --color-accent-brand: #e0a23a;
   --color-accent-soft: #3a2a10;
+  --color-code-bg: #070b10;
+  --color-code-text: #e6eaf0;
+  --color-code-muted: #b4bfcd;
+  --color-code-border: #5a6b80;
   --color-focus: #7fa6ff;
   --color-success: #4cc38a;
   --color-warning: #e6b450;
@@ -171,6 +180,10 @@
     --color-accent-text: #f0b85a;
     --color-accent-brand: #e0a23a;
     --color-accent-soft: #3a2a10;
+    --color-code-bg: #070b10;
+    --color-code-text: #e6eaf0;
+    --color-code-muted: #b4bfcd;
+    --color-code-border: #5a6b80;
     --color-focus: #7fa6ff;
     --color-success: #4cc38a;
     --color-warning: #e6b450;

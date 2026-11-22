@@ -14,7 +14,7 @@ export function CreateForm() {
 
   return (
     <div className={styles.create}>
-      <div className={styles.primaryRow}>
+      <div className={styles.actions}>
         <button
           type="button"
           className={styles.primary}
@@ -24,20 +24,20 @@ export function CreateForm() {
         >
           {isPending ? t('wl.home.create.busy') : t('wl.home.create.button')}
         </button>
+        <button
+          type="button"
+          className={styles.disclosure}
+          aria-expanded={customOpen}
+          aria-controls={panelId}
+          onClick={() => setCustomOpen((open) => !open)}
+        >
+          {t('wl.home.custom.toggle')}
+        </button>
         <span id={hintId} className={styles.hint}>
           {t('wl.home.create.hint')}
         </span>
       </div>
       {error !== null && !isPending && <CreateErrorNotice error={error} onRetry={() => create({})} />}
-      <button
-        type="button"
-        className={styles.disclosure}
-        aria-expanded={customOpen}
-        aria-controls={panelId}
-        onClick={() => setCustomOpen((open) => !open)}
-      >
-        {t('wl.home.custom.toggle')}
-      </button>
       <div id={panelId} hidden={!customOpen} className={styles.panel}>
         <ResponseForm />
       </div>

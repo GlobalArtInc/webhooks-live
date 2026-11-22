@@ -1,26 +1,30 @@
 import { Link } from '@tanstack/react-router';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { CopyButton } from '../../components/CopyButton/CopyButton';
+import { MiddleTruncate } from '../../components/MiddleTruncate/MiddleTruncate';
 import { EndpointLabelEditor } from './EndpointLabelEditor';
 import { endpointName, formatRelativeTime, shortEndpointId } from './format';
 import { forgetEndpoint, markEndpointOpened, renameMyEndpoint } from './store';
 import type { MyEndpoint } from './storage';
+import type { CachedEndpointInfo } from './titleCache';
 import styles from './EndpointRow.module.css';
 
 export interface EndpointRowProps {
   entry: MyEndpoint;
   now: number;
   locale: string;
-  cachedTitle: string | null;
+  cached: CachedEndpointInfo | null;
+  captureUrl: string | null;
   onRemoved: () => void;
 }
 
-export function EndpointRow({ entry, now, locale, cachedTitle, onRemoved }: EndpointRowProps) {
+export function EndpointRow({ entry, now, locale, cached, captureUrl, onRemoved }: EndpointRowProps) {
   const { t } = useTranslation();
   const [editing, setEditing] = useState(false);
   const renameRef = useRef<HTMLButtonElement>(null);
   const returnFocus = useRef(false);
-  const name = endpointName(entry, cachedTitle);
+  const name = endpointName(entry, cached?.title ?? null);
 
   useEffect(() => {
     if (!editing && returnFocus.current) {
@@ -36,7 +40,7 @@ export function EndpointRow({ entry, now, locale, cachedTitle, onRemoved }: Endp
 
   if (editing) {
     return (
-      <li className={styles.row}>
+      <li className={styles.card}>
         <EndpointLabelEditor
           name={name}
           initial={entry.label ?? ''}
@@ -51,16 +55,31 @@ export function EndpointRow({ entry, now, locale, cachedTitle, onRemoved }: Endp
   }
 
   return (
-    <li className={styles.row}>
+    <li className={styles.card}>
       <div className={styles.identity}>
         <span className={styles.name} title={name}>
           {name}
         </span>
         {name !== shortEndpointId(entry.id) && <span className={styles.id}>{shortEndpointId(entry.id)}</span>}
-        <span className={styles.meta}>
-          {t('wl.home.list.lastOpened', { time: formatRelativeTime(entry.lastOpened, now, locale) })}
-        </span>
       </div>
+      {captureUrl === null ? null : (
+        <div className={styles.urlRow}>
+          <code className={styles.url}>
+            <MiddleTruncate text={captureUrl} />
+          </code>
+          <CopyButton
+            size="large"
+            value={captureUrl}
+            label={t('wl.home.list.copyUrlLabel', { name })}
+            idleText={t('wl.home.list.copyUrl')}
+          />
+        </div>
+      )}
+      <p className={styles.meta}>
+        <span>{t('wl.home.list.created', { time: formatRelativeTime(entry.added, now, locale) })}</span>
+        <span>{t('wl.home.list.lastOpened', { time: formatRelativeTime(entry.lastOpened, now, locale) })}</span>
+        {cached === null ? null : <span>{t('wl.home.list.requests', { count: cached.captureCount })}</span>}
+      </p>
       <div className={styles.actions}>
         <Link
           to="/e/$id"
