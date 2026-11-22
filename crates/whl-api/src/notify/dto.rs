@@ -1,4 +1,5 @@
 use serde::Serialize;
+use utoipa::ToSchema;
 use whl_store::notify::{Channel, Delivery};
 
 #[derive(Serialize)]
@@ -37,16 +38,21 @@ pub struct ChannelListDto {
     pub items: Vec<ChannelDto>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = Delivery)]
 pub struct DeliveryDto {
     id: String,
     channel_id: String,
+    #[schema(pattern = "^(single|summary|test)$")]
     kind: &'static str,
+    #[schema(pattern = "^(pending|running|succeeded|failed|suppressed)$")]
     state: &'static str,
     attempts: i16,
     status: Option<i16>,
     error: Option<String>,
+    #[schema(format = DateTime)]
     created_at: String,
+    #[schema(format = DateTime)]
     finished_at: Option<String>,
 }
 

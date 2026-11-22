@@ -14,21 +14,7 @@ const ALIASES: &[Route] = &[
     route("PUT", "/endpoints/{id}/aliases/{alias}"),
 ];
 
-const CAPTURES: &[Route] = &[
-    route("DELETE", "/endpoints/{id}/captures"),
-    route("GET", "/endpoints/{id}/captures"),
-    route("GET", "/endpoints/{id}/captures/latest"),
-    route("DELETE", "/endpoints/{id}/captures/{capture_id}"),
-    route("GET", "/endpoints/{id}/captures/{capture_id}"),
-    route("PATCH", "/endpoints/{id}/captures/{capture_id}"),
-    route("GET", "/endpoints/{id}/captures/{capture_id}/body"),
-    route("POST", "/endpoints/{id}/captures/{capture_id}/forward"),
-    route("GET", "/endpoints/{id}/captures/{capture_id}/parts/{index}"),
-    route("POST", "/endpoints/{id}/captures/{capture_id}/resend"),
-    route("GET", "/endpoints/{id}/captures/{capture_id}/rule-runs"),
-    route("POST", "/endpoints/{id}/captures/{capture_id}/rule-runs"),
-    route("GET", "/endpoints/{id}/stats"),
-];
+const CAPTURES: &[Route] = &[];
 
 const CLONING: &[Route] = &[
     route("POST", "/endpoints/{id}/clone"),

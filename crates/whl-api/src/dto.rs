@@ -3,6 +3,7 @@ use base64::engine::general_purpose::STANDARD;
 use serde::Serialize;
 use time::macros::format_description;
 use time::{OffsetDateTime, UtcOffset};
+use utoipa::ToSchema;
 use whl_auth::AccessControl;
 use whl_core::header::MAX_HEADERS;
 use whl_core::response::{MAX_BODY_BYTES as RESPONSE_BODY_BYTES, MAX_DELAY_MS};
@@ -252,8 +253,10 @@ struct NameValueDto {
     value: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = Body)]
 pub(crate) struct BodyDto {
+    #[schema(pattern = "^(utf8|base64)$")]
     encoding: &'static str,
     data: String,
     truncated: bool,

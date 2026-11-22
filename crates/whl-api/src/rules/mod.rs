@@ -2,7 +2,7 @@ mod dry_run;
 mod dto;
 mod handlers;
 mod input;
-mod runs;
+pub(crate) mod runs;
 
 pub(crate) use runs::RuleRunDto;
 

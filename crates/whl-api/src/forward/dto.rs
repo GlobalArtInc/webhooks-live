@@ -1,4 +1,5 @@
 use serde::Serialize;
+use utoipa::ToSchema;
 use whl_store::forward::{ForwardAttempt, ForwardJob, ForwardRule};
 
 use crate::dto::BodyDto;
@@ -35,9 +36,11 @@ pub struct RuleListDto {
     pub items: Vec<RuleDto>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = ForwardAttempt)]
 pub struct AttemptDto {
     attempt: i16,
+    #[schema(format = DateTime)]
     started_at: String,
     duration_ms: i32,
     status: Option<i16>,
@@ -65,16 +68,21 @@ impl From<&ForwardAttempt> for AttemptDto {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = ForwardJob)]
 pub struct JobDto {
     id: String,
+    #[schema(pattern = "^(rule|manual)$")]
     kind: &'static str,
     rule_id: Option<String>,
     target_url: String,
     method: String,
+    #[schema(pattern = "^(pending|running|succeeded|failed)$")]
     state: &'static str,
     attempts: Vec<AttemptDto>,
+    #[schema(format = DateTime)]
     created_at: String,
+    #[schema(format = DateTime)]
     finished_at: Option<String>,
 }
 

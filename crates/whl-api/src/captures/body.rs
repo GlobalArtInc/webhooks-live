@@ -12,7 +12,10 @@ use whl_core::endpoint_id::EndpointId;
 use whl_core::filename::safe_filename;
 use whl_store::EndpointError;
 
-use crate::error::ApiError;
+use super::doc::CaptureIdParam;
+use crate::error::{ApiError, ErrorBody};
+use crate::openapi::params::EndpointIdParam;
+use crate::openapi::responses::StoreUnavailable;
 use crate::state::ApiState;
 
 const CROSS_ORIGIN_RESOURCE_POLICY: HeaderName =
@@ -47,6 +50,43 @@ impl BodyParams {
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/endpoints/{id}/captures/{capture_id}/body",
+    operation_id = "captures_body",
+    tag = "Captures",
+    summary = "The raw body of a capture",
+    description = "The stored bytes, unchanged. The media type is `application/octet-stream`, which is the stored type; with `view=text` it is `text/plain; charset=utf-8`. The captured Content-Type is never used. `download=1` sends an attachment named `<capture_id>.bin`, otherwise the body is inline. Needs a viewer on the endpoint; a token needs the `read` scope.",
+    security(("session_cookie" = []), ("api_token" = [])),
+    params(
+        EndpointIdParam,
+        CaptureIdParam,
+        ("view" = Option<String>, Query, description = "`text` for `text/plain; charset=utf-8`; any other value or none gives `application/octet-stream`"),
+        ("download" = Option<String>, Query, description = "`1` for an attachment; any other value is inline"),
+        ("X-Webhooks-Live-Grant" = Option<String>, Header, description = "View grant of a view-protected anonymous endpoint")
+    ),
+    responses(
+        (
+            status = 200,
+            description = "The captured bytes as stored; the media type is `application/octet-stream` (`text/plain; charset=utf-8` with `view=text`)",
+            body = String,
+            content_type = "application/octet-stream",
+            headers(
+                ("Content-Disposition" = String, description = "`inline`, or `attachment; filename=\"<capture_id>.bin\"` with `download=1`"),
+                ("Content-Length" = u64, description = "Equal to `body_size`"),
+                ("Content-Security-Policy" = String, description = "Always `sandbox; default-src 'none'`"),
+                ("X-Content-Type-Options" = String, description = "Always `nosniff`"),
+                ("Cross-Origin-Resource-Policy" = String, description = "Always `same-origin`"),
+                ("Cache-Control" = String, description = "Always `no-store`")
+            )
+        ),
+        (status = 401, description = "`unauthenticated` or `invalid_token`; `grant_required` for a view-protected anonymous endpoint without a valid grant", body = ErrorBody),
+        (status = 403, description = "`insufficient_scope`: the token lacks `read` or is limited to other endpoints", body = ErrorBody),
+        (status = 404, description = "`capture_not_found`: unknown in this endpoint; `not_found`: malformed id", body = ErrorBody),
+        (status = 410, description = "`endpoint_gone`: unknown, expired or deleted endpoint, or no role on it in `sso`", body = ErrorBody),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 pub async fn download(
     State(state): State<ApiState>,
     Path((raw_id, raw_capture)): Path<(String, String)>,
