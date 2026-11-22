@@ -93,6 +93,10 @@ export function limitsOf(instance: Instance | undefined): GeneralLimits {
   };
 }
 
+export function isEndpointOwner(endpoint: Endpoint): boolean {
+  return endpoint.my_role === 'owner' || (endpoint.my_role === null && endpoint.owner === null);
+}
+
 export function draftOf(endpoint: Endpoint): GeneralDraft {
   return {
     title: endpoint.title ?? '',

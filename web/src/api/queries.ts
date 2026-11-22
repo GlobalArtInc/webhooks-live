@@ -32,6 +32,7 @@ import type {
   CapturePage,
   CaptureSummary,
   Endpoint,
+  EndpointView,
   EndpointInput,
   ForwardRequest,
   ScheduleInput,
@@ -172,8 +173,24 @@ export function clearCapturesInCache(queryClient: QueryClient, endpointId: strin
   updateEndpointInCache(queryClient, endpointId, clearEndpointCaptures);
 }
 
-function storeEndpoint(queryClient: QueryClient, endpoint: Endpoint): void {
-  queryClient.setQueryData(queryKeys.endpoint(endpoint.id), endpoint);
+export function mergeEndpoint(current: Endpoint, incoming: EndpointView): Endpoint {
+  return { ...current, ...incoming };
+}
+
+export function withoutViewGrant(endpoint: Endpoint): Endpoint {
+  if (endpoint.view_grant === undefined) {
+    return endpoint;
+  }
+  const copy: Endpoint = { ...endpoint };
+  Reflect.deleteProperty(copy, 'view_grant');
+  return copy;
+}
+
+export function storeEndpointInCache(queryClient: QueryClient, endpoint: Endpoint): void {
+  const stored = withoutViewGrant(endpoint);
+  queryClient.setQueryData<Endpoint>(queryKeys.endpoint(endpoint.id), (current) =>
+    current === undefined ? stored : mergeEndpoint(current, stored),
+  );
   void queryClient.invalidateQueries({ queryKey: queryKeys.endpointLists() });
 }
 
@@ -215,7 +232,7 @@ export function useCreateEndpoint() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: EndpointInput) => createEndpoint(input),
-    onSuccess: (endpoint) => storeEndpoint(queryClient, endpoint),
+    onSuccess: (endpoint) => storeEndpointInCache(queryClient, endpoint),
   });
 }
 
@@ -223,7 +240,7 @@ export function useUpdateEndpoint(endpointId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: EndpointInput) => patchEndpoint(endpointId, input),
-    onSuccess: (endpoint) => storeEndpoint(queryClient, endpoint),
+    onSuccess: (endpoint) => storeEndpointInCache(queryClient, endpoint),
   });
 }
 

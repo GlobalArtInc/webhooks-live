@@ -3,7 +3,9 @@ import { http } from 'msw';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ENDPOINT_ID } from '../../test/fixtures/endpoint';
 import { errorResponse, jsonResponse } from '../../test/msw/responses';
+import { instanceFixture } from '../../test/fixtures/instance';
 import { mockServer, registerMockServer } from '../../test/msw/server';
+import { mockStore } from '../../test/msw/store';
 import { renderAppAt } from '../../features/endpoints/renderApp';
 import {
   ENDPOINTS_STORAGE_KEY,
@@ -51,6 +53,18 @@ describe('home screen', () => {
     expect(parseEndpoints(window.localStorage.getItem(ENDPOINTS_STORAGE_KEY)).map((entry) => entry.id)).toEqual([
       opened,
     ]);
+  });
+
+  it('offers the import when the instance accepts uploads and hides it when its limit is zero', async () => {
+    mockStore.instance = { ...instanceFixture, limits: { ...instanceFixture.limits, import_max_bytes: 104857600 } };
+    const first = await openHome();
+    expect(await screen.findByRole('button', { name: 'Import captures' })).toBeTruthy();
+    first.unmount();
+
+    mockStore.instance = { ...instanceFixture, limits: { ...instanceFixture.limits, import_max_bytes: 0 } };
+    await openHome();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Create endpoint' })).toBeTruthy());
+    expect(screen.queryByRole('button', { name: 'Import captures' })).toBeNull();
   });
 
   it('shows a failure with Retry on a server error and creates the endpoint when retried', async () => {

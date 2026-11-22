@@ -2,6 +2,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useDeleteEndpoint } from '../../../api/queries';
+import { useReturnFocus } from '../../../components/useReturnFocus';
 import { forgetEndpoint } from '../../endpoints';
 import styles from './DeleteEndpointDialog.module.css';
 
@@ -13,6 +14,7 @@ export interface DeleteEndpointDialogProps {
 }
 
 export function DeleteEndpointDialog({ endpointId, open, onOpenChange, onDeleted }: DeleteEndpointDialogProps) {
+  const returnFocus = useReturnFocus();
   const { t } = useTranslation();
   const inputId = useId();
   const remove = useDeleteEndpoint(endpointId);
@@ -46,7 +48,11 @@ export function DeleteEndpointDialog({ endpointId, open, onOpenChange, onDeleted
     >
       <Dialog.Portal>
         <Dialog.Overlay className={styles.overlay} />
-        <Dialog.Content className={styles.content}>
+        <Dialog.Content
+          className={styles.content}
+          onOpenAutoFocus={returnFocus.onOpenAutoFocus}
+          onCloseAutoFocus={returnFocus.onCloseAutoFocus}
+        >
           <Dialog.Title className={styles.title}>{t('wl.general.danger.deleteEndpoint.title')}</Dialog.Title>
           <Dialog.Description className={styles.body}>{t('wl.general.danger.deleteEndpoint.body')}</Dialog.Description>
           <div className={styles.field}>

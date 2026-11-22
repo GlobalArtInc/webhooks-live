@@ -2,6 +2,8 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useNavigate } from '@tanstack/react-router';
 import { lazy, Suspense, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { offersImport } from '../../api/capabilities';
+import { useInstance } from '../../api/queries';
 import { copyText } from '../CopyButton/clipboard';
 import styles from './EndpointHeader.module.css';
 
@@ -20,6 +22,7 @@ export function HeaderMenu({ endpointId, curl, disableDeleteAll, onDeleteAll }: 
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [importOpen, setImportOpen] = useState(false);
+  const importOffered = offersImport(useInstance().data);
   return (
     <>
       <DropdownMenu.Root>
@@ -54,14 +57,16 @@ export function HeaderMenu({ endpointId, curl, disableDeleteAll, onDeleteAll }: 
             >
               {t('wl.endpoint.header.forwarding')}
             </DropdownMenu.Item>
-            <DropdownMenu.Item
-              className={styles.menuItem}
-              onSelect={() => {
-                setImportOpen(true);
-              }}
-            >
-              {t('wl.importdialog.open')}
-            </DropdownMenu.Item>
+            {importOffered ? (
+              <DropdownMenu.Item
+                className={styles.menuItem}
+                onSelect={() => {
+                  setImportOpen(true);
+                }}
+              >
+                {t('wl.importdialog.open')}
+              </DropdownMenu.Item>
+            ) : null}
             <DropdownMenu.Item className={styles.menuItem} disabled={disableDeleteAll} onSelect={onDeleteAll}>
               {t('wl.endpoint.header.deleteAll')}
             </DropdownMenu.Item>

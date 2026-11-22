@@ -5,22 +5,18 @@ import { CLONE_PARTS, useCloneEndpoint, type ClonePart, type CloneResult } from 
 import styles from './CloneDialog.module.css';
 
 type PartKey =
-  | 'wl.general.clone.part.settings'
   | 'wl.general.clone.part.response'
-  | 'wl.general.clone.part.forwarding'
+  | 'wl.general.clone.part.forwardRules'
   | 'wl.general.clone.part.rules'
-  | 'wl.general.clone.part.schedules'
   | 'wl.general.clone.part.channels'
-  | 'wl.general.clone.part.verifier';
+  | 'wl.general.clone.part.schedules';
 
 const PART_KEYS: Readonly<Record<ClonePart, PartKey>> = {
-  settings: 'wl.general.clone.part.settings',
   response: 'wl.general.clone.part.response',
-  forwarding: 'wl.general.clone.part.forwarding',
+  forward_rules: 'wl.general.clone.part.forwardRules',
   rules: 'wl.general.clone.part.rules',
-  schedules: 'wl.general.clone.part.schedules',
   channels: 'wl.general.clone.part.channels',
-  verifier: 'wl.general.clone.part.verifier',
+  schedules: 'wl.general.clone.part.schedules',
 };
 
 export interface CloneDialogProps {
@@ -55,7 +51,7 @@ export function CloneDialog({ endpointId, title, onClose, onCloseAutoFocus, onCl
       return;
     }
     clone.mutate(
-      { title: trimmed, parts: CLONE_PARTS.filter((part) => selected.includes(part)) },
+      { title: trimmed, include: CLONE_PARTS.filter((part) => selected.includes(part)) },
       {
         onSuccess: (result) => {
           if (result.secrets_missing.length === 0) {

@@ -49,6 +49,7 @@
   "wl.importdialog.failed.busy": "Another import is running, or you imported a moment ago.",
   "wl.importdialog.failed.retryIn": "You can try again in {{seconds}} s.",
   "wl.importdialog.failed.unauthenticated": "Sign in to import captures.",
+  "wl.importdialog.failed.sessionRequired": "Import needs a signed-in account; this instance does not have sign-in.",
   "wl.importdialog.failed.forbidden": "You need the editor role on this endpoint to import captures.",
   "wl.importdialog.failed.gone": "This endpoint no longer exists or you no longer have access to it.",
   "wl.importdialog.failed.network": "The connection was interrupted. Check the network and try again.",

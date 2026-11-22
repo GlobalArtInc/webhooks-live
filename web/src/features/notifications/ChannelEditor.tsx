@@ -1,6 +1,8 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { offersSecrets } from '../../api/capabilities';
 import { ApiError } from '../../api/client';
+import { useInstance } from '../../api/queries';
 import { ConfirmDialog } from '../../components/ConfirmDialog/ConfirmDialog';
 import { ConflictBanner } from '../../components/ConflictBanner/ConflictBanner';
 import { DraftFooter } from '../workspace/DraftFooter';
@@ -60,7 +62,8 @@ export function ChannelEditor({
   const issueText = useIssueText();
   const errorText = useErrorText();
   const listQuery = useChannels(endpointId, true);
-  const secretsQuery = useSecrets(endpointId, true);
+  const instance = useInstance().data;
+  const secretsQuery = useSecrets(endpointId, offersSecrets(instance));
   const create = useCreateChannel(endpointId);
   const update = useUpdateChannel(endpointId);
   const remove = useDeleteChannel(endpointId);

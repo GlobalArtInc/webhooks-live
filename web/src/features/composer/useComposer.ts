@@ -12,7 +12,7 @@ export interface SendVariables {
   signal: AbortSignal;
 }
 
-export function useSentHistory(endpointId: string | null) {
+export function useSentHistory(endpointId: string | null, enabled: boolean) {
   return useQuery({
     queryKey: [...composerHistoryKey, endpointId ?? ''],
     queryFn: () =>
@@ -20,6 +20,7 @@ export function useSentHistory(endpointId: string | null) {
         endpointId === null ? { limit: HISTORY_LIMIT } : { endpoint_id: endpointId, limit: HISTORY_LIMIT },
       ),
     retry: shouldRetryRequest,
+    enabled,
   });
 }
 

@@ -1,10 +1,10 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { endpointFixture } from '../src/test/fixtures/endpoint';
+import { endpointFixture, endpointViewOf } from '../src/test/fixtures/endpoint';
 import { EXAMPLE_SECRET_NAME, usageFixture } from '../src/test/fixtures/general';
 import { instanceFixture, PUBLIC_URL } from '../src/test/fixtures/instance';
 import { mockCaptureApi } from './support/captureApi';
-import { installFakeStream } from './support/fakeStream';
+import { installFakeStream, openLatestStream, pushStreamEvent, streamCount } from './support/fakeStream';
 import { ENDPOINT_ID, instanceWith, mockApi, type Reply, type ReplyMap } from './support/mockApi';
 
 const BASE_PATH = `/e/${ENDPOINT_ID}`;
@@ -23,6 +23,11 @@ function ownerEndpoint(): Record<string, unknown> {
     owner: OWNER,
     max_captures: 500,
     retention: { mode: 'sliding', seconds: null },
+    capture_ttl_seconds: null,
+    sender_allow_cidrs: [],
+    capture_auth: null,
+    verifier: null,
+    view_protected: false,
   };
 }
 
@@ -133,19 +138,55 @@ test('a clone lists the secrets that were not copied and then opens the new endp
         url: `${PUBLIC_URL}/${CLONE_ID}`,
         title: 'stripe-dev copy',
         secrets_missing: [EXAMPLE_SECRET_NAME],
+        skipped: [],
       },
     },
   });
 
   await page.getByRole('button', { name: 'Clone endpoint' }).click();
   const dialog = page.getByRole('dialog', { name: 'Clone endpoint' });
+  const cloned = page.waitForRequest((request) => request.method() === 'POST' && request.url().endsWith('/clone'));
   await dialog.getByRole('button', { name: 'Clone', exact: true }).click();
+
+  expect((await cloned).postDataJSON()).toEqual({
+    title: 'stripe test copy',
+    include: ['response', 'forward_rules', 'rules', 'channels', 'schedules'],
+  });
 
   await expect(dialog.getByText('Secrets were not copied')).toBeVisible();
   await expect(dialog.getByText(EXAMPLE_SECRET_NAME)).toBeVisible();
   await dialog.getByRole('button', { name: 'Open the new endpoint' }).click();
 
   await expect(page).toHaveURL(new RegExp(`/e/${CLONE_ID}/settings/general$`));
+});
+
+test('saving the title keeps the form while the server announces the saved endpoint without its identity fields', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const saved = { ...ownerEndpoint(), title: 'Renamed', tags: ['billing'] };
+  await openGeneral(page, {
+    [`GET /endpoints/${ENDPOINT_ID}`]: { body: { ...ownerEndpoint(), tags: ['billing'] } },
+    [`PATCH /endpoints/${ENDPOINT_ID}`]: { body: saved },
+  });
+  await expect.poll(() => streamCount(page)).toBeGreaterThan(0);
+  await openLatestStream(page);
+
+  await page.getByLabel('Title', { exact: true }).fill('Renamed');
+  const patched = page.waitForRequest((request) => request.method() === 'PATCH');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await patched;
+  const announced = endpointViewOf({
+    ...endpointFixture,
+    id: ENDPOINT_ID,
+    url: `${PUBLIC_URL}/${ENDPOINT_ID}`,
+    title: 'Renamed',
+  });
+  await pushStreamEvent(page, 'endpoint_updated', announced, '1');
+
+  await expect(page.getByLabel('Title', { exact: true })).toHaveValue('Renamed');
+  await expect(page.getByText('This page could not be loaded')).toHaveCount(0);
+  await expect(page.getByRole('heading', { level: 2, name: 'General' })).toBeVisible();
 });
 
 test('the clone dialog closes with Escape and gives focus back to its button', async ({ page }) => {

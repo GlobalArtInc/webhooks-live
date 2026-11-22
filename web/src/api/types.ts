@@ -205,6 +205,11 @@ export interface Retention {
   seconds: number | null;
 }
 
+export interface ViewGrant {
+  grant: string;
+  expires_at: Timestamp;
+}
+
 export interface Endpoint {
   id: EndpointId;
   url: string;
@@ -228,7 +233,16 @@ export interface Endpoint {
   my_role: EndpointRole | null;
   email?: EndpointEmail;
   dns?: EndpointDns;
+  view_grant?: ViewGrant | null;
+  sender_allow_cidrs?: string[];
+  view_protected?: boolean;
+  verifier?: Record<string, unknown> | null;
+  capture_auth?: Record<string, unknown> | null;
 }
+
+export type EndpointIdentityKey = 'tags' | 'owner' | 'my_role' | 'view_grant';
+
+export type EndpointView = Omit<Endpoint, EndpointIdentityKey>;
 
 export interface EndpointInput {
   title?: string | null;
@@ -400,6 +414,8 @@ export interface InstanceLimits {
   max_captures_settable?: number;
   max_retention_seconds?: number;
   never_expire_endpoints?: number;
+  aliases?: number;
+  import_max_bytes?: number;
 }
 
 export interface InstanceFeatures {
@@ -407,6 +423,7 @@ export interface InstanceFeatures {
   forwarding: boolean;
   private_forward_targets_allowed: boolean;
   schedules: boolean;
+  secrets?: boolean;
   notifications?: string[];
 }
 
@@ -444,7 +461,7 @@ export interface LiveEventPayloads {
   capture: CaptureSummary;
   capture_deleted: CaptureDeletedPayload;
   captures_cleared: EmptyPayload;
-  endpoint_updated: Endpoint;
+  endpoint_updated: EndpointView;
   endpoint_deleted: EmptyPayload;
   forward_result: ForwardResultPayload;
   rule_result: RuleResultPayload;

@@ -1,6 +1,7 @@
 import { useNavigate } from '@tanstack/react-router';
 import { useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { canSignIn } from '../../../api/capabilities';
 import { useEndpoint, useInstance, useUpdateEndpoint } from '../../../api/queries';
 import type { Endpoint } from '../../../api/types';
 import { ConflictBanner } from '../../../components/ConflictBanner/ConflictBanner';
@@ -13,6 +14,7 @@ import { LifetimeField } from '../../general/LifetimeField';
 import {
   draftOf,
   isCaptureTtlValid,
+  isEndpointOwner,
   isLifetimeValid,
   isMaxCapturesValid,
   limitsOf,
@@ -62,7 +64,7 @@ export function GeneralSection({ endpointId }: SectionProps) {
   const cloneButtonRef = useRef<HTMLButtonElement>(null);
   const [folderFailed, setFolderFailed] = useState(false);
   const readOnly = endpoint?.my_role === 'viewer';
-  const isOwner = endpoint?.my_role === 'owner';
+  const isOwner = endpoint !== undefined && isEndpointOwner(endpoint);
   const settings = useSettingsDraft<GeneralDraft, Endpoint>({
     source: endpoint,
     toDraft: draftOf,
@@ -136,9 +138,9 @@ export function GeneralSection({ endpointId }: SectionProps) {
             disabled={folders.data === undefined || moveEndpoint.isPending}
             onChange={moveToFolder}
           />
-        ) : (
+        ) : canSignIn(instance) ? (
           <p className={styles.note}>{t('wl.general.folder.signIn')}</p>
-        )}
+        ) : null}
         {folderFailed ? (
           <p role="alert" className={styles.error}>
             {t('wl.general.folder.failed')}

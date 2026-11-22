@@ -1,7 +1,7 @@
 import type {
   CaptureDeletedPayload,
   CaptureSummary,
-  Endpoint,
+  EndpointView,
   ForwardJob,
   ForwardResultPayload,
   ForwardState,
@@ -41,7 +41,7 @@ function isResyncReason(value: unknown): value is ResyncReason {
   return RESYNC_REASONS.includes(value);
 }
 
-function isEndpointView(value: unknown): value is Endpoint {
+function isEndpointView(value: unknown): value is EndpointView {
   return (
     isRecord(value) &&
     typeof value.id === 'string' &&

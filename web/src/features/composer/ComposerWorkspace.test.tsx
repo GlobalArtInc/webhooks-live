@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { http } from 'msw';
 import { afterEach, describe, expect, it } from 'vitest';
 import { queryKeys } from '../../api/queries';
 import type { ApiLimit, SendRequest, User } from '../../api/types';
@@ -144,8 +145,25 @@ describe('composer workspace', () => {
     expect(await screen.findByText('The request quota is used up.')).toBeTruthy();
   });
 
+  it('shows a neutral empty history and sends no history request when nobody can sign in', async () => {
+    const historyRequests: string[] = [];
+    mockServer.use(
+      http.get('/api/v1/send/history', ({ request }) => {
+        historyRequests.push(request.url);
+        return jsonResponse({ items: [], next_cursor: null });
+      }),
+    );
+    mockStore.instance = { ...mockStore.instance, user: null };
+    renderWorkspace();
+
+    expect(await screen.findByText('No requests sent yet.')).toBeTruthy();
+    expect(screen.queryByText('Sign in or open an endpoint to see its history.')).toBeNull();
+    expect(historyRequests).toEqual([]);
+  });
+
   it('shows a redacted history header as such and does not send it until the value is entered again', async () => {
     const requests: SendRequest[] = [];
+    mockStore.instance = { ...mockStore.instance, user: SIGNED_IN };
     mockServer.use(...sendHandlers({ requests, history: [sentRequestFixture] }));
     renderWorkspace();
 

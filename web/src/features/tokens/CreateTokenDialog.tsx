@@ -3,6 +3,7 @@ import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
 import { flattenOwnedEndpoints, tokenQueryKeys, useCreateApiToken, useOwnedEndpoints } from '../../api/tokens';
+import { useReturnFocus } from '../../components/useReturnFocus';
 import { useLanguage } from '../../i18n/provider';
 import { useNow } from '../endpoints/useNow';
 import {
@@ -43,6 +44,7 @@ export function CreateTokenDialog({ onClose, onCloseAutoFocus }: CreateTokenDial
   const now = useNow();
   const queryClient = useQueryClient();
   const create = useCreateApiToken();
+  const returnFocus = useReturnFocus();
   const { reset: resetCreate } = create;
   const nameId = useId();
   const nameHintId = useId();
@@ -154,7 +156,11 @@ export function CreateTokenDialog({ onClose, onCloseAutoFocus }: CreateTokenDial
     >
       <Dialog.Portal>
         <Dialog.Overlay className={styles.overlay} />
-        <Dialog.Content className={styles.content} onCloseAutoFocus={onCloseAutoFocus}>
+        <Dialog.Content
+          className={styles.content}
+          onOpenAutoFocus={returnFocus.onOpenAutoFocus}
+          onCloseAutoFocus={onCloseAutoFocus ?? returnFocus.onCloseAutoFocus}
+        >
           <Dialog.Title className={styles.title}>{title}</Dialog.Title>
           <Dialog.Description className={styles.description}>{description}</Dialog.Description>
           {revealed === null ? (

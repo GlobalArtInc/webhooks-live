@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
+import { http } from 'msw';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { renderAppAt } from '../../endpoints/renderApp';
 import { endpointFixture, ENDPOINT_ID } from '../../../test/fixtures/endpoint';
@@ -6,7 +7,8 @@ import { RULE_IDS, rulesFixture } from '../../../test/fixtures/rules';
 import { ruleEditorSupportHandlers } from '../../../test/msw/ruleEditor';
 import { resetRulesStore, seedRules } from '../../../test/msw/rules';
 import { mockServer, registerMockServer } from '../../../test/msw/server';
-import { seedEndpoint } from '../../../test/msw/store';
+import { jsonResponse } from '../../../test/msw/responses';
+import { mockStore, seedEndpoint } from '../../../test/msw/store';
 import { PREFS_KEY } from '../tester/constants';
 import type { EndpointRole } from '../../../api/types';
 
@@ -50,6 +52,29 @@ describe('rule editor page', () => {
     await waitFor(() =>
       expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true),
     );
+  });
+
+  it('does not ask for notification channels or secrets that the instance does not have', async () => {
+    seed();
+    mockStore.instance = {
+      ...mockStore.instance,
+      features: { ...mockStore.instance.features, notifications: [], secrets: false },
+    };
+    const asked: string[] = [];
+    mockServer.use(
+      http.get(`/api/v1/endpoints/${ENDPOINT_ID}/notifications`, ({ request }) => {
+        asked.push(request.url);
+        return jsonResponse({ error: { code: 'feature_disabled', message: 'off' } }, 404);
+      }),
+      http.get(`/api/v1/endpoints/${ENDPOINT_ID}/secrets`, ({ request }) => {
+        asked.push(request.url);
+        return jsonResponse({ error: { code: 'feature_disabled', message: 'off' } }, 503);
+      }),
+    );
+    renderAppAt(EDITOR_PATH);
+
+    await screen.findByRole('textbox', { name: 'Rule name' });
+    expect(asked).toEqual([]);
   });
 
   it('shows the not found state for a rule that does not exist', async () => {

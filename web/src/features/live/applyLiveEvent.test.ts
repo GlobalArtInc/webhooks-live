@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { queryKeys } from '../../api/queries';
 import type { Capture } from '../../api/types';
+import { endpointViewOf } from '../../test/fixtures/endpoint';
 import { captureSeries } from '../endpoint/testFixtures';
 import {
   applyLiveEvent,
@@ -170,10 +171,35 @@ describe('applyLiveEvent', () => {
 
   it('replaces the endpoint settings on endpoint_updated', () => {
     const updated = endpointWith({ title: 'renamed', cors: false, capture_count: 7, last_seq: 9 });
-    const outcome = applyLiveEvent(stateWith([3, 2, 1]), { name: 'endpoint_updated', data: updated });
+    const outcome = applyLiveEvent(stateWith([3, 2, 1]), { name: 'endpoint_updated', data: endpointViewOf(updated) });
 
-    expect(outcome.endpoint).toBe(updated);
+    expect(outcome.endpoint).toMatchObject({ title: 'renamed', cors: false, capture_count: 7, last_seq: 9 });
     expect(seqsOf(outcome.pages)).toEqual([3, 2, 1]);
+  });
+
+  it('keeps the tags, the owner and the role that the endpoint_updated payload does not carry', () => {
+    const cached = endpointWith({
+      tags: ['billing'],
+      my_role: 'owner',
+      owner: { id: 'u1', email: 'a@b.test', name: null },
+    });
+    const state = stateWith([3, 2, 1], { endpoint: cached });
+    const updated = endpointViewOf(endpointWith({ title: 'renamed' }));
+
+    const outcome = applyLiveEvent(state, { name: 'endpoint_updated', data: updated });
+
+    expect(outcome.endpoint?.title).toBe('renamed');
+    expect(outcome.endpoint?.tags).toEqual(['billing']);
+    expect(outcome.endpoint?.my_role).toBe('owner');
+    expect(outcome.endpoint?.owner?.id).toBe('u1');
+  });
+
+  it('does not invent an endpoint from an endpoint_updated payload when none is cached', () => {
+    const state = stateWith([3, 2, 1], { endpoint: undefined });
+
+    const outcome = applyLiveEvent(state, { name: 'endpoint_updated', data: endpointViewOf(endpointWith()) });
+
+    expect(outcome.endpoint).toBeUndefined();
   });
 
   it('updates the forward outcome of the capture in the list', () => {

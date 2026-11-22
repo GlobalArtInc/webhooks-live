@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { queryKeys, useEndpoint, useInstance } from '../../api/queries';
+import { storeEndpointInCache, useEndpoint, useInstance, withoutViewGrant } from '../../api/queries';
 import type { Endpoint } from '../../api/types';
 import { ConflictBanner } from '../../components/ConflictBanner/ConflictBanner';
 import { clearGrant } from './grants';
@@ -9,7 +9,7 @@ import { DraftFooter } from '../workspace/DraftFooter';
 import type { SectionProps } from '../workspace/sections';
 import { useSettingsDraft } from '../workspace/useSettingsDraft';
 import { ApiError } from '../../api/client';
-import { patchAccess, renewGrant } from './accessApi';
+import { adoptViewGrant, patchAccess } from './accessApi';
 import {
   accessDraftOf,
   buildAccessPatch,
@@ -70,13 +70,12 @@ export function AccessSection({ endpointId }: SectionProps) {
     try {
       const saved = await patchAccess(endpointId, patch);
       if (typeof patch.view_password === 'string') {
-        await renewGrant(endpointId, patch.view_password);
+        await adoptViewGrant(endpointId, saved, patch.view_password);
       } else if (patch.view_password === null) {
         clearGrant(endpointId);
       }
-      queryClient.setQueryData(queryKeys.endpoint(endpointId), saved);
-      void queryClient.invalidateQueries({ queryKey: queryKeys.endpointLists() });
-      return saved;
+      storeEndpointInCache(queryClient, saved);
+      return withoutViewGrant(saved);
     } catch (failure: unknown) {
       if (isDefinitiveRefusal(failure)) {
         setServerIssues(issuesFromServer(failure));

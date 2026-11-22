@@ -19,6 +19,7 @@ export type ImportFailureReason =
   | 'busy'
   | 'unauthenticated'
   | 'forbidden'
+  | 'sessionRequired'
   | 'gone'
   | 'network'
   | 'generic';
@@ -53,6 +54,7 @@ interface ParsedError {
 }
 
 const IMPORT_RETRY_SECONDS = 60;
+const SESSION_REFUSALS: readonly string[] = ['session_required', 'not_available_in_mode'];
 const CONTENT_TYPES: Readonly<Record<ImportFormat, string>> = {
   json: 'application/json',
   ndjson: 'application/x-ndjson',
@@ -116,7 +118,7 @@ export function failureOf(error: unknown): ImportFailed {
     case 401:
       return failed('unauthenticated', null, []);
     case 403:
-      return failed('forbidden', null, []);
+      return failed(SESSION_REFUSALS.includes(error.code ?? '') ? 'sessionRequired' : 'forbidden', null, []);
     case 410:
       return failed('gone', null, []);
     case 413:

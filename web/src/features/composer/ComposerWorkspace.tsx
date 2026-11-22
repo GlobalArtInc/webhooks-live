@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { offersSendHistory } from '../../api/capabilities';
+import { useInstance } from '../../api/queries';
 import type { SentRequest } from '../../api/types';
 import { ComposerForm } from './ComposerForm';
 import { seedFromSent, type ComposerSeed } from './draft';
@@ -20,7 +22,9 @@ interface ComposerSession extends ComposerSeed {
 export function ComposerWorkspace({ endpointId, seed }: ComposerWorkspaceProps) {
   const { t } = useTranslation();
   const [session, setSession] = useState<ComposerSession>(() => ({ ...seed, key: 0 }));
-  const history = useSentHistory(endpointId);
+  const instance = useInstance().data;
+  const historyOffered = offersSendHistory(instance, endpointId);
+  const history = useSentHistory(endpointId, historyOffered);
   const remove = useDeleteSentRequest();
 
   function replay(entry: SentRequest): void {
@@ -52,7 +56,7 @@ export function ComposerWorkspace({ endpointId, seed }: ComposerWorkspaceProps) 
       />
       <HistoryList
         entries={history.data?.items}
-        loading={history.isPending}
+        loading={instance === undefined || history.isLoading}
         failure={history.isError ? historyFailureOf(history.error) : null}
         deleting={remove.isPending}
         onReplay={replay}

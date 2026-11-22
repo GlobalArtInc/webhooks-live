@@ -1,4 +1,4 @@
-import type { Endpoint } from '../../api/types';
+import type { Endpoint, EndpointIdentityKey, EndpointView } from '../../api/types';
 import { PUBLIC_URL } from './instance';
 
 export const ENDPOINT_ID = '7k2m9q4xw8c1d5f3h6j0n2p4';
@@ -28,3 +28,13 @@ export const endpointFixture: Endpoint = {
   owner: null,
   my_role: null,
 };
+
+const IDENTITY_KEYS: readonly EndpointIdentityKey[] = ['tags', 'owner', 'my_role', 'view_grant'];
+
+export function endpointViewOf(endpoint: Endpoint): EndpointView {
+  const view: Endpoint = { ...endpoint };
+  for (const key of IDENTITY_KEYS) {
+    Reflect.deleteProperty(view, key);
+  }
+  return view;
+}

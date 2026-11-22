@@ -2,7 +2,7 @@ import type {
   CaptureDeletedPayload,
   CaptureSummary,
   EmptyPayload,
-  Endpoint,
+  EndpointView,
   ForwardResultPayload,
   ResyncPayload,
   StreamReadyPayload,
@@ -22,7 +22,7 @@ export interface LivePayloads {
   capture: CaptureSummary;
   capture_deleted: CaptureDeletedPayload;
   captures_cleared: EmptyPayload;
-  endpoint_updated: Endpoint;
+  endpoint_updated: EndpointView;
   endpoint_deleted: EmptyPayload;
   forward_result: ForwardResultPayload;
   rule_result: RuleResultPayload;

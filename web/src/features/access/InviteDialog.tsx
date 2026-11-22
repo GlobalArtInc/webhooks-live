@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { ApiError } from '../../api/client';
 import type { MemberRole } from '../../api/types';
 import dialogStyles from '../../components/ConfirmDialog/ConfirmDialog.module.css';
+import { useReturnFocus } from '../../components/useReturnFocus';
 import { usePutMember } from './useMembers';
 import styles from './access.module.css';
 
@@ -45,6 +46,7 @@ export function waitSeconds(error: unknown): number {
 }
 
 export function InviteDialog({ endpointId, open, onOpenChange }: InviteDialogProps) {
+  const returnFocus = useReturnFocus();
   const { t } = useTranslation();
   const baseId = useId();
   const put = usePutMember(endpointId);
@@ -113,7 +115,11 @@ export function InviteDialog({ endpointId, open, onOpenChange }: InviteDialogPro
     <Dialog.Root open={open} onOpenChange={changeOpen}>
       <Dialog.Portal>
         <Dialog.Overlay className={dialogStyles.overlay} />
-        <Dialog.Content className={dialogStyles.content}>
+        <Dialog.Content
+          className={dialogStyles.content}
+          onOpenAutoFocus={returnFocus.onOpenAutoFocus}
+          onCloseAutoFocus={returnFocus.onCloseAutoFocus}
+        >
           <Dialog.Title className={dialogStyles.title}>{t('wl.access.members.invite.title')}</Dialog.Title>
           <Dialog.Description className={dialogStyles.body}>
             {t('wl.access.members.invite.description')}

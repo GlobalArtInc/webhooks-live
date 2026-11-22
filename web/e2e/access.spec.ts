@@ -1,10 +1,10 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import type { Member, User } from '../src/api/types';
-import { endpointFixture } from '../src/test/fixtures/endpoint';
+import { endpointFixture, endpointViewOf } from '../src/test/fixtures/endpoint';
 import { PUBLIC_URL } from '../src/test/fixtures/instance';
 import { mockCaptureApi } from './support/captureApi';
-import { installFakeStream } from './support/fakeStream';
+import { installFakeStream, openLatestStream, pushStreamEvent, streamCount } from './support/fakeStream';
 import { ENDPOINT_ID, instanceWith, mockApi, type ReplyMap } from './support/mockApi';
 
 const BASE_PATH = `/e/${ENDPOINT_ID}`;
@@ -110,9 +110,22 @@ for (const { width, height } of WIDTHS) {
 
 test('setting a password sends it once and then reports only that one is set', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await openPage(page, ACCESS_PATH, {
-    [`PATCH /endpoints/${ENDPOINT_ID}`]: { body: endpointWith({ view_protected: true }) },
+  const unlocks: string[] = [];
+  page.on('request', (request) => {
+    if (request.url().endsWith('/unlock')) {
+      unlocks.push(request.url());
+    }
   });
+  await openPage(page, ACCESS_PATH, {
+    [`PATCH /endpoints/${ENDPOINT_ID}`]: {
+      body: endpointWith({
+        view_protected: true,
+        view_grant: { grant: FAKE_GRANT, expires_at: '2999-01-01T00:00:00.000Z' },
+      }),
+    },
+  });
+  await expect.poll(() => streamCount(page)).toBeGreaterThan(0);
+  await openLatestStream(page);
 
   await page.getByRole('button', { name: 'Set a password' }).click();
   await page.getByLabel('New password').fill(PLACEHOLDER_PASSWORD);
@@ -126,7 +139,12 @@ test('setting a password sends it once and then reports only that one is set', a
 
   expect((await patched).postDataJSON()).toEqual({ view_password: PLACEHOLDER_PASSWORD });
   await expect(page.getByText('A password is set. It cannot be shown again.')).toBeVisible();
+  await pushStreamEvent(page, 'endpoint_updated', endpointViewOf({ ...endpointFixture, id: ENDPOINT_ID }), '1');
+
+  await expect(page.getByRole('heading', { level: 2, name: 'Access' })).toBeVisible();
+  await expect(page.getByText('A password is set. It cannot be shown again.')).toBeVisible();
   await expect(page.getByLabel('New password')).toHaveCount(0);
+  expect(unlocks).toEqual([]);
   expect(page.url()).not.toContain(PLACEHOLDER_PASSWORD);
 });
 

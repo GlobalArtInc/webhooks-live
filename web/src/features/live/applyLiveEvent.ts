@@ -4,6 +4,7 @@ import {
   clearCapturePages,
   clearEndpointCaptures,
   mergeCaptureIntoPages,
+  mergeEndpoint,
   queryKeys,
   removeCaptureFromPages,
   type CaptureListData,
@@ -294,7 +295,11 @@ export function applyLiveEvent(state: LiveCacheState, event: LiveEvent): LiveOut
         effects: [{ kind: 'cleared' }],
       };
     case 'endpoint_updated':
-      return { ...state, endpoint: event.data, effects: [] };
+      return {
+        ...state,
+        endpoint: state.endpoint === undefined ? undefined : mergeEndpoint(state.endpoint, event.data),
+        effects: [],
+      };
     case 'forward_result':
       return applyForwardResult(state, event.data.capture_id, event.data.job);
     case 'rule_result':
@@ -379,6 +384,9 @@ export function applyLiveEventToCache(
   }
   if (event.name === 'endpoint_updated' || event.name === 'endpoint_deleted') {
     void queryClient.invalidateQueries({ queryKey: queryKeys.endpointLists() });
+  }
+  if (event.name === 'endpoint_updated') {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.endpoint(endpointId), refetchType: 'none' });
   }
   for (const effect of effects) {
     if (effect.kind === 'removed') {

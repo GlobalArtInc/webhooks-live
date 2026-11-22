@@ -2,6 +2,7 @@ import { http, type HttpHandler } from 'msw';
 import { CLONE_PARTS, type Alias, type AliasReason, type ClonePart } from '../../api/general';
 import type { Endpoint } from '../../api/types';
 import { EXAMPLE_SECRET_NAME } from '../fixtures/general';
+import { unknownFieldsOf } from '../openapiShapes';
 import { emptyResponse, errorResponse, jsonResponse, readJsonBody } from './responses';
 import { mockStore, newEndpoint } from './store';
 
@@ -15,11 +16,6 @@ interface AliasPath extends EndpointPath {
 
 interface AliasOnlyPath {
   alias: string;
-}
-
-interface CloneBody {
-  title?: string;
-  parts?: string[];
 }
 
 const MOCK_ALIAS_LIMIT = 5;
@@ -97,25 +93,45 @@ function putAliasResponse(endpointId: string, alias: string): Response {
   return jsonResponse(created);
 }
 
-function cloneEndpointResponse(endpointId: string, body: CloneBody | null): Response {
+function cloneEndpointResponse(endpointId: string, body: Record<string, unknown>): Response {
   const source = mockStore.endpoints.get(endpointId);
   if (source === undefined) {
     return endpointMissing();
   }
-  const requested = body?.parts ?? [];
-  const unknown = requested.find((part) => !isClonePart(part));
-  if (unknown !== undefined) {
-    return errorResponse(422, 'validation_failed', `parts ${unknown} is not known`, [
-      { field: 'parts', code: 'invalid_format', message: `${unknown} is not a known part` },
+  const unknownFields = unknownFieldsOf('CloneInput', body);
+  if (unknownFields.length > 0) {
+    return errorResponse(
+      422,
+      'validation_failed',
+      `${unknownFields.join(', ')} is not a known field`,
+      unknownFields.map((field) => ({ field, code: 'not_allowed', message: 'is not a known field' })),
+    );
+  }
+  const requested = body.include === undefined ? [...CLONE_PARTS] : body.include;
+  if (!Array.isArray(requested)) {
+    return errorResponse(422, 'validation_failed', 'include must be an array of part names', [
+      { field: 'include', code: 'invalid_format', message: 'must be an array of part names' },
     ]);
   }
+  const unknown = requested.find((part) => typeof part !== 'string' || !isClonePart(part));
+  if (unknown !== undefined) {
+    return errorResponse(422, 'validation_failed', 'include holds an unknown part', [
+      {
+        field: 'include',
+        code: 'invalid_format',
+        message: 'must be response, forward_rules, rules, channels or schedules',
+      },
+    ]);
+  }
+  const included: unknown[] = requested;
   const copy: Endpoint = {
-    ...newEndpoint({ title: body?.title ?? null }),
-    cors: requested.includes('settings') ? source.cors : false,
+    ...newEndpoint({ title: typeof body.title === 'string' ? body.title : null }),
+    cors: included.includes('response') ? source.cors : false,
   };
   mockStore.endpoints.set(copy.id, copy);
-  const secretsMissing = requested.includes('verifier') ? [EXAMPLE_SECRET_NAME] : [];
-  return jsonResponse({ ...copy, secrets_missing: secretsMissing }, 201);
+  const secretsMissing = included.includes('rules') ? [EXAMPLE_SECRET_NAME] : [];
+  const skipped = CLONE_PARTS.filter((part) => !included.includes(part));
+  return jsonResponse({ ...copy, secrets_missing: secretsMissing, skipped }, 201);
 }
 
 export const generalHandlers: HttpHandler[] = [
@@ -146,7 +162,7 @@ export const generalHandlers: HttpHandler[] = [
   }),
 
   http.post<EndpointPath>(CLONE, async ({ params, request }) => {
-    const body = await readJsonBody<CloneBody>(request, {});
+    const body = await readJsonBody<Record<string, unknown>>(request, {});
     if (body === null) {
       return errorResponse(400, 'invalid_json', 'Request body is not valid JSON.');
     }

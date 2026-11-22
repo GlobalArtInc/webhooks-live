@@ -171,6 +171,10 @@ export function newEndpoint(input: EndpointInput): Endpoint {
     expires_at: new Date(now.getTime() + RETENTION_MS).toISOString(),
     retention: { mode: 'sliding', seconds: null },
     capture_ttl_seconds: null,
+    sender_allow_cidrs: [],
+    capture_auth: null,
+    verifier: null,
+    view_protected: false,
     owner: null,
     my_role: null,
   };

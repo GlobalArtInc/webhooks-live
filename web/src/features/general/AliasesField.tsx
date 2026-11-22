@@ -2,6 +2,8 @@ import { useId, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAddAlias, useAliases, useRemoveAlias, type Alias } from '../../api/general';
 import { ApiError } from '../../api/client';
+import { offersAliases } from '../../api/capabilities';
+import { useInstance } from '../../api/queries';
 import { CopyButton } from '../../components/CopyButton/CopyButton';
 import { useAliasAvailability, type AliasStatus } from './useAliasAvailability';
 import styles from './AliasesField.module.css';
@@ -50,7 +52,9 @@ export function AliasesField({ endpointId, readOnly }: AliasesFieldProps) {
   const { t } = useTranslation();
   const inputId = useId();
   const statusId = useId();
-  const aliases = useAliases(endpointId);
+  const instance = useInstance().data;
+  const offered = offersAliases(instance);
+  const aliases = useAliases(endpointId, offered);
   const add = useAddAlias(endpointId);
   const remove = useRemoveAlias(endpointId);
   const [candidate, setCandidate] = useState('');
@@ -105,7 +109,8 @@ export function AliasesField({ endpointId, readOnly }: AliasesFieldProps) {
         {t('wl.general.aliases.title')}
       </h3>
       <p className={styles.help}>{t('wl.general.aliases.help')}</p>
-      {readOnly ? <p className={styles.help}>{t('wl.general.aliases.ownerOnly')}</p> : null}
+      {instance !== undefined && !offered ? <p className={styles.help}>{t('wl.general.aliases.unavailable')}</p> : null}
+      {offered && readOnly ? <p className={styles.help}>{t('wl.general.aliases.ownerOnly')}</p> : null}
       {aliases.isError ? (
         <p role="alert" className={styles.error}>
           {t('wl.general.aliases.failed')}
@@ -139,7 +144,7 @@ export function AliasesField({ endpointId, readOnly }: AliasesFieldProps) {
           ))}
         </ul>
       ) : null}
-      {readOnly ? null : (
+      {readOnly || !offered ? null : (
         <form className={styles.form} onSubmit={submit}>
           <div className={styles.field}>
             <label htmlFor={inputId} className={styles.label}>

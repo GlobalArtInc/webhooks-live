@@ -41,13 +41,27 @@ describe('endpoint workspace routes', () => {
     await waitFor(() => expect(router.state.location.pathname).toBe(`${BASE_PATH}/settings/forwarding`));
   });
 
-  it('hides sections the instance does not offer from the navigation', async () => {
+  it('keeps the sections the instance does not offer in the navigation and explains them', async () => {
     seed();
     renderAppAt(`${BASE_PATH}/settings/general`);
 
     const nav = await screen.findByRole('navigation', { name: NAV_LABEL });
     expect(within(nav).getByText('Local forwarding')).toBeTruthy();
-    expect(within(nav).queryByText('Notifications')).toBeNull();
+    fireEvent.click(within(nav).getByRole('link', { name: 'Notifications' }));
+
+    expect(await screen.findByText('Notifications are not available on this instance.')).toBeTruthy();
+    fireEvent.click(within(nav).getByRole('link', { name: 'Schedules' }));
+    expect(await screen.findByText('Scheduled requests are not available on this instance.')).toBeTruthy();
+  });
+
+  it('answers the secrets address with the reason secrets are unavailable instead of not found', async () => {
+    seed();
+    mockStore.instance = { ...mockStore.instance, features: { ...mockStore.instance.features, secrets: false } };
+    renderAppAt(`${BASE_PATH}/settings/secrets`);
+
+    expect(await screen.findByRole('heading', { name: 'Secrets' })).toBeTruthy();
+    expect(screen.getByText(/Secrets are not available on this instance/)).toBeTruthy();
+    expect(screen.queryByText('Page not found')).toBeNull();
   });
 
   it('saves the status code in one request and clears the unsaved state', async () => {
@@ -130,6 +144,20 @@ describe('endpoint workspace routes', () => {
     expect(confirm.hasAttribute('disabled')).toBe(true);
     fireEvent.change(within(dialog).getByRole('textbox'), { target: { value: ENDPOINT_ID } });
     expect(confirm.hasAttribute('disabled')).toBe(false);
+  });
+
+  it('returns focus to the Delete endpoint button when Escape closes its dialog', async () => {
+    seed();
+    renderAppAt(`${BASE_PATH}/settings/general`);
+    const button = await screen.findByRole('button', { name: 'Delete endpoint' });
+    button.focus();
+    fireEvent.click(button);
+    const dialog = await screen.findByRole('dialog', { name: 'Delete this endpoint?' });
+
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(button));
   });
 
   it('deletes all captures from General after confirmation', async () => {

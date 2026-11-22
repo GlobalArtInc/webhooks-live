@@ -1,5 +1,7 @@
 import { useId } from 'react';
 import { useTranslation } from 'react-i18next';
+import { offersUsage } from '../../api/capabilities';
+import { useInstance } from '../../api/queries';
 import { useUsage } from '../../api/usage';
 import { formatSize } from '../body/bytes';
 import { formatDate } from '../tokens/time';
@@ -72,7 +74,9 @@ function MeterRow({ label, used, max, detail }: MeterRowProps) {
 export function UsageMeters({ captureCount, maxCaptures, bytesUsed }: UsageMetersProps) {
   const { t, i18n } = useTranslation();
   const headingId = useId();
-  const usage = useUsage(true);
+  const instance = useInstance().data;
+  const offered = offersUsage(instance);
+  const usage = useUsage(offered);
   const meters = usage.data?.items ?? [];
 
   return (
@@ -87,6 +91,9 @@ export function UsageMeters({ captureCount, maxCaptures, bytesUsed }: UsageMeter
         <span className={styles.value}>{formatSize(bytesUsed)}</span>
       </p>
       <p className={styles.sub}>{t('wl.general.usage.account')}</p>
+      {instance !== undefined && !offered ? (
+        <p className={styles.help}>{t('wl.general.usage.accountUnavailable')}</p>
+      ) : null}
       {usage.isError ? (
         <p role="alert" className={styles.error}>
           {t('wl.general.usage.failed')}

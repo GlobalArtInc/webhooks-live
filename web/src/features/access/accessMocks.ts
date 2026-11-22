@@ -9,6 +9,7 @@ import type { AccessPatch } from './types';
 
 export const FAKE_UNLOCK_PASSWORD = 'not-a-real-password';
 export const FAKE_GRANT = 'fake-grant-for-tests';
+export const FAKE_PATCH_GRANT = 'fake-grant-from-patch';
 export const FAKE_NEW_PASSWORD = 'placeholder-pass-1';
 export const FAKE_SECRET = 'placeholder-secret-1';
 export const CLIENT_IP = '198.51.100.4';
@@ -22,6 +23,7 @@ export interface AccessMock {
 export interface AccessMockOptions {
   unlockStatus?: number;
   patchStatus?: number;
+  omitViewGrant?: boolean;
   retryAfter?: string;
 }
 
@@ -72,6 +74,12 @@ export function installAccessMock(initial: Endpoint, options: AccessMockOptions 
         return errorResponse(options.patchStatus, 'internal_error', 'Unexpected failure.');
       }
       mock.current = applyPatch(mock.current, patch);
+      if (typeof patch.view_password === 'string' && options.omitViewGrant !== true) {
+        return jsonResponse({
+          ...mock.current,
+          view_grant: { grant: FAKE_PATCH_GRANT, expires_at: new Date(Date.now() + 3_600_000).toISOString() },
+        });
+      }
       return jsonResponse(mock.current);
     }),
     http.post(`${ENDPOINT_URL}/unlock`, async ({ request }) => {

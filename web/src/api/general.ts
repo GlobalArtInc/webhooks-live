@@ -3,15 +3,7 @@ import { endpointPath, requestEmpty, requestJson } from './client';
 import { queryKeys, shouldRetryRequest } from './queries';
 import type { Endpoint, ItemList, Timestamp } from './types';
 
-export const CLONE_PARTS = [
-  'settings',
-  'response',
-  'forwarding',
-  'rules',
-  'schedules',
-  'channels',
-  'verifier',
-] as const;
+export const CLONE_PARTS = ['response', 'forward_rules', 'rules', 'channels', 'schedules'] as const;
 
 export type ClonePart = (typeof CLONE_PARTS)[number];
 
@@ -32,12 +24,13 @@ export interface AliasAvailability {
 }
 
 export interface CloneInput {
-  title: string;
-  parts: ClonePart[];
+  title?: string;
+  include?: ClonePart[];
 }
 
 export interface CloneResult extends Endpoint {
   secrets_missing: string[];
+  skipped: string[];
 }
 
 export const generalQueryKeys = {
@@ -76,11 +69,12 @@ function invalidateAliases(queryClient: QueryClient, endpointId: string): void {
   void queryClient.invalidateQueries({ queryKey: queryKeys.endpoint(endpointId) });
 }
 
-export function useAliases(endpointId: string) {
+export function useAliases(endpointId: string, enabled: boolean) {
   return useQuery({
     queryKey: generalQueryKeys.aliases(endpointId),
     queryFn: () => listAliases(endpointId),
     retry: shouldRetryRequest,
+    enabled,
   });
 }
 

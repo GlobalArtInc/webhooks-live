@@ -1,5 +1,5 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from 'react';
-import type { Endpoint, Instance } from '../../api/types';
+import type { Endpoint } from '../../api/types';
 
 export const WORKSPACE_SECTION_IDS = [
   'general',
@@ -9,6 +9,7 @@ export const WORKSPACE_SECTION_IDS = [
   'access',
   'notifications',
   'schedules',
+  'secrets',
   'cli',
 ] as const;
 
@@ -22,6 +23,7 @@ export type WorkspaceLabelKey =
   | 'wl.workspace.section.access'
   | 'wl.workspace.section.notifications'
   | 'wl.workspace.section.schedules'
+  | 'wl.workspace.section.secrets'
   | 'wl.workspace.section.cli';
 
 export interface SectionProps {
@@ -33,7 +35,7 @@ export interface WorkspaceSection {
   labelKey: WorkspaceLabelKey;
   Component: LazyExoticComponent<ComponentType<SectionProps>> | null;
   count?: (endpoint: Endpoint) => number;
-  available?: (instance: Instance | undefined) => boolean;
+  listed?: false;
 }
 
 const GeneralSection = lazy(() =>
@@ -55,6 +57,9 @@ const AccessSection = lazy(() =>
 const ScheduleSection = lazy(() =>
   import('../schedules/ScheduleSection').then((module) => ({ default: module.ScheduleSection })),
 );
+const SecretsSection = lazy(() =>
+  import('./secrets/SecretsSection').then((module) => ({ default: module.SecretsSection })),
+);
 const CliSection = lazy(() => import('../cli/CliSection').then((module) => ({ default: module.CliSection })));
 const NotificationsSection = lazy(() =>
   import('../notifications/NotificationsSection').then((module) => ({ default: module.NotificationsSection })),
@@ -75,14 +80,13 @@ export const WORKSPACE_SECTIONS: readonly WorkspaceSection[] = [
     id: 'notifications',
     labelKey: 'wl.workspace.section.notifications',
     Component: NotificationsSection,
-    available: (instance) => (instance?.features.notifications ?? []).length > 0,
   },
   {
     id: 'schedules',
     labelKey: 'wl.workspace.section.schedules',
     Component: ScheduleSection,
-    available: (instance) => instance?.features.schedules === true,
   },
+  { id: 'secrets', labelKey: 'wl.workspace.section.secrets', Component: SecretsSection, listed: false },
   { id: 'cli', labelKey: 'wl.workspace.section.cli', Component: CliSection },
 ];
 

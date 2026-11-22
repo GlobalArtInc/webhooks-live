@@ -5,6 +5,7 @@ import { ApiError } from '../../api/client';
 import { useCapture, useEndpoint, useResendCapture } from '../../api/queries';
 import type { ForwardJob } from '../../api/types';
 import { ForwardResultPanel } from '../../components/ForwardResultPanel/ForwardResultPanel';
+import { useReturnFocus } from '../../components/useReturnFocus';
 import { issueFromServer, validateTarget, type RuleIssue, TARGET_MAX_CHARS } from './ruleDraft';
 import styles from './ResendDialog.module.css';
 
@@ -168,11 +169,16 @@ function ResendForm({ endpointId, captureId }: ResendFormProps) {
 
 export function ResendDialog({ endpointId, captureId, open, onOpenChange }: ResendDialogProps) {
   const { t } = useTranslation();
+  const returnFocus = useReturnFocus();
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className={styles.overlay} />
-        <Dialog.Content className={styles.content}>
+        <Dialog.Content
+          className={styles.content}
+          onOpenAutoFocus={returnFocus.onOpenAutoFocus}
+          onCloseAutoFocus={returnFocus.onCloseAutoFocus}
+        >
           <Dialog.Title className={styles.title}>{t('wl.forwarding.resend.title')}</Dialog.Title>
           <Dialog.Description className={styles.body}>{t('wl.forwarding.resend.body')}</Dialog.Description>
           <ResendForm endpointId={endpointId} captureId={captureId} />

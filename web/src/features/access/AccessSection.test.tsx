@@ -7,6 +7,7 @@ import { renderAppAt } from '../endpoints/renderApp';
 import {
   FAKE_GRANT,
   FAKE_NEW_PASSWORD,
+  FAKE_PATCH_GRANT,
   FAKE_UNLOCK_PASSWORD,
   endpointWith,
   installAccessMock,
@@ -203,9 +204,23 @@ describe('role gating', () => {
 describe('grants and failed saves', () => {
   const FUTURE = '2999-01-01T00:00:00.000Z';
 
-  it('replaces the stored grant with a fresh one after the password is changed', async () => {
+  it('stores the grant that the save answer carries and does not unlock again', async () => {
     storeGrant(ENDPOINT_ID, 'stale-grant', FUTURE);
-    const { mock } = openSection({ view_protected: true });
+    const { mock, view } = openSection({ view_protected: true });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Change password' }));
+    fireEvent.change(screen.getByLabelText('New password'), { target: { value: FAKE_NEW_PASSWORD } });
+    fireEvent.change(screen.getByLabelText('Type it again'), { target: { value: FAKE_NEW_PASSWORD } });
+    save();
+
+    await waitFor(() => expect(readGrant(ENDPOINT_ID)).toBe(FAKE_PATCH_GRANT));
+    expect(mock.unlockAttempts).toEqual([]);
+    expect(JSON.stringify(view.queryClient.getQueryData(['endpoint', ENDPOINT_ID]))).not.toContain(FAKE_PATCH_GRANT);
+  });
+
+  it('unlocks with the new password when the save answer carries no grant', async () => {
+    storeGrant(ENDPOINT_ID, 'stale-grant', FUTURE);
+    const { mock } = openSection({ view_protected: true }, { omitViewGrant: true });
 
     fireEvent.click(await screen.findByRole('button', { name: 'Change password' }));
     fireEvent.change(screen.getByLabelText('New password'), { target: { value: FAKE_UNLOCK_PASSWORD } });

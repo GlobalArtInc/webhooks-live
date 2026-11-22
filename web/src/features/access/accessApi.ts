@@ -29,6 +29,14 @@ export async function unlockEndpoint(endpointId: string, password: string): Prom
   return response;
 }
 
+export async function adoptViewGrant(endpointId: string, saved: Endpoint, password: string): Promise<boolean> {
+  const grant = saved.view_grant;
+  if (grant !== undefined && grant !== null && storeGrant(endpointId, grant.grant, grant.expires_at)) {
+    return true;
+  }
+  return renewGrant(endpointId, password);
+}
+
 export async function renewGrant(endpointId: string, password: string): Promise<boolean> {
   clearGrant(endpointId);
   try {

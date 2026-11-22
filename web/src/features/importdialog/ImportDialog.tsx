@@ -1,6 +1,7 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import { useEffect, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useReturnFocus } from '../../components/useReturnFocus';
 import { inspectFile, type ChosenFile } from './importFile';
 import { useImportJob, type ImportPhase } from './useImportJob';
 import {
@@ -22,6 +23,7 @@ export interface ImportDialogProps {
 }
 
 export function ImportDialog({ endpointId, onOpenChange, onOpenEndpoint }: ImportDialogProps) {
+  const returnFocus = useReturnFocus();
   const { t, i18n } = useTranslation();
   const locale = i18n.language;
   const job = useImportJob();
@@ -92,7 +94,11 @@ export function ImportDialog({ endpointId, onOpenChange, onOpenEndpoint }: Impor
     <Dialog.Root open onOpenChange={handleOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className={styles.overlay} />
-        <Dialog.Content className={styles.content}>
+        <Dialog.Content
+          className={styles.content}
+          onOpenAutoFocus={returnFocus.onOpenAutoFocus}
+          onCloseAutoFocus={returnFocus.onCloseAutoFocus}
+        >
           <Dialog.Title className={styles.title}>{t('wl.importdialog.title')}</Dialog.Title>
           <Dialog.Description className={styles.description}>{t('wl.importdialog.description')}</Dialog.Description>
           <input

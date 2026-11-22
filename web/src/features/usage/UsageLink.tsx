@@ -1,5 +1,6 @@
 import { Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
+import { offersUsage } from '../../api/capabilities';
 import type { Instance } from '../../api/types';
 import { useUsage } from '../../api/usage';
 import { headerWarning } from './meterText';
@@ -10,7 +11,7 @@ export interface UsageLinkProps {
 }
 
 export function showsUsageLink(instance: Instance): boolean {
-  return instance.auth_mode !== 'open' && instance.user !== null;
+  return offersUsage(instance);
 }
 
 export function UsageLink({ instance }: UsageLinkProps) {

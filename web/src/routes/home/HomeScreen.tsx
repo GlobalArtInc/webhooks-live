@@ -1,6 +1,8 @@
 import { useNavigate } from '@tanstack/react-router';
 import { lazy, Suspense, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { offersImport } from '../../api/capabilities';
+import { useInstance } from '../../api/queries';
 import { CreateForm, MyEndpointsList } from '../../features/endpoints';
 import styles from './HomeScreen.module.css';
 
@@ -12,6 +14,7 @@ export function HomeScreen() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [importOpen, setImportOpen] = useState(false);
+  const importOffered = offersImport(useInstance().data);
 
   return (
     <section className={styles.page}>
@@ -19,15 +22,17 @@ export function HomeScreen() {
         <h1 className={styles.title}>{t('wl.home.hero.title')}</h1>
         <p className={styles.pitch}>{t('wl.home.hero.pitch')}</p>
         <CreateForm />
-        <button
-          type="button"
-          className={styles.importButton}
-          onClick={() => {
-            setImportOpen(true);
-          }}
-        >
-          {t('wl.importdialog.open')}
-        </button>
+        {importOffered ? (
+          <button
+            type="button"
+            className={styles.importButton}
+            onClick={() => {
+              setImportOpen(true);
+            }}
+          >
+            {t('wl.importdialog.open')}
+          </button>
+        ) : null}
       </div>
       <MyEndpointsList />
       {importOpen ? (

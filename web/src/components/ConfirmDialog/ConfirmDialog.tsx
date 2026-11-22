@@ -1,4 +1,5 @@
 import * as Dialog from '@radix-ui/react-dialog';
+import { useReturnFocus } from '../useReturnFocus';
 import styles from './ConfirmDialog.module.css';
 
 export interface ConfirmDialogProps {
@@ -24,11 +25,16 @@ export function ConfirmDialog({
   onOpenChange,
   onCloseAutoFocus,
 }: ConfirmDialogProps) {
+  const returnFocus = useReturnFocus();
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className={styles.overlay} />
-        <Dialog.Content className={styles.content} onCloseAutoFocus={onCloseAutoFocus}>
+        <Dialog.Content
+          className={styles.content}
+          onOpenAutoFocus={returnFocus.onOpenAutoFocus}
+          onCloseAutoFocus={onCloseAutoFocus ?? returnFocus.onCloseAutoFocus}
+        >
           <Dialog.Title className={styles.title}>{title}</Dialog.Title>
           <Dialog.Description className={styles.body}>{body}</Dialog.Description>
           <div className={styles.actions}>

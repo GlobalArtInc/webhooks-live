@@ -21,8 +21,13 @@ function upload(endpointId: string | null, keepTimes = true): ImportUpload {
   };
 }
 
-function apiError(status: number, retryAfter: number | null = null, details: ApiError['details'] = []): ApiError {
-  return new ApiError({ status, code: null, message: 'refused', details, retryAfter });
+function apiError(
+  status: number,
+  retryAfter: number | null = null,
+  details: ApiError['details'] = [],
+  code: string | null = null,
+): ApiError {
+  return new ApiError({ status, code, message: 'refused', details, retryAfter });
 }
 
 describe('importPath', () => {
@@ -52,6 +57,12 @@ describe('failureOf', () => {
       retryAfter: null,
       problems,
     });
+  });
+
+  it('tells a missing session apart from a missing role on 403', () => {
+    expect(failureOf(apiError(403, null, [], 'session_required')).reason).toBe('sessionRequired');
+    expect(failureOf(apiError(403, null, [], 'not_available_in_mode')).reason).toBe('sessionRequired');
+    expect(failureOf(apiError(403, null, [], 'forbidden')).reason).toBe('forbidden');
   });
 
   it('maps a network failure and an unknown error to their own reasons', () => {

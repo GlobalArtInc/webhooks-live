@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ExportFormat } from '../../api/types';
 import { formatByteSize } from '../../components/format/format';
+import { useReturnFocus } from '../../components/useReturnFocus';
 import type { ActiveFilters } from '../list/listFilters';
 import { EXPORT_MAX_CAPTURES, exportQueryOf, selectionFitsExport, type ExportScope } from './exportRequest';
 import { useExportJob, type ExportJob, type ExportPhase } from './useExportJob';
@@ -51,6 +52,7 @@ export function ExportDialog({
   onOpenChange,
 }: ExportDialogProps) {
   const { t, i18n } = useTranslation();
+  const returnFocus = useReturnFocus();
   const locale = i18n.language;
   const job = useExportJob();
   const [scope, setScope] = useState<ExportScope>(initialScope);
@@ -101,7 +103,11 @@ export function ExportDialog({
     <Dialog.Root open onOpenChange={handleOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className={styles.overlay} />
-        <Dialog.Content className={styles.content}>
+        <Dialog.Content
+          className={styles.content}
+          onOpenAutoFocus={returnFocus.onOpenAutoFocus}
+          onCloseAutoFocus={returnFocus.onCloseAutoFocus}
+        >
           <Dialog.Title className={styles.title}>{t('wl.exportdialog.title')}</Dialog.Title>
           <Dialog.Description className={styles.description}>{t('wl.exportdialog.description')}</Dialog.Description>
           {configuring ? (

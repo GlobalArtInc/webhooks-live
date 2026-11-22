@@ -323,6 +323,8 @@ function FailureMessage({ reason }: FailureMessageProps) {
       return <>{t('wl.importdialog.failed.unauthenticated')}</>;
     case 'forbidden':
       return <>{t('wl.importdialog.failed.forbidden')}</>;
+    case 'sessionRequired':
+      return <>{t('wl.importdialog.failed.sessionRequired')}</>;
     case 'gone':
       return <>{t('wl.importdialog.failed.gone')}</>;
     case 'network':

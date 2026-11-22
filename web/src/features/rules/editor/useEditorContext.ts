@@ -1,4 +1,6 @@
 import { useMemo } from 'react';
+import { offersNotifications, offersSecrets } from '../../../api/capabilities';
+import { useInstance } from '../../../api/queries';
 import type { VariableEntry } from '../../../components/VariablePicker/variables';
 import { DEFAULT_DELIMITERS } from '../../editor/constants';
 import type { TemplateDelimiters } from '../../editor/types';
@@ -24,8 +26,9 @@ export function useEditorContext(
   catalogue: RuleCatalogue,
 ): EditorContextData {
   const variableQuery = useVariableCatalogue(endpointId, captureId, true);
-  const channelQuery = useChannels(endpointId, true);
-  const secretQuery = useSecrets(endpointId, true);
+  const instance = useInstance().data;
+  const channelQuery = useChannels(endpointId, offersNotifications(instance));
+  const secretQuery = useSecrets(endpointId, offersSecrets(instance));
   const served = variableQuery.data;
 
   const variables = useMemo(() => {

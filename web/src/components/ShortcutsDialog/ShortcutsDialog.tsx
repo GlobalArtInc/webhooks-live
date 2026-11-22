@@ -3,6 +3,7 @@ import { Fragment, useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import { displayKey, SHORTCUT_SCOPES, type ShortcutEntry, type ShortcutScope } from '../../features/shortcuts/registry';
 import type { SourceKey } from '../../i18n/keys';
+import { useReturnFocus } from '../useReturnFocus';
 import styles from './ShortcutsDialog.module.css';
 
 const SCOPE_LABELS: Readonly<Record<ShortcutScope, SourceKey>> = {
@@ -22,13 +23,18 @@ export interface ShortcutsDialogProps {
 export function ShortcutsDialog({ open, shortcuts, singleKey, onSingleKeyChange, onOpenChange }: ShortcutsDialogProps) {
   const { t } = useTranslation();
   const idPrefix = useId();
+  const returnFocus = useReturnFocus();
   const switchLabelId = `${idPrefix}-switch`;
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className={styles.overlay} />
-        <Dialog.Content className={styles.content}>
+        <Dialog.Content
+          className={styles.content}
+          onOpenAutoFocus={returnFocus.onOpenAutoFocus}
+          onCloseAutoFocus={returnFocus.onCloseAutoFocus}
+        >
           <Dialog.Title className={styles.title}>{t('wl.shortcuts.title')}</Dialog.Title>
           <Dialog.Description className={styles.hint}>{t('wl.shortcuts.hint')}</Dialog.Description>
           <div className={styles.preference}>
