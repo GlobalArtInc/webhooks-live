@@ -30,14 +30,7 @@ const CAPTURES: &[Route] = &[
     route("GET", "/endpoints/{id}/stats"),
 ];
 
-const CLONING: &[Route] = &[
-    route("POST", "/endpoints/{id}/clone"),
-    route("GET", "/templates"),
-    route("POST", "/templates"),
-    route("DELETE", "/templates/{template_id}"),
-    route("GET", "/templates/{template_id}"),
-    route("PATCH", "/templates/{template_id}"),
-];
+const CLONING: &[Route] = &[];
 
 const COMPOSER: &[Route] = &[
     route("POST", "/send"),
@@ -62,14 +55,7 @@ const EXPORT: &[Route] = &[
     route("POST", "/endpoints/{id}/export"),
 ];
 
-const FOLDERS: &[Route] = &[
-    route("GET", "/folders"),
-    route("POST", "/folders"),
-    route("DELETE", "/folders/{folder_id}"),
-    route("PATCH", "/folders/{folder_id}"),
-    route("DELETE", "/folders/{folder_id}/endpoints/{id}"),
-    route("PUT", "/folders/{folder_id}/endpoints/{id}"),
-];
+const FOLDERS: &[Route] = &[];
 
 const FORWARD: &[Route] = &[
     route("GET", "/endpoints/{id}/forward-rules"),
@@ -122,14 +108,7 @@ const RULES: &[Route] = &[
     route("PATCH", "/endpoints/{id}/rules/{rule_id}"),
 ];
 
-const SCHEDULES: &[Route] = &[
-    route("GET", "/endpoints/{id}/schedules"),
-    route("POST", "/endpoints/{id}/schedules"),
-    route("DELETE", "/endpoints/{id}/schedules/{schedule_id}"),
-    route("PATCH", "/endpoints/{id}/schedules/{schedule_id}"),
-    route("POST", "/endpoints/{id}/schedules/{schedule_id}/run"),
-    route("GET", "/endpoints/{id}/schedules/{schedule_id}/runs"),
-];
+const SCHEDULES: &[Route] = &[];
 
 const SECRETS: &[Route] = &[
     route("GET", "/endpoints/{id}/secrets"),

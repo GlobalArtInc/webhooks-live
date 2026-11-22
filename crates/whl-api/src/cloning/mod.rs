@@ -1,3 +1,4 @@
+mod doc;
 mod document;
 mod export;
 mod handlers;
@@ -8,6 +9,7 @@ mod templates;
 
 use crate::routing::{Routes, get, post};
 
+pub use doc::CloningDoc;
 pub(crate) use templates::{create_from_template, split_template_request};
 
 pub fn routes() -> Routes {

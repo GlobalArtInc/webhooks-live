@@ -3,24 +3,43 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use serde::Serialize;
 use serde_json::{Map, Value};
+use utoipa::{OpenApi, ToSchema};
 use whl_auth::{AuthRejection, Caller};
 use whl_core::endpoint_id::EndpointId;
 use whl_store::{CreateFolderOutcome, FolderRecord, UpdateFolderOutcome, Uuid};
 
 use crate::body::RawBody;
 use crate::dto::timestamp;
-use crate::error::{ApiError, FieldCode, FieldViolation};
+use crate::error::{ApiError, ErrorBody, FieldCode, FieldViolation};
+use crate::openapi::params::EndpointIdParam;
+use crate::openapi::responses::{
+    BadRequest, PayloadTooLarge, StoreUnavailable, Unauthenticated, UnsupportedMediaType,
+    ValidationFailed,
+};
 use crate::routing::{Routes, get, patch, put};
 use crate::state::ApiState;
 
 const NAME_MAX_CHARS: usize = 64;
 
-#[derive(Serialize)]
+#[derive(OpenApi)]
+#[openapi(
+    paths(list, create, update, destroy, add_endpoint, remove_endpoint),
+    components(schemas(FolderInputDoc, FolderPatchInputDoc, FolderDto, FolderListDto)),
+    tags((name = "Folders", description = "The signed-in user's folders, each grouping endpoints"))
+)]
+pub struct FoldersDoc;
+
+#[derive(Serialize, ToSchema)]
+#[schema(as = Folder)]
 pub struct FolderDto {
+    #[schema(example = "0193a6c2-7d1e-7c3a-8f55-2b9e4c1a6d70")]
     id: String,
+    #[schema(example = "Checkout")]
     name: String,
+    #[schema(example = 0)]
     position: i32,
     endpoint_ids: Vec<String>,
+    #[schema(format = DateTime)]
     created_at: String,
 }
 
@@ -36,13 +55,32 @@ impl From<&FolderRecord> for FolderDto {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = FolderList)]
 pub struct FolderListDto {
     items: Vec<FolderDto>,
 }
 
 struct FolderPatch {
     name: Option<String>,
+    position: Option<i32>,
+}
+
+#[derive(ToSchema)]
+#[schema(as = FolderInput)]
+#[allow(dead_code)]
+struct FolderInputDoc {
+    #[schema(min_length = 1, max_length = 64, example = "Checkout")]
+    name: String,
+}
+
+#[derive(ToSchema)]
+#[schema(as = FolderPatchInput)]
+#[allow(dead_code)]
+struct FolderPatchInputDoc {
+    #[schema(min_length = 1, max_length = 64, example = "Checkout v2")]
+    name: Option<String>,
+    #[schema(example = 1)]
     position: Option<i32>,
 }
 
@@ -56,6 +94,21 @@ pub fn routes() -> Routes {
         )
 }
 
+#[utoipa::path(
+    get,
+    path = "/folders",
+    operation_id = "folders_list",
+    tag = "Folders",
+    summary = "List the caller's folders",
+    description = "Each folder lists its endpoint ids. Needs a signed-in caller; a token is refused with 403 `session_required`.",
+    security(("session_cookie" = [])),
+    responses(
+        (status = 200, description = "The caller's folders", body = FolderListDto),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`session_required`: a Bearer token was used; `sign_in_required`: `mixed` without a session; `not_available_in_mode`: the instance has no accounts", body = ErrorBody),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 async fn list(
     State(state): State<ApiState>,
     caller: Caller,
@@ -70,6 +123,27 @@ async fn list(
     }))
 }
 
+#[utoipa::path(
+    post,
+    path = "/folders",
+    operation_id = "folders_create",
+    tag = "Folders",
+    summary = "Create a folder",
+    description = "`name` is 1 to 64 characters and unique per user. The tier caps the number of folders. Needs a signed-in caller; a token is refused with 403 `session_required`.",
+    security(("session_cookie" = [])),
+    request_body(content = FolderInputDoc, content_type = "application/json"),
+    responses(
+        (status = 201, description = "The folder, with no endpoints yet", body = FolderDto),
+        (status = 400, response = BadRequest),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`session_required`: a Bearer token was used; `sign_in_required`: `mixed` without a session; `not_available_in_mode`: the instance has no accounts; `csrf_rejected`: the Origin check failed", body = ErrorBody),
+        (status = 409, description = "`name_taken`: the user already has a folder with this name", body = ErrorBody),
+        (status = 413, response = PayloadTooLarge),
+        (status = 415, response = UnsupportedMediaType),
+        (status = 422, description = "`validation_failed` (see `error.fields`) or `limit_reached` (`error.limit` = `{name: \"folders\", max}`)", body = ErrorBody),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 async fn create(
     State(state): State<ApiState>,
     caller: Caller,
@@ -87,6 +161,29 @@ async fn create(
     }
 }
 
+#[utoipa::path(
+    patch,
+    path = "/folders/{folder_id}",
+    operation_id = "folders_update",
+    tag = "Folders",
+    summary = "Rename or move a folder",
+    description = "`name` (1 to 64 characters, unique per user) and `position` (integer, 32-bit) are both optional. An empty body is 400 `invalid_json`. Needs a signed-in caller; a token is refused with 403 `session_required`.",
+    security(("session_cookie" = [])),
+    params(("folder_id" = String, Path, description = "Folder id, UUID")),
+    request_body(content = FolderPatchInputDoc, content_type = "application/json"),
+    responses(
+        (status = 200, description = "The updated folder", body = FolderDto),
+        (status = 400, response = BadRequest),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`session_required`: a Bearer token was used; `sign_in_required`: `mixed` without a session; `not_available_in_mode`: the instance has no accounts; `csrf_rejected`: the Origin check failed", body = ErrorBody),
+        (status = 404, description = "`folder_not_found`: not a folder of the caller, unknown or malformed id", body = ErrorBody),
+        (status = 409, description = "`name_taken`: the user already has a folder with this name", body = ErrorBody),
+        (status = 413, response = PayloadTooLarge),
+        (status = 415, response = UnsupportedMediaType),
+        (status = 422, response = ValidationFailed),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 async fn update(
     State(state): State<ApiState>,
     caller: Caller,
@@ -113,6 +210,23 @@ async fn update(
     }
 }
 
+#[utoipa::path(
+    delete,
+    path = "/folders/{folder_id}",
+    operation_id = "folders_delete",
+    tag = "Folders",
+    summary = "Delete a folder",
+    description = "Deletes the folder only; its endpoints are kept. Needs a signed-in caller; a token is refused with 403 `session_required`.",
+    security(("session_cookie" = [])),
+    params(("folder_id" = String, Path, description = "Folder id, UUID")),
+    responses(
+        (status = 204, description = "The folder is deleted"),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`session_required`: a Bearer token was used; `sign_in_required`: `mixed` without a session; `not_available_in_mode`: the instance has no accounts; `csrf_rejected`: the Origin check failed", body = ErrorBody),
+        (status = 404, description = "`folder_not_found`: not a folder of the caller, unknown or malformed id", body = ErrorBody),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 async fn destroy(
     State(state): State<ApiState>,
     caller: Caller,
@@ -127,6 +241,24 @@ async fn destroy(
     }
 }
 
+#[utoipa::path(
+    put,
+    path = "/folders/{folder_id}/endpoints/{id}",
+    operation_id = "folders_add_endpoint",
+    tag = "Folders",
+    summary = "Add an endpoint to a folder",
+    description = "Needs a folder of the caller and the viewer role on the endpoint. Adding an endpoint that is already in the folder changes nothing. Needs a signed-in caller; a token is refused with 403 `session_required`.",
+    security(("session_cookie" = [])),
+    params(("folder_id" = String, Path, description = "Folder id, UUID"), EndpointIdParam),
+    responses(
+        (status = 204, description = "The endpoint is in the folder"),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`session_required`: a Bearer token was used; `sign_in_required`: `mixed` without a session; `not_available_in_mode`: the instance has no accounts; `csrf_rejected`: the Origin check failed", body = ErrorBody),
+        (status = 404, description = "`folder_not_found`: not a folder of the caller, or `not_found`: malformed endpoint id", body = ErrorBody),
+        (status = 410, description = "`endpoint_gone`: unknown, expired or deleted endpoint, or no role on it in `sso`", body = ErrorBody),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 async fn add_endpoint(
     State(state): State<ApiState>,
     caller: Caller,
@@ -146,6 +278,23 @@ async fn add_endpoint(
     }
 }
 
+#[utoipa::path(
+    delete,
+    path = "/folders/{folder_id}/endpoints/{id}",
+    operation_id = "folders_remove_endpoint",
+    tag = "Folders",
+    summary = "Remove an endpoint from a folder",
+    description = "Takes the endpoint out of the folder; the endpoint itself is kept, and no role on it is needed. Needs a signed-in caller; a token is refused with 403 `session_required`.",
+    security(("session_cookie" = [])),
+    params(("folder_id" = String, Path, description = "Folder id, UUID"), EndpointIdParam),
+    responses(
+        (status = 204, description = "The endpoint is out of the folder"),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`session_required`: a Bearer token was used; `sign_in_required`: `mixed` without a session; `not_available_in_mode`: the instance has no accounts; `csrf_rejected`: the Origin check failed", body = ErrorBody),
+        (status = 404, description = "`folder_not_found`: not a folder of the caller, or `not_found`: malformed endpoint id", body = ErrorBody),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 async fn remove_endpoint(
     State(state): State<ApiState>,
     caller: Caller,

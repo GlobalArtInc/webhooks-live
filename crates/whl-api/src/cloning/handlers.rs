@@ -7,14 +7,19 @@ use whl_auth::{Access, AuthRejection, Caller, Creation, EndpointRole};
 use whl_core::endpoint_id::EndpointId;
 use whl_store::{CloneOutcome, NewClonedEndpoint, NewEndpoint};
 
+use super::doc::{CloneInputDoc, CloneResultDoc};
 use super::document::ConfigDocument;
 use super::export::{ChannelUrls, Selection, export};
 use super::prepare::{Overrides, prepare};
 use super::request::parse_clone_request;
 use crate::body::RawBody;
 use crate::dto::EndpointDto;
-use crate::error::{ApiError, FieldCode, FieldViolation};
+use crate::error::{ApiError, ErrorBody, FieldCode, FieldViolation};
 use crate::handlers::creation_limits;
+use crate::openapi::params::EndpointIdParam;
+use crate::openapi::responses::{
+    BadRequest, PayloadTooLarge, StoreUnavailable, UnsupportedMediaType,
+};
 use crate::state::ApiState;
 
 #[derive(Serialize)]
@@ -25,6 +30,29 @@ struct CloneDto {
     skipped: Vec<String>,
 }
 
+#[utoipa::path(
+    post,
+    path = "/endpoints/{id}/clone",
+    operation_id = "cloning_clone",
+    tag = "Cloning",
+    summary = "Clone an endpoint",
+    description = "Creates a new endpoint from the configuration of the source. `include` picks the parts to copy (`response`, `forward_rules`, `rules`, `channels`, `schedules`); absent copies all of them, and `secrets` is refused. Secret values are never copied: `secrets_missing` lists the secret names the copy uses and does not have, to be set again on the clone. Channel URLs are copied only for an editor of the source; otherwise `skipped` lists `channels`. `skipped` also names other parts that could not be copied. The clone is owned by the caller in `sso` and `mixed`; in `open` anonymous callers may clone and the clone is anonymous. Needs the viewer role on the source; a token is refused with 403 `session_required`. The body is optional; an empty body copies everything.",
+    security(("session_cookie" = [])),
+    params(EndpointIdParam),
+    request_body(content = Option<CloneInputDoc>, content_type = "application/json"),
+    responses(
+        (status = 201, description = "The new endpoint (its Endpoint fields at the top level) with `secrets_missing` and `skipped`; `Location` is its path", body = CloneResultDoc, headers(("Location" = String, description = "`/api/v1/endpoints/{id}` of the clone"))),
+        (status = 400, response = BadRequest),
+        (status = 401, description = "`unauthenticated`: `sso` without a session; `grant_required`: a view-protected anonymous source without a valid grant", body = ErrorBody),
+        (status = 403, description = "`sign_in_required`: `mixed` without a session; `session_required`: a Bearer token was used; `csrf_rejected`: the Origin check failed", body = ErrorBody),
+        (status = 404, description = "`not_found`: malformed endpoint id", body = ErrorBody),
+        (status = 410, description = "`endpoint_gone`: unknown, expired or deleted source, or no role on it in `sso`", body = ErrorBody),
+        (status = 413, response = PayloadTooLarge),
+        (status = 415, response = UnsupportedMediaType),
+        (status = 422, description = "`validation_failed` (see `error.fields`: an unknown field, an unknown part in `include` or `secrets` there, a `title` over 100 characters, or a copied part that fails validation) or `limit_reached` (`error.limit` = `{name: \"endpoints\", max}` or `{name: \"schedules\", max}`)", body = ErrorBody),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 pub async fn clone_endpoint(
     State(state): State<ApiState>,
     access: Access,

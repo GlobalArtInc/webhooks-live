@@ -1,11 +1,15 @@
 use serde::Serialize;
+use utoipa::ToSchema;
 use whl_store::schedules::{ScheduleHeader, ScheduleRecord, ScheduleRequest, ScheduleRunRecord};
 
 use crate::dto::timestamp;
 
-#[derive(Serialize)]
-struct HeaderDto {
+#[derive(Serialize, ToSchema)]
+#[schema(as = ScheduleHeader)]
+pub struct HeaderDto {
+    #[schema(example = "Content-Type")]
     name: String,
+    #[schema(example = "application/json")]
     value: String,
 }
 
@@ -18,11 +22,15 @@ impl From<&ScheduleHeader> for HeaderDto {
     }
 }
 
-#[derive(Serialize)]
-struct RequestDto {
+#[derive(Serialize, ToSchema)]
+#[schema(as = ScheduleRequest)]
+pub struct RequestDto {
+    #[schema(example = "POST")]
     method: String,
+    #[schema(example = "https://hooks.example.com/nightly")]
     url: String,
     headers: Vec<HeaderDto>,
+    #[schema(example = "{\"ping\": true}")]
     body: Option<String>,
 }
 
@@ -37,18 +45,28 @@ impl From<&ScheduleRequest> for RequestDto {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = Schedule)]
 pub struct ScheduleDto {
+    #[schema(example = "0193a6c2-7d1e-7c3a-8f55-2b9e4c1a6d70")]
     id: String,
+    #[schema(example = "Nightly ping")]
     name: String,
+    #[schema(example = "0 3 * * *")]
     cron: String,
+    #[schema(example = "UTC")]
     timezone: String,
     request: RequestDto,
     enabled: bool,
+    #[schema(example = "3 consecutive failures")]
     paused_reason: Option<String>,
+    #[schema(format = DateTime)]
     next_run_at: Option<String>,
+    #[schema(format = DateTime)]
     last_run_at: Option<String>,
+    #[schema(example = 0)]
     consecutive_failures: i16,
+    #[schema(format = DateTime)]
     created_at: String,
 }
 
@@ -70,18 +88,26 @@ impl From<&ScheduleRecord> for ScheduleDto {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = ScheduleList)]
 pub struct ScheduleListDto {
     pub items: Vec<ScheduleDto>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = ScheduleRun)]
 pub struct RunDto {
+    #[schema(example = "0193a6c2-7d1e-7c3a-8f55-2b9e4c1a6d70")]
     id: String,
+    #[schema(format = DateTime)]
     started_at: String,
+    #[schema(example = 182)]
     duration_ms: i32,
+    #[schema(example = "succeeded")]
     outcome: &'static str,
+    #[schema(example = 200)]
     status: Option<i16>,
+    #[schema(example = "connection refused")]
     error: Option<String>,
     capture_id: Option<String>,
 }
@@ -100,13 +126,17 @@ impl From<&ScheduleRunRecord> for RunDto {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = ScheduleRunList)]
 pub struct RunListDto {
     pub items: Vec<RunDto>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = ScheduleRunQueued)]
 pub struct QueuedDto {
+    #[schema(example = "0193a6c2-7d1e-7c3a-8f55-2b9e4c1a6d70")]
     pub schedule_id: String,
+    #[schema(format = DateTime)]
     pub queued_at: String,
 }
