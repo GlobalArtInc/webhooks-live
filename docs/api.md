@@ -619,7 +619,7 @@ on `GET /usage` and on any other endpoint.
 | `captures:write` | `DELETE .../captures`, `DELETE .../captures/{capture_id}` |
 | `rules:write` | Forward rules only: `POST .../forward-rules`, `PATCH` and `DELETE .../forward-rules/{rule_id}` |
 | `send` | `POST /send`, `DELETE /send/history/{sent_id}`, `POST .../captures/{capture_id}/forward` and `/resend` |
-| session only | Every other route: tokens, members, claim, alias `PUT`/`DELETE`, rules of §15 (also their `GET`), variables, notifications, push, e-mail addresses, schedules, folders, templates, clone, stats, capture `PATCH`, re-run, export, import, both inbox routes |
+| session only | Every other route: tokens, members, claim, alias `PUT`/`DELETE`, rules of §15 (also their `GET`), variables, notifications, push, e-mail addresses, schedules, folders, templates, clone, stats, capture `PATCH`, re-run, export, import, both inbox routes, template preview and variables, script `meta` and `validate` |
 
 The effective right is `min(role on the endpoint, scopes)`.
 
@@ -668,6 +668,8 @@ base64 signatures use the standard alphabet only.
 | `GET /api/v1/endpoints` | signed in | adds `?tag&folder`; there is no `q` | as §5 |
 | `POST /api/v1/endpoints/{id}/unlock` | anyone with the id; a token needs `read` | `{password}` | 200 `{grant, expires_at}`; 401 `wrong_password`; 429 |
 | `POST /api/v1/endpoints/{id}/clone` | viewer on source; `sso`/`mixed`: signed in; session only | optional `{title?, include?: ("response" \| "forward_rules" \| "rules" \| "channels" \| "schedules")[]}`; empty body = everything, `secrets` in `include` is refused | 201 Endpoint plus `secrets_missing: string[]` (secret names the copy uses and lacks) and `skipped: string[]` (parts not copied; `channels` when the caller is not an editor of the source), `Location`; 422 `limit_reached` (`endpoints`, `schedules`) |
+| `POST /api/v1/endpoints/{id}/template/preview` | viewer; session only | `{capture_id?, response: {status, content_type, headers, body, status_template?}}` (body at most 256 KiB) | 200 `{diagnostics, rendered}`; 404 `capture_not_found`; 410 `endpoint_gone`; 413; 429 `rate_limited` (`Retry-After: 1`) |
+| `GET /api/v1/endpoints/{id}/template/variables` | viewer; session only | `?capture_id` | 200 the variable catalogue; 404 `capture_not_found`; 429 |
 | `GET /api/v1/endpoints/{id}/aliases` | viewer | – | 200 `{items: Alias[]}` |
 | `PUT /api/v1/endpoints/{id}/aliases/{alias}` | owner, signed in, session only | – | 200 Alias; 409 `alias_taken`; 422 `validation_failed` (field code `reserved` or `invalid_format` on `alias`), 422 `limit_reached` (`aliases`) |
 | `DELETE /api/v1/endpoints/{id}/aliases/{alias}` | owner, session only | – | 204; 404 `alias_not_found` |
@@ -685,6 +687,8 @@ base64 signatures use the standard alphabet only.
 | `GET /api/v1/templates/{template_id}` | signed in | – | 200 Template |
 | `PATCH /api/v1/templates/{template_id}` | signed in | `{name}` | 200 Template |
 | `DELETE /api/v1/templates/{template_id}` | signed in | – | 204 |
+
+**Template preview and catalogue.** `preview` renders the draft response with the engine, limits and context of the live responder (100 ms in total, 50 ms per template, body 1 MiB, header value 1024 bytes, secrets refused) against a stored capture of the endpoint; nothing is sent, stored or counted and persistent variables are only read. Without `capture_id` the draft is only checked. `diagnostics` carry `field` (`response.body`, `response.headers.N.value`, `response.status_template`, or the plain field when the draft itself is invalid), `code` (`value_missing`, `invalid_status`, `invalid_header` and the engine codes), `severity` (`error` or `warning`) and the 1-based `line`, `column`, `length` of the offending text. `rendered` is null when any diagnostic is an error or no capture was named; a header that renders an invalid value is dropped with a warning, as live. `variables` lists the names a template can read as the engine defines them, with `insert_text`, a `sample` from the capture and a `description`; groups are `request` (JSON body keys appear as `json("$.path")` calls, at most 4 levels and 100 entries), `time`, `variables` and `helpers`. Both routes share at most 8 concurrent jobs per replica. Why viewer: the editor is readable by viewers, who can already read the captures it renders; why session only: like the other editing helpers. Rejected: a role of editor (viewers would lose the preview of the settings they see).
 
 Folder and template routes are session only. Alias: `{alias, url, created_at}` with `url` = `<public url>/a/<alias>`.
 Folder: `{id, name, position, endpoint_ids: string[], created_at}`. TemplateSummary: `{id, name, created_at,
@@ -730,6 +734,8 @@ Session only. Name `^[a-z_][a-z0-9_]{0,63}$`, at most 50. Counters are variables
 | `DELETE /api/v1/endpoints/{id}/rules/{rule_id}` | editor | – | 204 |
 | `PUT /api/v1/endpoints/{id}/rules/order` | editor | `{ids: uuid[]}` (every rule exactly once) | 200 `{items: Rule[], version}` |
 | `POST /api/v1/endpoints/{id}/rules/dry-run` | editor | `{capture_id, rules?: RuleInput[]}` (at most 5 drafts) | 200 RuleRun (`trigger: "dry_run"`, not stored); 404 `capture_not_found`; 429 `rate_limited` while another dry run of the endpoint runs |
+| `GET /api/v1/script/meta` | anyone who may use the application (`sso`: signed in); session only | – | 200 the language catalogue; 429 |
+| `POST /api/v1/script/validate` | as `meta`; session only | `{source, phase?: "before" \| "after"}` (source at most 16 KiB) | 200 `{diagnostics}`; 413; 422 `validation_failed` (`source`, `too_long`); 429 `rate_limited` (`Retry-After: 1`) |
 | `GET /api/v1/endpoints/{id}/captures/{capture_id}/rule-runs` | viewer | – | 200 `{items: RuleRun[]}` newest first |
 | `POST /api/v1/endpoints/{id}/captures/{capture_id}/rule-runs` | editor | – | 202 RuleRun (`trigger: "rerun"`, `state: "queued"`); 409 `rerun_active`; 422 `validation_failed` on `rules` (no enabled rule), 422 `limit_reached` (`rule_reruns`, 10 per capture) |
 | `GET /api/v1/endpoints/{id}/rule-runs` | viewer; a token needs `read` | `?limit` (1–200, default 50), `cursor`, `state` | 200 `{items: RuleRun[], next_cursor}` for every capture of the endpoint, newest first; `next_cursor` is the id of the last run; 400 `invalid_cursor` |
@@ -799,6 +805,8 @@ save shows the error where it can be fixed. Rejected: silently moving the step a
 would be missing for the response it was placed to shape). `limits.sync_http_steps` is 0 in v1; HTTP before the
 response for higher tiers is planned. A stored set that still has such a step fails each synchronous run with
 `X-Webhooks-Live-Rule-Error: http`.
+
+**Script catalogue and validation.** `meta` is the language the script editor offers: `name` (Rhai), `keywords`, `functions` (`name`, `signature`, a one-line `doc`, `parameters`, `returns`), `variables` (dotted paths such as `request.method`, with `type` and `doc`), and `limits` (source size, memory, and per phase the operation count and the time: 100 ms before the response, 1 s after it, the engine's ceilings; a run also stops earlier when the rest of the response budget is shorter). The tables are the engine's own and tests compare them with its registered functions and argument order, so they cannot drift. `validate` compiles the source with the engine and limits a rule save uses and never runs it: a source that does not compile is a 200 whose `diagnostics` hold `severity` (always `error`), `code` (`syntax`, `unexpected_end`, `disabled_feature`, `expression_too_deep`, `too_many_functions`, `literal_too_large`, `undefined_variable`, `assignment_to_constant`, `invalid_function`, `invalid_literal`), `message` and the 1-based `line`, `column`, `length`; a clean source gives an empty list. At most 4 checks run at once on a replica; more answer 429 with `Retry-After: 1` (the editor retries once). Neither route reads endpoint data.
 
 **Not in v1.** Per-rule capture-kind triggers, an "on match" choice and per-step guards (`if`) are not part of the
 rule model; such fields answer `not_allowed`. Equivalents: a leaf `{"value": "request.kind", "op": "in", "arg":
