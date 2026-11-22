@@ -287,7 +287,7 @@ test('sizes read the same in the list and in the detail, in binary units', async
   await expect(list).not.toContainText(/\d(kB|MB)\b/);
 });
 
-test('the collapsed rail shows icons only, with accessible names, inside 56 px', async ({ page }) => {
+test('the collapsed rail shows icons only, with accessible names, inside 64 px', async ({ page }) => {
   await page.setViewportSize(WIDE);
   await mockApi(page, endpointReplies(0));
   await page.goto(`/e/${ENDPOINT_ID}/settings/response`);
@@ -295,9 +295,9 @@ test('the collapsed rail shows icons only, with accessible names, inside 56 px',
   const aside = page.locator('aside').first();
   await expect(aside).toBeVisible();
   const width = await aside.evaluate((node) => node.getBoundingClientRect().width);
-  expect(width).toBeLessThanOrEqual(57);
+  expect(width).toBeLessThanOrEqual(65);
   await expect(aside.getByRole('button', { name: 'New endpoint' })).toBeVisible();
-  await expect(aside.getByRole('button', { name: 'Expand' })).toBeVisible();
+  await expect(aside.getByRole('button', { name: 'Expand sidebar' })).toBeVisible();
   await expect(aside.getByRole('link', { name: 'Composer' })).toBeVisible();
 
   const clipped = await aside.evaluate((node) => {
@@ -313,7 +313,7 @@ test('the collapsed rail shows icons only, with accessible names, inside 56 px',
   expect(clipped).toEqual([]);
   const heading = await aside.getByRole('heading', { name: 'My endpoints' }).boundingBox();
   expect(heading?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(1);
-  await expect(aside.getByRole('button', { name: 'New endpoint' })).toHaveText('+');
+  await expect(aside.getByRole('button', { name: 'New endpoint' }).locator('svg')).toHaveCount(1);
 });
 
 test('the header has distinct Copy URL and Copy curl buttons', async ({ page }) => {

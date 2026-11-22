@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { endpointFixture, ENDPOINT_ID } from '../../test/fixtures/endpoint';
 import { registerMockServer } from '../../test/msw/server';
 import { seedEndpoint } from '../../test/msw/store';
+import { PREFS_STORAGE_KEY } from '../../prefs/theme';
 import { shortEndpointId } from './format';
 import { renderAppAt } from './renderApp';
 import { ENDPOINTS_STORAGE_KEY, serializeEndpoints, type MyEndpoint } from './storage';
@@ -50,11 +51,11 @@ describe('EndpointRail', () => {
     const nav = await findRail();
     await within(nav).findByRole('link', { name: 'stripe-dev' });
 
-    fireEvent.click(within(nav).getByRole('button', { name: 'Collapse' }));
+    fireEvent.click(within(nav).getByRole('button', { name: 'Collapse sidebar' }));
 
-    expect(within(nav).getByRole('button', { name: 'Expand' }).getAttribute('aria-expanded')).toBe('false');
-    fireEvent.click(within(nav).getByRole('button', { name: 'Expand' }));
-    expect(within(nav).getByRole('button', { name: 'Collapse' }).getAttribute('aria-expanded')).toBe('true');
+    expect(within(nav).getByRole('button', { name: 'Expand sidebar' }).getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(within(nav).getByRole('button', { name: 'Expand sidebar' }));
+    expect(within(nav).getByRole('button', { name: 'Collapse sidebar' }).getAttribute('aria-expanded')).toBe('true');
   });
 
   it('creates an endpoint from New and opens it', async () => {
@@ -64,5 +65,27 @@ describe('EndpointRail', () => {
     fireEvent.click(within(nav).getByRole('button', { name: 'New endpoint' }));
 
     await waitFor(() => expect(router.state.location.pathname).toMatch(/^\/e\/[0-9a-z]{24}$/));
+  });
+
+  it('remembers a closed folder group across a reload', async () => {
+    seedTwo();
+    renderAppAt('/');
+    const nav = await findRail();
+    const group = await within(nav).findByRole('button', { name: /^Unfiled/ });
+    expect(group.getAttribute('aria-expanded')).toBe('true');
+
+    fireEvent.click(group);
+
+    expect(
+      within(nav)
+        .getByRole('button', { name: /^Unfiled/ })
+        .getAttribute('aria-expanded'),
+    ).toBe('false');
+    expect(JSON.parse(window.localStorage.getItem(PREFS_STORAGE_KEY) ?? '{}').railGroupsClosed).toEqual(['unfiled']);
+
+    cleanup();
+    renderAppAt('/');
+    const again = await within(await findRail()).findByRole('button', { name: /^Unfiled/ });
+    expect(again.getAttribute('aria-expanded')).toBe('false');
   });
 });

@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { ConfirmDialog } from '../../components/ConfirmDialog/ConfirmDialog';
 import { ApiError } from '../../api/client';
 import { useRailState } from '../../app/shell/railState';
+import { saveGroupOpen, useClosedGroups } from '../../prefs/layout';
 import { markEndpointOpened } from '../endpoints/store';
 import { FolderForm } from './FolderForm';
 import { useCreateAccountFolder, useDeleteAccountFolder, useRenameAccountFolder } from './api';
@@ -20,6 +21,8 @@ import {
 import { createLocalFolder, deleteLocalFolder, renameLocalFolderName } from './organizeStore';
 import { useOrganizeData } from './useOrganizeData';
 import styles from './FolderRail.module.css';
+
+const UNFILED_GROUP_KEY = 'unfiled';
 
 export interface FolderRailProps {
   listId: string;
@@ -68,9 +71,10 @@ function EndpointLink({ row }: EndpointLinkProps) {
 
 function FolderGroup({ group, actions }: FolderGroupProps) {
   const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(true);
   const listId = useId();
   const folder = group.folder;
+  const groupKey = folder === null ? UNFILED_GROUP_KEY : folder.key;
+  const expanded = !useClosedGroups().includes(groupKey);
   const name = folder === null ? t('wl.rail.folders.unfiled') : folder.name;
   const renameKey = folder === null ? null : folder.key;
   const count = group.rows.length;
@@ -83,7 +87,7 @@ function FolderGroup({ group, actions }: FolderGroupProps) {
           className={styles.groupToggle}
           aria-expanded={expanded}
           aria-controls={listId}
-          onClick={() => setExpanded((current) => !current)}
+          onClick={() => saveGroupOpen(groupKey, !expanded)}
         >
           <span className={styles.groupName}>{name}</span>
           <span className={styles.count}>{t('wl.rail.folders.count', { count })}</span>

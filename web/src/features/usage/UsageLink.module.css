@@ -4,17 +4,22 @@
   align-items: center;
   gap: var(--space-1) var(--space-2);
   max-width: 100%;
-  min-height: 36px;
+  min-height: 44px;
   padding: 0 var(--space-2);
-  font: var(--text-data);
-  color: var(--color-text-muted);
+  font: var(--text-nav);
+  color: var(--color-text);
   text-decoration: none;
   border-radius: var(--radius-sm);
 }
 
-.link:hover,
+.link:hover {
+  color: var(--color-accent-text);
+}
+
 .link[aria-current='page'] {
-  color: var(--color-text);
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 8px;
 }
 
 .link:focus-visible {

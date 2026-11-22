@@ -50,10 +50,12 @@
   "wl.home.list.cancel": "Cancel",
   "wl.home.rail.heading": "My endpoints",
   "wl.home.rail.collapse": "Collapse",
-  "wl.home.rail.expand": "Expand",
+  "wl.home.rail.collapseLabel": "Collapse sidebar",
+  "wl.home.rail.expandLabel": "Expand sidebar",
   "wl.home.rail.menu": "Menu",
-  "wl.home.rail.new": "New",
+  "wl.home.rail.new": "New endpoint",
   "wl.home.rail.newLabel": "New endpoint",
+  "wl.home.rail.more": "Show all endpoints",
   "wl.home.rail.empty": "None yet",
   "wl.home.remove.button": "Remove from my endpoints"
 }

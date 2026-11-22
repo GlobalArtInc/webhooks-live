@@ -1,7 +1,7 @@
 .organizer {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: var(--space-3);
+  gap: var(--space-5);
   min-width: 0;
 }
 
@@ -21,15 +21,16 @@
 
 .heading {
   margin: 0;
-  font: var(--text-meta);
+  font: var(--text-label);
+  letter-spacing: var(--tracking-label);
   color: var(--color-text-muted);
   text-transform: uppercase;
 }
 
 .small {
-  min-height: 24px;
+  min-height: 40px;
   padding: var(--space-1) var(--space-2);
-  font: var(--text-meta);
+  font: var(--text-data);
   color: var(--color-accent-text);
   background: none;
   border: 0;
@@ -55,7 +56,7 @@
 .groupToggle {
   display: flex;
   min-width: 0;
-  min-height: 24px;
+  min-height: 36px;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-1) var(--space-2);
@@ -104,7 +105,7 @@
 .link,
 .labelChip {
   display: flex;
-  min-height: 24px;
+  min-height: 36px;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
@@ -144,13 +145,13 @@
 
 .empty {
   margin: 0;
-  font: var(--text-meta);
+  font: var(--text-data);
   color: var(--color-text-muted);
 }
 
 .error {
   margin: 0;
-  font: var(--text-meta);
+  font: var(--text-data);
   color: var(--color-danger);
 }
 

@@ -72,9 +72,7 @@
 }
 
 .itemPath {
-  font-family: var(--font-mono);
-  font-size: 14px;
-  line-height: 20px;
+  font: var(--mono-data);
   overflow-wrap: anywhere;
 }
 

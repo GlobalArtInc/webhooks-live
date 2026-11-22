@@ -2,9 +2,9 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   align-content: start;
-  gap: var(--space-3);
+  gap: var(--space-5);
   min-height: 100%;
-  padding: var(--space-3);
+  padding: var(--space-5) var(--space-4);
 }
 
 .head {
@@ -15,15 +15,16 @@
 }
 
 .heading {
-  font: var(--text-meta);
+  font: var(--text-label);
+  letter-spacing: var(--tracking-label);
   color: var(--color-text-muted);
   text-transform: uppercase;
 }
 
 .toggle {
-  min-height: 24px;
+  min-height: 40px;
   padding: var(--space-1) var(--space-2);
-  font: var(--text-meta);
+  font: var(--text-data);
   color: var(--color-accent-text);
   background: none;
   border: 0;
@@ -31,13 +32,13 @@
 }
 
 .create {
-  min-height: 24px;
-  padding: var(--space-1) var(--space-3);
-  font: var(--text-data);
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  font: var(--text-action);
   color: var(--color-text-on-accent);
   background: var(--color-accent);
   border: 1px solid var(--color-accent);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   cursor: pointer;
 }
 
@@ -50,7 +51,7 @@
 }
 
 .empty {
-  font: var(--text-meta);
+  font: var(--text-data);
   color: var(--color-text-muted);
 }
 
@@ -63,10 +64,11 @@
 }
 
 .link {
-  display: block;
-  min-height: 24px;
+  display: flex;
+  align-items: center;
+  min-height: 40px;
   padding: var(--space-1) var(--space-2);
-  font: var(--mono-data);
+  font: var(--text-nav);
   color: var(--color-text);
   border-left: 2px solid transparent;
   border-radius: var(--radius-sm);
@@ -86,49 +88,12 @@
   border-left-color: var(--color-accent);
 }
 
-.srOnly {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-}
-
 .folders[hidden] {
   display: none;
 }
 
 .rail[data-collapsed='true'] {
   justify-items: center;
-  padding: var(--space-3) var(--space-1);
-}
-
-.rail[data-collapsed='true'] .heading {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-}
-
-.rail[data-collapsed='true'] .head {
-  justify-content: center;
-}
-
-.rail[data-collapsed='true'] .toggle,
-.rail[data-collapsed='true'] .create,
-.rail[data-collapsed='true'] .link {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 40px;
-  min-height: 40px;
-  padding: 0;
-  text-align: center;
-}
-
-.rail[data-collapsed='true'] .link {
-  border-left: 0;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-2);
 }

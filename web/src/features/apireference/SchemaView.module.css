@@ -43,9 +43,7 @@
   border: 0;
   background: none;
   color: var(--color-text);
-  font-family: var(--font-mono);
-  font-size: 14px;
-  line-height: 20px;
+  font: var(--mono-data);
   text-align: left;
   cursor: pointer;
   overflow-wrap: anywhere;
@@ -74,8 +72,7 @@
 
 .type {
   color: var(--color-accent-text);
-  font-family: var(--font-mono);
-  font-size: 14px;
+  font: var(--mono-data);
   overflow-wrap: anywhere;
 }
 

@@ -4,7 +4,7 @@ import { ApiError } from '../../api/client';
 import { useCapture } from '../../api/queries';
 import { prepareCopyAs } from '../../components/CopyAsMenu/prepareCopyAs';
 import { ListPager, type ListPagerProps } from '../../components/ListPager/ListPager';
-import type { BodyViewMode } from '../body';
+import { saveBodyView, toggleBodyMode, toggleBodyWrap, useBodyViewPreference } from '../../prefs/layout';
 import { CaptureDetailPanel, type DetailSectionId } from '../detail';
 import { ResendDialog } from '../forwarding/ResendDialog';
 import { compareLabelOf } from '../list/compare';
@@ -50,8 +50,7 @@ export function CapturePane({
   const headingRef = useRef<HTMLHeadingElement>(null);
   const query = useCapture(endpointId, captureId);
   const capture = query.data;
-  const [bodyMode, setBodyMode] = useState<BodyViewMode>('pretty');
-  const [wrap, setWrap] = useState(false);
+  const { mode: bodyMode, wrap } = useBodyViewPreference();
   const [collapsed, setCollapsed] = useState<readonly DetailSectionId[]>([]);
   const [resendOpen, setResendOpen] = useState(false);
   const missing = query.error instanceof ApiError && query.error.status === NOT_FOUND;
@@ -74,10 +73,10 @@ export function CapturePane({
       }
     },
     prettyRaw: () => {
-      setBodyMode((current) => (current === 'pretty' ? 'raw' : 'pretty'));
+      toggleBodyMode();
     },
     wrap: () => {
-      setWrap((current) => !current);
+      toggleBodyWrap();
     },
   });
 
@@ -118,9 +117,9 @@ export function CapturePane({
             endpointId={endpointId}
             captureId={captureId}
             bodyMode={bodyMode}
-            onBodyModeChange={setBodyMode}
+            onBodyModeChange={(mode) => saveBodyView({ mode })}
             wrap={wrap}
-            onWrapChange={setWrap}
+            onWrapChange={(next) => saveBodyView({ wrap: next })}
             collapsedSections={collapsed}
             onCollapsedSectionsChange={setCollapsed}
             onResend={() => {

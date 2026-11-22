@@ -43,6 +43,11 @@ describe('PreferencesPage', () => {
         timeDisplay: 'utc',
         singleKeyShortcuts: false,
         follow: true,
+        rail: 'collapsed',
+        listWidth: 500,
+        bodyMode: 'raw',
+        bodyWrap: true,
+        railGroupsClosed: ['unfiled'],
       }),
     );
     document.documentElement.classList.add(COMPACT_CLASS);
@@ -59,6 +64,9 @@ describe('PreferencesPage', () => {
       follow: false,
       announce: true,
     });
+    for (const field of ['rail', 'listWidth', 'bodyMode', 'bodyWrap', 'railGroupsClosed']) {
+      expect(storedFields()).not.toHaveProperty(field);
+    }
     expect(await screen.findByText('Preferences were reset to their defaults.')).toBeTruthy();
     expect(screen.getByRole('switch', { name: 'Single-key shortcuts' }).getAttribute('aria-checked')).toBe('true');
   });

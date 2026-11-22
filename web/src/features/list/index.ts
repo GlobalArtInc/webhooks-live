@@ -20,5 +20,6 @@ export {
   LIST_WIDTH_MAX,
   LIST_WIDTH_MIN,
   loadListWidth,
+  resetListWidth,
   saveListWidth,
 } from './listWidth';

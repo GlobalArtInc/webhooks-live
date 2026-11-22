@@ -38,8 +38,7 @@
 }
 
 .path {
-  font-family: var(--font-mono);
-  font-size: 15px;
+  font: var(--mono-data);
   overflow-wrap: anywhere;
 }
 
@@ -147,8 +146,7 @@
 }
 
 .mediaType {
-  font-family: var(--font-mono);
-  font-size: 13px;
+  font: var(--mono-data);
   color: var(--color-text-muted);
 }
 

@@ -110,7 +110,7 @@ test('a gone endpoint offers removal from my endpoints, which empties the list',
   await expect(page.getByRole('main').getByText('No endpoints yet.', { exact: false })).toBeVisible();
 });
 
-test('the rail collapses to 56 px on a wide screen and the Menu button stays hidden', async ({ page }) => {
+test('the rail collapses to 64 px on a wide screen and the Menu button stays hidden', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await mockApi(page, homeReplies());
   await createByEnter(page);
@@ -123,7 +123,7 @@ test('the rail collapses to 56 px on a wide screen and the Menu button stays hid
     page
       .getByRole('navigation', { name: 'My endpoints' })
       .evaluate((element) => element.closest('aside')?.getBoundingClientRect().width ?? 0);
-  await expect.poll(railWidth).toBe(56);
+  await expect.poll(railWidth).toBe(64);
 });
 
 for (const theme of ['Light', 'Dark'] as const) {

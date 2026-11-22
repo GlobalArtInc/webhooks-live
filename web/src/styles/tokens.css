@@ -8,10 +8,12 @@
   --color-border: #dcd8ce;
   --color-border-strong: #8c8576;
   --color-text: #1b2330;
-  --color-text-muted: #4f5a6b;
+  --color-text-muted: #3f4a5c;
+  --color-text-secondary: #2f3a4c;
   --color-accent: #d99a2b;
   --color-text-on-accent: #1b2330;
-  --color-accent-text: #8a5300;
+  --color-accent-text: #7a4a00;
+  --color-accent-brand: #9a6200;
   --color-accent-soft: #fbefd9;
   --color-focus: #2a5bd7;
   --color-success: #1e7a46;
@@ -33,7 +35,7 @@
   --method-options-bg: #ddf2f2;
   --method-head-text: #3e5468;
   --method-head-bg: #e6ebf0;
-  --method-other-text: #4f5a6b;
+  --method-other-text: #3f4a5c;
   --method-other-bg: #eceae4;
   --kind-mail-text: #9a2f63;
   --kind-mail-bg: #fbe5ef;
@@ -48,12 +50,19 @@
   --font-sans: 'IBM Plex Sans', sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  --text-meta: 400 13px / 18px var(--font-sans);
-  --text-data: 400 14px / 20px var(--font-sans);
-  --mono-data: 400 14px / 20px var(--font-mono);
-  --text-section: 600 16px / 24px var(--font-sans);
-  --text-title: 600 20px / 28px var(--font-sans);
-  --text-hero: 600 28px / 36px var(--font-sans);
+  --text-meta: 400 14px / 20px var(--font-sans);
+  --text-data: 400 15px / 22px var(--font-sans);
+  --mono-data: 400 15px / 22px var(--font-mono);
+  --text-body: 400 17px / 26px var(--font-sans);
+  --text-label: 600 14px / 20px var(--font-sans);
+  --text-nav: 500 16px / 24px var(--font-sans);
+  --text-action: 600 16px / 24px var(--font-sans);
+  --text-section: 600 18px / 26px var(--font-sans);
+  --text-heading: 600 22px / 30px var(--font-sans);
+  --text-title: 600 22px / 30px var(--font-sans);
+  --text-hero: 600 52px / 60px var(--font-sans);
+  --tracking-label: 0.06em;
+  --tracking-hero: -0.02em;
 
   --space-0: 2px;
   --space-1: 4px;
@@ -78,11 +87,20 @@
 }
 
 :root.density-compact {
+  --text-data: 400 14px / 20px var(--font-sans);
+  --mono-data: 400 14px / 20px var(--font-mono);
+  --text-body: 400 16px / 24px var(--font-sans);
   --space-2: 6px;
   --space-3: 8px;
   --space-4: 12px;
   --space-5: 16px;
   --space-6: 24px;
+}
+
+@media (max-width: 639px) {
+  :root {
+    --text-hero: 600 36px / 42px var(--font-sans);
+  }
 }
 
 :root[data-theme='dark'] {
@@ -95,10 +113,12 @@
   --color-border: #2a3644;
   --color-border-strong: #5a6b80;
   --color-text: #e6eaf0;
-  --color-text-muted: #a3aebd;
+  --color-text-muted: #bcc6d3;
+  --color-text-secondary: #d3dae4;
   --color-accent: #e0a23a;
   --color-text-on-accent: #0e141b;
   --color-accent-text: #f0b85a;
+  --color-accent-brand: #e0a23a;
   --color-accent-soft: #3a2a10;
   --color-focus: #7fa6ff;
   --color-success: #4cc38a;
@@ -120,7 +140,7 @@
   --method-options-bg: #0f2e30;
   --method-head-text: #a9bccf;
   --method-head-bg: #1f2b37;
-  --method-other-text: #a3aebd;
+  --method-other-text: #bcc6d3;
   --method-other-bg: #232d39;
   --kind-mail-text: #ff9cc8;
   --kind-mail-bg: #3a1528;
@@ -144,10 +164,12 @@
     --color-border: #2a3644;
     --color-border-strong: #5a6b80;
     --color-text: #e6eaf0;
-    --color-text-muted: #a3aebd;
+    --color-text-muted: #bcc6d3;
+    --color-text-secondary: #d3dae4;
     --color-accent: #e0a23a;
     --color-text-on-accent: #0e141b;
     --color-accent-text: #f0b85a;
+    --color-accent-brand: #e0a23a;
     --color-accent-soft: #3a2a10;
     --color-focus: #7fa6ff;
     --color-success: #4cc38a;
@@ -169,7 +191,7 @@
     --method-options-bg: #0f2e30;
     --method-head-text: #a9bccf;
     --method-head-bg: #1f2b37;
-    --method-other-text: #a3aebd;
+    --method-other-text: #bcc6d3;
     --method-other-bg: #232d39;
     --kind-mail-text: #ff9cc8;
     --kind-mail-bg: #3a1528;

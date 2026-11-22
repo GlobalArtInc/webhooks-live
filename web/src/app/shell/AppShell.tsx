@@ -7,6 +7,7 @@ import { NARROW_QUERY } from '../../features/endpoint/constants';
 import { useMediaQuery } from '../../features/endpoint/useViewport';
 import { ShortcutsButton } from '../../features/shortcuts';
 import { LanguageControl } from '../../i18n/LanguageControl';
+import { saveRail, useRailPreference } from '../../prefs/layout';
 import { ErrorBoundary } from './ErrorBoundary';
 import { RailContext, type RailState } from './railState';
 import { ModalContent } from '../../components/ModalContent/ModalContent';
@@ -34,14 +35,16 @@ export function AppShell({ header, rail, resetKey, collapseRail = false, fill = 
   const railId = useId();
   const drawerMode = useMediaQuery(DRAWER_QUERY);
   const narrow = useMediaQuery(NARROW_QUERY);
-  const [collapsed, setCollapsed] = useState(collapseRail);
+  const storedRail = useRailPreference();
+  const [sessionOverride, setSessionOverride] = useState<boolean | null>(null);
   const [appliedCollapseRail, setAppliedCollapseRail] = useState(collapseRail);
+  const collapsed = collapseRail ? (sessionOverride ?? true) : storedRail === 'collapsed';
   const [drawerOpen, setDrawerOpen] = useState(false);
   const hasDrawer = drawerMode && (rail !== undefined || narrow);
 
   if (appliedCollapseRail !== collapseRail) {
     setAppliedCollapseRail(collapseRail);
-    setCollapsed(collapseRail);
+    setSessionOverride(null);
   }
 
   if (!hasDrawer && drawerOpen) {
@@ -52,11 +55,20 @@ export function AppShell({ header, rail, resetKey, collapseRail = false, fill = 
     () => ({
       collapsed: drawerMode ? false : collapsed,
       drawerOpen,
-      toggleCollapsed: () => setCollapsed((current) => !current),
+      toggleCollapsed: () => {
+        if (drawerMode) {
+          return;
+        }
+        if (collapseRail) {
+          setSessionOverride(!collapsed);
+        } else {
+          saveRail(collapsed ? 'expanded' : 'collapsed');
+        }
+      },
       toggleDrawer: () => setDrawerOpen((current) => !current),
       closeDrawer: () => setDrawerOpen(false),
     }),
-    [collapsed, drawerMode, drawerOpen],
+    [collapsed, collapseRail, drawerMode, drawerOpen],
   );
 
   function focusMain(event: MouseEvent<HTMLAnchorElement>) {
@@ -103,7 +115,7 @@ export function AppShell({ header, rail, resetKey, collapseRail = false, fill = 
           </Dialog.Root>
         )}
         <a className={styles.wordmark} href="/">
-          webhooks<span className={styles.dot}>.</span>live
+          webhooks<span className={styles.dot}>.live</span>
         </a>
         {narrow ? null : header}
         {narrow ? null : controls}

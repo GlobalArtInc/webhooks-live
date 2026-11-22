@@ -72,7 +72,7 @@ an endpoint identifier. Filters live in the query string so a filtered view is a
 
 | Breakpoint | Width | Regions |
 |---|---|---|
-| Wide | >= 1200 px | Rail 232 px (collapsible to 56 px) / list 380 px (resizable 300-560) / detail |
+| Wide | >= 1200 px | Rail 272 px (collapsible to a 64 px icon rail) / list 380 px (resizable 300-560) / detail |
 | Medium | 768-1199 px | List 360 px / detail; rail becomes a left drawer; filter bar collapses to search plus "Filters (n)" popover |
 | Narrow | < 768 px, designed at 360 | One column: header, filter chips, list; detail, settings, forwarding, diff are full-screen routes |
 
@@ -269,10 +269,12 @@ and focus rings. Ratios below were computed for the listed pairs.
 | `border` hairline | `#DCD8CE` | `#2A3644` | decorative |
 | `border-strong` inputs | `#8C8576` | `#5A6B80` | 3.7 / 3.1 on surface |
 | `text` | `#1B2330` | `#E6EAF0` | 14.5 on bg / 15.3 on bg |
-| `text-muted` | `#4F5A6B` | `#A3AEBD` | 6.0 on sunken / 6.8 on raised |
+| `text-secondary` lede paragraphs | `#2F3A4C` | `#D3DAE4` | 10.5 on bg / 12.1 on surface |
+| `text-muted` | `#3F4A5C` | `#BCC6D3` | 7.6 on sunken / 8.9 on raised |
 | `accent` fill | `#D99A2B` | `#E0A23A` | `text-on-accent` 6.5 / 8.3 |
 | `text-on-accent` | `#1B2330` | `#0E141B` | |
-| `accent-text` links, active | `#8A5300` | `#F0B85A` | 5.6 on accent-soft / 9.5 on surface |
+| `accent-text` links, active | `#7A4A00` | `#F0B85A` | 6.9 on bg, 6.6 on accent-soft / 9.5 on surface |
+| `accent-brand` wordmark ".live" | `#9A6200` | `#E0A23A` | 5.1 on surface / 7.6 on surface |
 | `accent-soft` selection, arrival | `#FBEFD9` | `#3A2A10` | text 13.9 / 11.5 |
 | `focus` ring 2 px, offset 2 px | `#2A5BD7` | `#7FA6FF` | 5.4 / 7.8 on bg |
 | `success` | `#1E7A46` | `#4CC38A` | 5.4 / 7.7 on surface |
@@ -281,7 +283,7 @@ and focus rings. Ratios below were computed for the listed pairs.
 | `info` | `#2A5BD7` | `#7FA6FF` | 5.9 / 7.1 |
 
 Method badges: tinted background with coloured text and the method name always spelled out (colour is
-never the only carrier). Fixed width 64 px, mono 13 px 600.
+never the only carrier). Fixed width 64 px, mono 14 px 600.
 
 | Method | Light text / bg | Dark text / bg | Contrast L / D |
 |---|---|---|---|
@@ -292,7 +294,7 @@ never the only carrier). Fixed width 64 px, mono 13 px 600.
 | DELETE | `#B42318` / `#FCE6E3` | `#FF8A7A` / `#3D1714` | 5.5 / 6.9 |
 | OPTIONS | `#0F6E73` / `#DDF2F2` | `#5FD0D6` / `#0F2E30` | 5.2 / 7.9 |
 | HEAD | `#3E5468` / `#E6EBF0` | `#A9BCCF` / `#1F2B37` | 6.6 / 7.4 |
-| other | `#4F5A6B` / `#ECEAE4` | `#A3AEBD` / `#232D39` | 5.8 / 6.2 |
+| other | `#3F4A5C` / `#ECEAE4` | `#BCC6D3` / `#232D39` | 7.4 / 8.1 |
 
 Status colours: 2xx `success`, 3xx `info`, 4xx `warning`, 5xx `danger`. Forward result: ok `success`,
 failed `danger`, refused by SSRF guard `warning`, pending `text-muted` with spinner. Connection: as in
@@ -300,15 +302,22 @@ section 6.
 
 | Type token | Size / line | Font | Use |
 |---|---|---|---|
-| `text-meta` | 13 / 18 | Sans 400 | Secondary: timestamps, sizes, hints, badges, table headers |
-| `text-data` | 14 / 20 | Sans 400 | Default UI text, labels, buttons |
-| `mono-data` | 14 / 20 | Mono 400 | Paths, URLs, headers, bodies, ids |
-| `text-section` | 16 / 24 | Sans 600 | Section titles |
-| `text-title` | 20 / 28 | Sans 600 | Page titles, capture URL in header |
-| `text-hero` | 28 / 36 | Sans 600 | Home headline, empty-state URL |
+| `text-meta` | 14 / 20 | Sans 400 | Secondary: timestamps, sizes, badges, table headers |
+| `text-data` | 15 / 22 | Sans 400 | Default UI text, fields, buttons, hints in dense panels |
+| `mono-data` | 15 / 22 | Mono 400 | Paths, URLs, headers, bodies, ids; also the editors' font |
+| `text-body` | 17 / 26 | Sans 400 | Prose: descriptions, empty states, hints under fields |
+| `text-label` | 14 / 20 | Sans 600, `letter-spacing: 0.06em` (`tracking-label`), upper-cased by the component | Section labels: MY ENDPOINTS, FOLDERS, LABELS |
+| `text-nav` | 16 / 24 | Sans 500 | Header links, menu and shell buttons |
+| `text-action` | 16 / 24 | Sans 600 | Primary buttons in the shell |
+| `text-section` | 18 / 26 | Sans 600 | Section titles |
+| `text-heading` | 22 / 30 | Sans 600 | Page sections |
+| `text-title` | 22 / 30 | Sans 600 | Page titles, capture URL in header |
+| `text-hero` | 52 / 60 (36 / 42 below 640 px), `letter-spacing: -0.02em` (`tracking-hero`) | Sans 600 | Home headline |
 
-Nothing renders below 13 px, ever; data is never below 14 px. Fonts: IBM Plex Sans and IBM Plex Mono,
-self-hosted through `@fontsource` (no third-party font CDN), `font-display: swap`, fallback
+Prose is 17 px, data 15 px, labels and meta 14 px, and nothing renders below 14 px, ever. With
+`density-compact` data is 14 / 20 and prose 16 / 24: one step tighter, never below 14 px. Weights: 400
+text, 500 buttons and navigation, 600 headings and labels. Fonts: IBM Plex Sans (400, 500, 600) and IBM
+Plex Mono, self-hosted through `@fontsource` (no third-party font CDN), `font-display: swap`, fallback
 `ui-monospace, SFMono-Regular, Menlo, monospace`. Rejected: JetBrains Mono, which reads well but breaks
 the only cheap tie to the GlobalArt family.
 
@@ -325,6 +334,7 @@ the only cheap tie to the GlobalArt family.
 | Component | States | Props (high level) |
 |---|---|---|
 | `AppShell` | wide, medium, narrow; rail collapsed | `rail`, `header`, `children` |
+| `CollapsedRail` | icon rail, 64 px wide | 44 px targets with 24 px inline-SVG icons (`components/icons`): expand, New endpoint, My endpoints, Composer, Folders, Labels, then up to 8 endpoint avatars (two characters of the title, accent ring and left bar on the open one) and a `+N` item; every item has an accessible name and a tooltip on hover and keyboard focus (Escape closes it) |
 | `EndpointRail` | list, empty, loading | `endpoints`, `activeId`, `onCreate`, `onRemove`, `onRename` |
 | `EndpointHeader` | normal, near-capacity (>= 90 %), full | `captureUrl`, `count`, `capacity`, `expiresAt`, `connection`, `follow` |
 | `CopyButton` | idle, copied (1.5 s), failed | `value`, `label` |
@@ -355,6 +365,16 @@ the only cheap tie to the GlobalArt family.
 | `ConfirmDialog` | idle, busy | `title`, `body`, `confirmLabel`, `tone` |
 | `ShortcutsDialog` | open | `shortcuts` |
 | `LiveAnnouncer` | silent | none (subscribes to the live store) |
+
+View choices kept in the prefs store (`webhooks-live:prefs:v1`, each field validated, a bad or missing value
+falls back to the default, all of them cleared by "Reset all preferences"): `rail` (`expanded` default or
+`collapsed`), `listWidth` (list column, 300-560 px), `bodyMode` and `bodyWrap` (capture body view: pretty or
+raw, wrap), `railGroupsClosed` (keys of the folder groups closed in the sidebar). The persisted `rail`
+choice applies on ordinary routes and is read synchronously on the first render. On the auto-collapse routes
+(Response, rule editor) the rail is collapsed regardless; a manual expand there lasts for the visit only and
+is not stored, and leaving returns to the stored choice. In drawer mode (below 1200 px) nothing about the
+rail is stored. The selected capture and the detail tab live in the URL and are not stored. The expand and
+collapse control is named "Expand sidebar" / "Collapse sidebar" and carries `aria-expanded`.
 
 ## 9. Screen data requirements
 
@@ -615,7 +635,7 @@ connection indicator and a `[< Captures n new]` link, and editors pick captures 
 
 | Element | Wide | Medium | Narrow |
 |---|---|---|---|
-| Rail | Stays; auto-collapses to 56 px on Response and rule editor routes, restored on leaving | Drawer | Drawer |
+| Rail | Stays; auto-collapses to the 64 px icon rail on Response and rule editor routes, restored on leaving (see the rail state rules in section 8) | Drawer | Drawer |
 | Section nav | Left column 200 px | Horizontal tab strip under the header, scrolls, `[>]` overflow | Section list page, each section full screen with back |
 | Form width | Forms max 720 px; Response and Rules use the full width | Full width | Full width |
 | Save | Sticky save bar at the bottom of the section | Same | `[Save]` in the top bar while dirty |
@@ -1938,7 +1958,7 @@ Only two badge pairs and one surface are new; everything else reuses section 7.
 
 | Area | Rule |
 |---|---|
-| Code editors | Each has a visible label tied by `aria-labelledby`; Tab indents; `Esc` then `Tab` leaves the editor (CodeMirror tab-focus mode), stated in a 13 px hint under every editor; read-only editors do not trap Tab at all |
+| Code editors | Each has a visible label tied by `aria-labelledby`; Tab indents; `Esc` then `Tab` leaves the editor (CodeMirror tab-focus mode), stated in a 14 px hint under every editor; read-only editors do not trap Tab at all |
 | Diagnostics | Never only colour or underline: an `ERRORS n` list outside the editor with `[Go]` buttons; the count is announced politely after validation settles, not on each keystroke |
 | Completion and picker | CodeMirror completion keeps its ARIA combobox; `VariablePicker` is a Radix Popover with a listbox, typeahead filter, `Enter` inserts, focus returns to the field |
 | Rule and step order | Drag is optional: every move is also a button and `Alt+Shift+Up/Down`; each move is announced with the new position |

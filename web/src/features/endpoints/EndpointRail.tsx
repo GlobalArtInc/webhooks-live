@@ -3,13 +3,10 @@ import { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useRailState } from '../../app/shell/railState';
 import { FolderRail } from '../folders/FolderRail';
+import { CollapsedRail } from './CollapsedRail';
 import { CreateErrorNotice } from './CreateErrorNotice';
 import { useCreateAndOpen } from './useCreateAndOpen';
 import styles from './EndpointRail.module.css';
-
-const EXPAND_GLYPH = '»';
-const NEW_GLYPH = '+';
-const COMPOSE_GLYPH = '✎';
 
 export function EndpointRail() {
   const { t } = useTranslation();
@@ -18,8 +15,30 @@ export function EndpointRail() {
   const headingId = useId();
   const listId = useId();
 
+  const folders = (
+    <div className={styles.folders} hidden={collapsed}>
+      <FolderRail listId={listId} />
+    </div>
+  );
+
+  if (collapsed) {
+    return (
+      <nav aria-labelledby={headingId} className={styles.rail} data-collapsed="true">
+        <CollapsedRail
+          headingId={headingId}
+          listId={listId}
+          creating={isPending}
+          createError={error}
+          onCreate={() => create({})}
+          onExpand={toggleCollapsed}
+        />
+        {folders}
+      </nav>
+    );
+  }
+
   return (
-    <nav aria-labelledby={headingId} className={styles.rail} data-collapsed={collapsed ? 'true' : undefined}>
+    <nav aria-labelledby={headingId} className={styles.rail}>
       <div className={styles.head}>
         <h2 id={headingId} className={styles.heading}>
           {t('wl.home.rail.heading')}
@@ -27,18 +46,12 @@ export function EndpointRail() {
         <button
           type="button"
           className={styles.toggle}
-          aria-expanded={!collapsed}
+          aria-label={t('wl.home.rail.collapseLabel')}
+          aria-expanded="true"
           aria-controls={listId}
           onClick={toggleCollapsed}
         >
-          {collapsed ? (
-            <>
-              <span aria-hidden="true">{EXPAND_GLYPH}</span>
-              <span className={styles.srOnly}>{t('wl.home.rail.expand')}</span>
-            </>
-          ) : (
-            t('wl.home.rail.collapse')
-          )}
+          {t('wl.home.rail.collapse')}
         </button>
       </div>
       <button
@@ -48,28 +61,13 @@ export function EndpointRail() {
         disabled={isPending}
         onClick={() => create({})}
       >
-        {collapsed ? (
-          <span aria-hidden="true">{NEW_GLYPH}</span>
-        ) : isPending ? (
-          t('wl.home.create.busy')
-        ) : (
-          t('wl.home.rail.new')
-        )}
+        {isPending ? t('wl.home.create.busy') : t('wl.home.rail.new')}
       </button>
       {error !== null && !isPending && <CreateErrorNotice error={error} onRetry={() => create({})} />}
       <Link to="/send" className={styles.link} activeProps={{ className: styles.active }}>
-        {collapsed ? (
-          <>
-            <span aria-hidden="true">{COMPOSE_GLYPH}</span>
-            <span className={styles.srOnly}>{t('wl.composer.rail')}</span>
-          </>
-        ) : (
-          t('wl.composer.rail')
-        )}
+        {t('wl.composer.rail')}
       </Link>
-      <div className={styles.folders} hidden={collapsed}>
-        <FolderRail listId={listId} />
-      </div>
+      {folders}
     </nav>
   );
 }

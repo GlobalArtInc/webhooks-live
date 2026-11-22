@@ -1,4 +1,4 @@
-import { PREFS_STORAGE_KEY, readStoredPrefs } from '../../prefs/theme';
+import { PREFS_STORAGE_KEY, readStoredPrefs, updatePrefsFields } from '../../prefs/theme';
 
 export const LIST_WIDTH_DEFAULT = 380;
 export const LIST_WIDTH_MIN = 300;
@@ -33,6 +33,10 @@ export function parseListWidth(raw: string | null): number {
 
 export function loadListWidth(): number {
   return parseListWidth(readStoredPrefs());
+}
+
+export function resetListWidth(): void {
+  updatePrefsFields({ [LIST_WIDTH_FIELD]: undefined });
 }
 
 export function saveListWidth(width: number): void {

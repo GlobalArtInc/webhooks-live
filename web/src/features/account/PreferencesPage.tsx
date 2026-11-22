@@ -11,10 +11,12 @@ import {
   type Density,
   type TimeDisplay,
 } from '../../prefs/display';
+import { resetLayoutPrefs } from '../../prefs/layout';
 import { applyThemePreference } from '../../prefs/theme';
 import { LanguageControl } from '../../i18n/LanguageControl';
 import { useLanguage } from '../../i18n/provider';
 import { detectLanguage } from '../../i18n/setup';
+import { resetListWidth } from '../list';
 import { DEFAULT_LIVE_PREFS, saveLivePrefs, useLivePrefs } from '../live/prefs';
 import { DEFAULT_SINGLE_KEY_SHORTCUTS, saveSingleKeyPreference, useSingleKeyPreference } from '../shortcuts/prefs';
 import styles from './PreferencesPage.module.css';
@@ -108,6 +110,8 @@ export function PreferencesPage() {
     saveTimeDisplay(DEFAULT_TIME_DISPLAY);
     saveLivePrefs(DEFAULT_LIVE_PREFS);
     saveSingleKeyPreference(DEFAULT_SINGLE_KEY_SHORTCUTS);
+    resetLayoutPrefs();
+    resetListWidth();
     void change(detectLanguage(null, navigator.language, languages));
     setStatus(t('wl.account.prefs.reset.done'));
   }
