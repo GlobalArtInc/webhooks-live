@@ -8,6 +8,7 @@ export default defineConfig({
   testDir: './e2e',
   use: {
     baseURL: DEV_URL,
+    reducedMotion: 'reduce',
   },
   projects: [
     {
