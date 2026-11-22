@@ -91,25 +91,9 @@ const MEMBERS: &[Route] = &[
     route("DELETE", "/endpoints/{id}/members/{user_id}"),
 ];
 
-const NOTIFICATIONS: &[Route] = &[
-    route("GET", "/email-addresses"),
-    route("POST", "/email-addresses"),
-    route("POST", "/email-addresses/verify"),
-    route("DELETE", "/email-addresses/{address_id}"),
-    route("GET", "/endpoints/{id}/notifications"),
-    route("POST", "/endpoints/{id}/notifications"),
-    route("DELETE", "/endpoints/{id}/notifications/{channel_id}"),
-    route("PATCH", "/endpoints/{id}/notifications/{channel_id}"),
-    route("POST", "/endpoints/{id}/notifications/{channel_id}/test"),
-    route("POST", "/notifications/disable"),
-];
+const NOTIFICATIONS: &[Route] = &[];
 
-const PUSH: &[Route] = &[
-    route("GET", "/push/public-key"),
-    route("GET", "/push/subscriptions"),
-    route("POST", "/push/subscriptions"),
-    route("DELETE", "/push/subscriptions/{subscription_id}"),
-];
+const PUSH: &[Route] = &[];
 
 const RULES: &[Route] = &[
     route("GET", "/endpoints/{id}/rule-runs"),

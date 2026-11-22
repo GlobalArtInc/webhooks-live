@@ -7,6 +7,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use utoipa::ToSchema;
 use whl_auth::{AuthRejection, Caller};
 use whl_notify::{
     AddressError, MAX_ADDRESS_BYTES, Mailer, VerificationToken, address_key, parse_address,
@@ -16,7 +17,11 @@ use whl_store::Uuid;
 use whl_store::notify::{AddressLimits, AddressOutcome, AddressRequest, AddressUndo, EmailAddress};
 
 use crate::body::RawBody;
-use crate::error::{ApiError, FieldCode, FieldViolation};
+use crate::error::{ApiError, ErrorBody, FieldCode, FieldViolation};
+use crate::openapi::responses::{
+    BadRequest, PayloadTooLarge, StoreUnavailable, Unauthenticated, UnsupportedMediaType,
+    ValidationFailed,
+};
 use crate::state::ApiState;
 
 pub const MAX_ADDRESSES_PER_USER: usize = 5;
@@ -79,11 +84,18 @@ impl EmailApi {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = EmailAddress)]
 pub struct EmailAddressDto {
+    #[schema(
+        pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        example = "0193a6c2-7d1e-7c3a-8f55-2b9e4c1a6d72"
+    )]
     id: String,
+    #[schema(max_length = 254, example = "ada@example.com")]
     address: String,
     verified: bool,
+    #[schema(format = DateTime)]
     created_at: String,
 }
 
@@ -98,9 +110,28 @@ impl From<&EmailAddress> for EmailAddressDto {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
+#[schema(as = EmailAddressList)]
 pub struct EmailAddressListDto {
     items: Vec<EmailAddressDto>,
+}
+
+#[derive(ToSchema)]
+#[schema(as = EmailAddressInput)]
+#[allow(dead_code)]
+pub struct EmailAddressInputDoc {
+    #[schema(max_length = 254, example = "ada@example.com")]
+    address: String,
+}
+
+#[derive(ToSchema)]
+#[schema(
+    as = LinkTokenInput,
+    description = "The token of a verification or unsubscribe link. It may be sent as `?token=` instead of in the body."
+)]
+#[allow(dead_code)]
+pub struct LinkTokenInputDoc {
+    token: String,
 }
 
 #[derive(Deserialize)]
@@ -184,6 +215,22 @@ fn address_id(raw: &str) -> Result<Uuid, ApiError> {
         .ok_or(ApiError::NotFound)
 }
 
+#[utoipa::path(
+    get,
+    path = "/email-addresses",
+    operation_id = "notifications_list_addresses",
+    tag = "Notifications",
+    summary = "List the caller's e-mail addresses",
+    description = "Signed in only. Verified and unverified addresses of the account, used by e-mail channels. Answers 404 `not_found` when e-mail is not configured or notifications are switched off.",
+    security(("session_cookie" = [])),
+    responses(
+        (status = 200, description = "The addresses", body = EmailAddressListDto),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`sign_in_required`: a `mixed` instance and no account; `session_required`: a Bearer token was used", body = ErrorBody),
+        (status = 404, description = "`not_found`: e-mail is not configured or notifications are switched off", body = ErrorBody),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 pub async fn list(
     State(state): State<ApiState>,
     caller: Caller,
@@ -196,6 +243,29 @@ pub async fn list(
     }))
 }
 
+#[utoipa::path(
+    post,
+    path = "/email-addresses",
+    operation_id = "notifications_add_address",
+    tag = "Notifications",
+    summary = "Add an e-mail address and send its verification mail",
+    description = "Signed in only. A new address answers 201 and gets a verification mail, valid for 24 hours. An address already on the account answers 200 with its current state; an unverified one gets a new mail when the resend limits allow it, also 200. At most 5 addresses per account. Confirm with `POST /email-addresses/verify`.",
+    security(("session_cookie" = [])),
+    request_body(content = EmailAddressInputDoc, content_type = "application/json"),
+    responses(
+        (status = 200, description = "The address is already on the account; a new mail may have been sent", body = EmailAddressDto),
+        (status = 201, description = "The address is new and its verification mail is sent", body = EmailAddressDto),
+        (status = 400, response = BadRequest),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`csrf_rejected`: the Origin check failed; `session_required`: a Bearer token was used; `sign_in_required`: a `mixed` instance and no account", body = ErrorBody),
+        (status = 404, description = "`not_found`: e-mail is not configured or notifications are switched off", body = ErrorBody),
+        (status = 413, response = PayloadTooLarge),
+        (status = 415, response = UnsupportedMediaType),
+        (status = 422, description = "`validation_failed` (`error.fields`, field `address`: `required`, `too_long` or `invalid_format`); `limit_reached` (`error.limit` = `{name: \"email_addresses\", max: 5}`)", body = ErrorBody),
+        (status = 429, description = "`rate_limited`: the verification mail limits per account, address, domain or instance are used up (`Retry-After: 3600`)", body = ErrorBody),
+        (status = 503, description = "`mail_unavailable`: the verification mail could not be sent and the request is undone (`Retry-After: 5`); `store_unavailable`", body = ErrorBody)
+    )
+)]
 pub async fn add(
     State(state): State<ApiState>,
     caller: Caller,
@@ -268,6 +338,23 @@ async fn send_verification(
     }
 }
 
+#[utoipa::path(
+    delete,
+    path = "/email-addresses/{address_id}",
+    operation_id = "notifications_remove_address",
+    tag = "Notifications",
+    summary = "Remove an e-mail address",
+    description = "Signed in only. Only the caller's own addresses can be removed; another account's id answers 404 `email_address_not_found`.",
+    security(("session_cookie" = [])),
+    params(("address_id" = String, Path, pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", description = "Address id, lowercase hyphenated UUID")),
+    responses(
+        (status = 204, description = "The address is removed"),
+        (status = 401, response = Unauthenticated),
+        (status = 403, description = "`csrf_rejected`: the Origin check failed; `session_required`: a Bearer token was used; `sign_in_required`: a `mixed` instance and no account", body = ErrorBody),
+        (status = 404, description = "`email_address_not_found`: unknown id or an address of another account; `not_found`: malformed id or e-mail is not configured", body = ErrorBody),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 pub async fn remove(
     State(state): State<ApiState>,
     caller: Caller,
@@ -283,6 +370,24 @@ pub async fn remove(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/email-addresses/verify",
+    operation_id = "notifications_verify_address",
+    tag = "Notifications",
+    summary = "Confirm an e-mail address from its verification link",
+    description = "Public: no sign-in. The token comes from the verification mail, in the body or as `?token=`. A used, expired or unknown token answers 404 `invalid_token`.",
+    security(()),
+    params(("token" = Option<String>, Query, description = "Token from the verification link, instead of the body")),
+    request_body(content = LinkTokenInputDoc, content_type = "application/json"),
+    responses(
+        (status = 200, description = "The address is verified", body = EmailAddressDto),
+        (status = 400, response = BadRequest),
+        (status = 404, description = "`invalid_token`: the token is unknown, used or expired; `not_found`: e-mail is not configured or notifications are switched off", body = ErrorBody),
+        (status = 422, response = ValidationFailed),
+        (status = 503, response = StoreUnavailable)
+    )
+)]
 pub async fn verify(
     State(state): State<ApiState>,
     Query(query): Query<TokenQuery>,
@@ -307,6 +412,24 @@ fn token_text(query: TokenQuery, body: &[u8]) -> Result<String, ApiError> {
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/notifications/disable",
+    operation_id = "notifications_disable",
+    tag = "Notifications",
+    summary = "Turn off an e-mail channel from its unsubscribe link",
+    description = "Public: no sign-in. The token comes from the unsubscribe link of a notification mail, in the body or as `?token=`; mail clients send the one-click `List-Unsubscribe-Post` request with the query form. Sets the e-mail channel the token belongs to to disabled; the channel is kept. Opening the token needs the secrets keyring.",
+    security(()),
+    params(("token" = Option<String>, Query, description = "Token from the unsubscribe link, instead of the body")),
+    request_body(content = LinkTokenInputDoc, content_type = "application/json"),
+    responses(
+        (status = 204, description = "The channel is disabled"),
+        (status = 400, response = BadRequest),
+        (status = 404, description = "`invalid_token`: the token is not valid, was used already or its channel is gone; `not_found`: notifications are switched off", body = ErrorBody),
+        (status = 422, response = ValidationFailed),
+        (status = 503, description = "`feature_disabled`: no secrets keyring on this instance; `store_unavailable`", body = ErrorBody)
+    )
+)]
 pub async fn disable(
     State(state): State<ApiState>,
     Query(query): Query<TokenQuery>,

@@ -1,3 +1,4 @@
+mod doc;
 mod dto;
 mod email;
 mod handlers;
@@ -6,6 +7,7 @@ mod settings;
 
 use crate::routing::{Routes, delete, get, patch, post};
 
+pub use doc::NotificationsDoc;
 pub(crate) use dto::DeliveryDto;
 pub use email::{EmailApi, EmailApiLimits};
 pub(crate) use handlers::build_channel;
