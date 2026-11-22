@@ -323,10 +323,11 @@ count, and hard blocking belongs to the gateway (A3), fed by `webhooks_live_rate
 `client_ip`. Rejected: a shared limiter in Postgres or Redis (a database round trip on every request to
 enforce a soft limit).
 
-**Maintenance job**: every 60 s, on the replica that wins `pg_try_advisory_lock`, in order: purge
-soft-deleted endpoints (batches of 50); soft-delete endpoints with `last_active_at` older than retention;
-while `sum(bytes_used)` exceeds the cap, soft-delete least recently active endpoints until it is at 90 %;
-delete expired sessions and login states; hourly counter reconcile. Sliding expiry: captures update
+**Maintenance job**: every 60 s, on the replica that wins `pg_try_advisory_lock`, in order: purge deleted
+and expired endpoints (per-endpoint retention, never-expire skipped; batches of 50); delete captures past their
+endpoint's capture TTL (§24); refresh `users.bytes_used` and the over-quota flag; while `sum(bytes_used)` exceeds
+the cap, evict endpoints until it is at 90 % (order in §24); purge released aliases past quarantine, expired
+sessions, login states, grants and tokens; hourly counter reconcile. Sliding expiry: captures update
 `last_active_at` in the capture transaction; API reads and stream connects update it when older than 60 s.
 
 ## 9. Security
@@ -359,7 +360,7 @@ server or container (two images to version, plus cross-origin cookies).
 | Host `{endpoint_id}.<subdomain capture host>` | Capture through a subdomain, any path (§24) |
 | `/auth/login`, `/auth/callback`, `/auth/logout` | OIDC |
 | `/assets/{file}` | Hashed build output: `Cache-Control: public, max-age=31536000, immutable` |
-| `/`, `/e/{endpoint_id}`, `/e/{endpoint_id}/c/{capture_id}`, `/e/{endpoint_id}/settings`, `/e/{endpoint_id}/forwarding`, `/e/{endpoint_id}/diff/{a}/{b}`, `/endpoints`, `/signin`, `/settings`, `/docs/api`, `/docs/api/{operation_id}` | `index.html`, `Cache-Control: no-cache`, UI headers and Content-Security-Policy of §9; the list follows ui-design.md §2 |
+| `/`, `/endpoints`, `/signin`, `/settings`, `/settings/tokens`, `/account`, `/usage`, `/send`, `/inbox`, `/inbox/{endpoint_id}/{capture_id}`, `/docs/api`, `/docs/api/{operation_id}`, `/e/{endpoint_id}`, `/e/{endpoint_id}/c/{capture_id}`, `/e/{endpoint_id}/settings`, `/e/{endpoint_id}/settings/{section}`, `/e/{endpoint_id}/settings/{section}/{item}`, `/e/{endpoint_id}/forwarding`, `/e/{endpoint_id}/diff/{a}/{b}`, `/e/{endpoint_id}/unlock`, `/email/verify`, `/notifications/disable` | `index.html`, `Cache-Control: no-cache`, UI headers and Content-Security-Policy of §9; `whl_web::UI_ROUTES` is the list, ui-design.md §2 and §14 the screens |
 | `/favicon.ico`, `/robots.txt` | Static, `max-age=86400`; `robots.txt` disallows everything |
 | `/sw.js` | The Web Push worker (`web/public/sw.js`), served at exactly this path: `Content-Type: text/javascript; charset=utf-8`, `Cache-Control: no-cache` with an `ETag`, `Service-Worker-Allowed: /`, `X-Content-Type-Options: nosniff` and its own `Content-Security-Policy: default-src 'none'; img-src 'self'`. No other path serves it (`/sw.js/`, `/sw.js.map`, other case and encoded forms answer 404) |
 | anything else | 404 |
@@ -390,7 +391,7 @@ URLs are visible to senders. The release image build fails when `web/dist/index.
 | `webhooks_live_body_budget_bytes_in_use` | gauge | |
 | `webhooks_live_delayed_responses` | gauge | |
 | `webhooks_live_http_requests_total`, `webhooks_live_http_request_duration_seconds` | counter, histogram | `route`, `status` |
-| `webhooks_live_rate_limited_total` | counter | `scope` = capture_ip, capture_endpoint, api_ip, create_ip |
+| `webhooks_live_rate_limited_total` | counter | `scope` = capture_ip, capture_endpoint, api_ip, create_ip, api_token |
 | `webhooks_live_sse_connections` | gauge | |
 | `webhooks_live_sse_events_total` | counter | `event` |
 | `webhooks_live_sse_resyncs_total` | counter | `reason` = lagged, listener_reconnect, gap |
@@ -428,9 +429,9 @@ URLs are visible to senders. The release image build fails when `web/dist/index.
 | Item | Decision |
 |---|---|
 | Binary | `x86_64-unknown-linux-musl`, static, rustls only, assets embedded, `mimalloc`. Meets O1 literally. |
-| Image | `Containerfile`: node stage builds `web/dist`, Rust stage builds `webhooks-live`, final `gcr.io/distroless/static-debian13:nonroot` (CA bundle included). Tag `app-<yyyymmddHHMMSS>-<sha>`, pushed by `ci-cd/docker-build.yml` to `images.globalart.hu/prod/webhooks-live`, the registry the current gitops already uses. |
-| Chart | House `charts/app` (gitops `./charts/app`, 1.14.0): Deployment `webhooks-live` ×2, `site: moscow`, PDB `minAvailable: 1`, requests 100m / 256Mi, memory limit 768Mi (body budget 256 MiB plus headroom), probes on 9090, `terminationGracePeriodSeconds: 30`. `jobs.migrate` runs `webhooks-live migrate up` from the same image as a pre-install/pre-upgrade hook. Secrets (`WEBHOOKS_LIVE_DATABASE_URL`, `WEBHOOKS_LIVE_OIDC_CLIENT_SECRET`) in a SOPS file. |
-| Route | One `HTTPRoute` on `moscow-gateway` section `https`: regex `^/api/v1/endpoints/[^/]+/stream$` with `timeouts.request: 0s`; everything else `PathPrefix /` with `timeouts.request: 60s`. No `SecurityPolicy`: webhooks.live does OIDC itself. `WEBHOOKS_LIVE_TRUSTED_PROXIES=172.17.0.0/16` (Envoy pods, as in the current nginx config). |
+| Image | `Containerfile`: node stage builds `web/dist`, Rust stage builds `webhooks-live`, final `gcr.io/distroless/static-debian13:nonroot` (CA bundle included). Tag `<yyyymmddHHMMSS>-<sha>`, built by the repository's `build.yml` after CI passes and pushed to Docker Hub `globalartltd/webhooks-live`. |
+| Chart | Own chart in the `helm-charts` repository (deployed as `webhooks-live`), built on the house `charts/app` layout: Deployment `webhooks-live` ×2, `site: moscow`, PDB `minAvailable: 1`, requests 100m / 256Mi, memory limit 768Mi (body budget 256 MiB plus headroom), probes on 9090, `terminationGracePeriodSeconds: 30`. `jobs.migrate` runs `webhooks-live migrate up` from the same image as a pre-install/pre-upgrade hook. Secrets (`WEBHOOKS_LIVE_DATABASE_URL`, `WEBHOOKS_LIVE_OIDC_CLIENT_SECRET`) in a SOPS file. |
+| Route | One `HTTPRoute` on `moscow-gateway` section `https`: regexes `^/api/v1/(endpoints/[^/]+\|inbox)/stream$` (both streams) and `^/api/v1/endpoints/[^/]+/export$` (`GET` and `POST`) with `timeouts.request: 0s`; everything else `PathPrefix /` with `timeouts.request: 60s`. Without the stream match Envoy cuts every stream after 60 s. No `SecurityPolicy`: webhooks.live does OIDC itself. `WEBHOOKS_LIVE_TRUSTED_PROXIES=172.17.0.0/16` (Envoy pods, as in the current nginx config). |
 | Flux | `HelmRelease` plus `ImagePolicy webhooks-live-app` on `^app-\d{14}-[0-9a-f]+$`, same as other apps. |
 | Database | Own database and role on a prod1 Postgres cluster (open question 1). Excluded from long-term backups: captures are ephemeral. |
 | Multi-replica | Any replica serves any request; no sticky sessions; scale by replica count. Rate limits are per replica (§8). |
@@ -507,7 +508,9 @@ enabled).
 | `whl-rules` | Rule and step types with validation, condition evaluation, plan cut (§22), executor over seams (`Fetch`, `Vars`, `Enqueue`, `Script`) | `whl-core`, `whl-template` |
 | `whl-script` | Rhai engine configuration, limits, allocation accounting, script thread pool | `whl-core` |
 | `whl-secrets` | Keyring, seal and open, capture-auth MAC, redaction | `whl-core` |
-| `whl-quota` | Tier table, in-process limiter registry, durable usage counters API | `whl-core`, `whl-store` |
+| `whl-quota` | Not a separate crate in the code: tiers live in `whl-core::tier`, durable counters in `whl-store` (`usage_counters`), checks in `whl-api` and the workers | – |
+| `whl-verify` | Signature verifier schemes and presets, constant-time comparison | `whl-core` |
+| `whl-rules-worker` | After-response worker: claim, per-step persistence, `http`, `forward`, `notify`, `store_s3` (SigV4), outbound quota | `whl-rules`, `whl-forward`, `whl-store` |
 | `whl-notify` | Channel adapters, message rendering, delivery worker, Web Push, SMTP submission | `whl-forward`, `whl-store`, `whl-template`, `whl-secrets`, `whl-quota` |
 | `whl-schedule` | Cron validation, claim loop, run to capture | `whl-forward`, `whl-store`, `whl-template`, `whl-quota` |
 | `whl-export` | Streaming JSON, NDJSON, CSV, ZIP writers; import reader | `whl-store` |
@@ -560,14 +563,14 @@ operator may add more and assign them with `webhooks-live users set-tier <email>
 | Retention (max settable) | 7 d sliding | 365 d; never-expire on 10 endpoints |
 | Storage per owner | endpoint caps only | 2 GiB |
 | Rules per endpoint; steps per rule | 5; 10 | 25; 20 |
-| HTTP steps before the response | 0 | 2 per run |
+| HTTP steps before the response | 0 | 0 in v1 (refused at save, api.md §15); planned 2 per run |
 | Script time before / after the response | 50 ms / 200 ms | 100 ms / 1 s |
 | Outbound requests (forward, rule, schedule, composer, webhook channel) | 200/h per endpoint, 1000/day per network | 2000/h per user |
 | Notifications | 30/h per endpoint; webhook, Slack, Discord, Telegram | 300/h per user; plus email (50/day) and push |
 | Email received | 30/h per endpoint | 600/h per endpoint |
 | DNS queries stored | 60/min per endpoint | 600/min per endpoint |
 | Schedules; minimum interval | none | 5 per user; 5 min |
-| Aliases; API tokens | none | 5; 20 |
+| Aliases; API tokens; folders; templates | none | 5; 20; 50; 20 |
 | Export size; exports | 256 MiB; 10/h | 2 GiB; 30/h |
 | Import | none | 100 MiB; 10/day |
 
@@ -577,6 +580,10 @@ operator may add more and assign them with `webhooks-live users set-tier <email>
 | Cost quotas (outbound, notifications, email and DNS stored, exports, imports, composer) | `usage_counters` conditional upsert in one statement before the action: `INSERT ... VALUES ($s, $m, $w, 1) ON CONFLICT (subject, metric, window_start) DO UPDATE SET count = usage_counters.count + 1 WHERE usage_counters.count < $limit RETURNING count`; no row means over the limit | Must hold across replicas and restarts; one round trip only on actions that already cost a network call |
 | Counted objects (endpoints, rules, schedules, aliases, tokens, never-expire) | `SELECT count(*)` inside the creating transaction after `SELECT ... FROM users WHERE id = $1 FOR UPDATE` (anonymous: `pg_advisory_xact_lock` on the network) | No race between two parallel creates |
 | Storage per owner | Maintenance job writes `users.bytes_used` every 60 s; each replica caches the over-quota set like the §5 storage flag; captures to an over-quota owner answer 507 | No extra row update on the capture path |
+
+An outbound or notification limit that a tier leaves unset for a kind of caller (for example `outbound_per_user_hour`
+on a tier meant for anonymous use) means the feature is not available to that caller: the check uses a limit of 0
+and every request is refused, and `/instance` shows `null`. Rules, composer and channels apply this rule alike.
 
 Subjects: `u:<user id>`, `e:<endpoint id>`, `n:<network>`, `c:<channel id>`. Windows: hour and day starts in UTC.
 The maintenance job deletes windows older than 2 days.
@@ -595,7 +602,8 @@ user's tokens).
 | Seal | 24-byte random nonce; associated data `endpoint_id \|\| 0x00 \|\| name \|\| key_id`, so a ciphertext copied to another endpoint or name fails to open. |
 | Limits | Name `^[A-Z][A-Z0-9_]{0,63}$`, value up to 4 KiB, 20 per endpoint. |
 | API | Write-only: list returns names and timestamps, never values. |
-| Use | Allowed in `http`, `forward` (header values), `store_s3`, notification configs, schedule URLs and headers, verifiers. Refused at save time in response steps and response templates (field code `secret_not_allowed`). |
+| Use | Allowed in `http`, `store_s3`, Telegram channels, schedule URLs and headers, verifiers; forward rules hold none. Refused at save time in response steps and response templates (field code `secret_not_allowed`). |
+| Delete | 409 `secret_in_use` while a verifier, rule (any step or condition, enabled or not), Telegram channel or schedule reads it, found with the runtime extractors (compiled rules, compiled schedule requests, channel config), in one transaction under the endpoint lock. A stored rule that no longer compiles fails the check (500, fail-closed). Known gaps: rule, channel and schedule saves check that a secret exists before their own write transaction, so a delete racing a save can leave a dangling reference (the run then fails with a missing secret); the up to 5 rule compiles run synchronously inside the delete while the endpoint row is locked. |
 | Redaction | Before any run log, delivery error or attempt detail is stored, every decrypted value of 4 or more bytes, and its base64 and percent-encoded forms, is replaced by `[secret:NAME]`. Values live in `Zeroizing` buffers. |
 | Capture auth | Not stored as a secret: `capture_auth` keeps `HMAC-SHA-256(mac_key, value)` where `mac_key` is derived from the active key with HKDF (`whl-capture-auth`). Constant-time comparison; no decryption on the capture path. |
 | View password | `argon2id` (19 MiB, t=2, p=1) in `endpoints.view_password_hash`. |
@@ -604,34 +612,38 @@ user's tokens).
 ## 19. API tokens, API CORS, OpenAPI
 
 **Decision: opaque personal tokens hashed with SHA-256, Bearer only, scopes capped by the user's role.**
-Tokens carry 256 random bits, so a fast hash is enough and lookup is one primary-key read. Rejected: JWT access
+Tokens carry 256 random bits, so a fast hash is enough; lookup is an indexed read by `prefix` plus a constant-time
+hash comparison. Rejected: JWT access
 tokens (no revocation without a deny list, key management); OAuth device flow for the CLI (an IdP feature the
 operator may not have).
 
 | Aspect | Behaviour |
 |---|---|
-| Format | `whl_` plus 52 characters of lowercase base32 (32 bytes from `OsRng`). Shown once. `prefix` = first 12 characters, kept for display. |
+| Format | `whl_` plus 52 characters of lowercase base32 (32 bytes from `OsRng`). Shown once. `prefix` = first 12 characters, the lookup key and the display label. |
 | Scopes | `read`, `endpoints:write`, `captures:write`, `rules:write`, `send`. `read` covers every GET and both streams. Optional `endpoint_ids` limit. |
 | Effective right | `min(user's role on the endpoint, scopes)`. Token, member and ownership routes refuse tokens (403 `session_required`). |
-| Extraction | `Authorization: Bearer` present: token path only, cookies ignored, CSRF origin check skipped (no ambient credential). Unknown, expired or revoked: 401 `invalid_token`, never a fallback to the cookie. |
+| Extraction | `Authorization: Bearer` present: token path only, cookies ignored, CSRF origin check skipped (no ambient credential). Unknown, expired, revoked, malformed or repeated header: 401 `invalid_token` with `WWW-Authenticate: Bearer error="invalid_token"`, never a fallback to the cookie or to anonymous access. |
 | Bookkeeping | `last_used_at` written at most once a minute per token. Rate limiter keyed by token id with the API limits. |
 | Expiry | Required, 1–365 days, default 90. The maintenance job deletes tokens 30 days after expiry or revocation. |
-| Scope map | `GET`/`HEAD` and both streams: `read`. `PATCH`/`DELETE` of an endpoint, `POST /endpoints`, secret `PUT`/`DELETE`: `endpoints:write`. Capture `DELETE`: `captures:write`. Forward rule `POST`/`PATCH`/`DELETE`: `rules:write`. Capture forward and resend: `send`. Claim, members, tokens and every unlisted route or method: session only. A missing scope or an endpoint outside the limit answers 403 `insufficient_scope` before any endpoint is looked up. |
+| Scope map | `policy::token_policy`, tabled in api.md §11.1. `read` covers the listed reads (not every `GET`: rules, variables, notifications, schedules, stats and the inbox are session only in v1), `endpoints:write`, `captures:write`, `rules:write` (forward rules only) and `send` their writes. Every unlisted route or method: session only (403 `session_required`, enforced by the route gate before the handler). A missing scope or an endpoint outside the limit answers 403 `insufficient_scope` before any endpoint is looked up. |
 | Endpoint limit | A limited token sees only its endpoints in the listing, cannot create endpoints, and is refused on any other endpoint. |
 | Lookup | `prefix` is indexed, not unique; every row with the prefix is compared with the SHA-256 in constant time, an unknown prefix costs the same comparison against a dummy, and the expiry and revocation checks run after it, so unknown, wrong, expired, revoked and malformed tokens share one 401 body. |
-| Creation limits | At most 20 active tokens and 10 creations per hour per user, counted under the user row lock; 422 `limit_reached`, 429 `quota_exceeded`. |
+| Creation limits | At most 20 active tokens and 10 creations per hour per user, counted under the user row lock; 422 `limit_reached` (`tokens`), 429 `quota_exceeded` (`token_creation`, window hour). The list returns at most 500 rows. |
+| Lifetime | A token lives up to 365 days independent of the identity provider session: a user removed at the provider keeps API access until the token expires or is revoked, and there is no operator revoke route yet (§36). |
 | Rate limit | One limiter per token id with the `api_ip` rate, applied after the token resolves; a stream re-check does not count. |
 
 **API CORS.** `/api/v1/*` answers preflights with `204`, `Access-Control-Allow-Origin: *`,
 `Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE`, `Access-Control-Allow-Headers: Authorization,
-Content-Type, Last-Event-ID, If-None-Match`, `Access-Control-Max-Age: 600`; responses carry `Access-Control-Allow-Origin: *` and
+Content-Type, If-None-Match, Last-Event-ID, X-Webhooks-Live-Grant`, `Access-Control-Max-Age: 600`; responses carry `Access-Control-Allow-Origin: *` and
 expose `Location, RateLimit-Limit, RateLimit-Remaining, Retry-After, ETag`. `Access-Control-Allow-Credentials` is never
 sent, so browsers never attach the session cookie cross-origin; the §9 origin check still guards cookie requests.
 `/auth/*` has no CORS. Switch: `WEBHOOKS_LIVE_API_CORS`. This replaces "No CORS on `/api`" in §9.
 
 **OpenAPI.** `utoipa` derives schemas from the DTOs and paths from annotated handlers; `whl-api` assembles the
-document and serves `GET /api/v1/openapi.json` (OpenAPI 3.1, `ETag` = build version and a hash of the document). A test compares the router's
-route table with the document's paths, so an undocumented route fails CI. The reference page is a UI route
+document and serves `GET /api/v1/openapi.json` (OpenAPI 3.1, `ETag` = build version and a hash of the document,
+`Cache-Control: no-cache`, rendered once per process). Routes register through `whl_api::routing`, which records
+every method and path; a test compares that table, plus the two stream routes, with the document, so an
+undocumented route fails CI (api.md §25). The reference page is a UI route
 rendered by the app's own components (ui-design.md), with no third-party bundle. Rejected: a hand-written file
 (drifts); a bundled third-party viewer (inline scripts against the §9 CSP).
 
@@ -651,6 +663,10 @@ whatever arrived (HTTP body, RFC 5322 message, response of a schedule run).
 | body | raw message | empty | response body, first 1 MiB |
 | `response_status` | 250 | 0 (NOERROR; only answered names are stored) | target status, 0 on transport error |
 | `meta` | envelope from and to, HELO, TLS, subject, from, to, cc, date, message id, parts list | name, type, class, transport, DNS id, flags, EDNS size, client subnet | schedule id, request summary, duration, final URL, error, truncated |
+
+The block below is the design sketch; the migrations in `crates/whl-store/migrations` are authoritative (column
+types, CHECKs and later additions such as `schedule_runs`, `schedule_quota_windows`, `push_vapid_keys`,
+`notification_counters` and `users.storage_over_quota`).
 
 ```sql
 ALTER TABLE users
@@ -789,19 +805,23 @@ CREATE INDEX rule_runs_due ON rule_runs (next_attempt_at) WHERE state IN ('sync'
 CREATE INDEX rule_runs_capture ON rule_runs (capture_id);
 
 CREATE TABLE api_tokens (
-  id           uuid PRIMARY KEY,
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id      uuid NOT NULL REFERENCES users ON DELETE CASCADE,
   name         text NOT NULL CHECK (char_length(name) BETWEEN 1 AND 64),
-  prefix       text NOT NULL,
-  token_hash   bytea NOT NULL UNIQUE,
-  scopes       text[] NOT NULL,
-  endpoint_ids text[],
+  prefix       text NOT NULL CHECK (char_length(prefix) = 12),
+  token_hash   bytea NOT NULL UNIQUE CHECK (octet_length(token_hash) = 32),
+  scopes       text[] NOT NULL CHECK (
+    cardinality(scopes) BETWEEN 1 AND 5
+    AND scopes <@ ARRAY['read', 'endpoints:write', 'captures:write', 'rules:write', 'send']::text[]
+  ),
+  endpoint_ids text[] CHECK (endpoint_ids IS NULL OR cardinality(endpoint_ids) BETWEEN 1 AND 50),
   created_at   timestamptz NOT NULL DEFAULT now(),
   expires_at   timestamptz NOT NULL,
   last_used_at timestamptz,
   revoked_at   timestamptz
 );
 CREATE INDEX api_tokens_user ON api_tokens (user_id);
+CREATE INDEX api_tokens_prefix ON api_tokens (prefix);
 
 CREATE TABLE notification_channels (
   id                 uuid PRIMARY KEY,
@@ -912,7 +932,7 @@ CREATE INDEX usage_counters_window ON usage_counters (window_start);
 | Migrations | One migration per milestone that needs it; `ADD COLUMN ... DEFAULT` with a constant is metadata-only on Postgres 16. |
 | Capture insert (§2.1) | The `UPDATE endpoints` condition becomes `(never_expires OR last_active_at > now() - make_interval(secs => COALESCE(retention_seconds, $default)))` and `capture_count < COALESCE(max_captures, $default)`; `RETURNING` adds `rules_version`, `rule_count`, `rules_sync`, `capture_channel_count`, `response_templated`. Ring mode deletes the lowest `seq` with `NOT starred`; when every capture is starred the endpoint refuses as full. |
 | Early check (§5) | The existence `SELECT` also returns `sender_allow_cidrs`, `capture_auth`, `verifier` (with its sealed secret joined), `email_enabled`, `dns_enabled`, so access checks run before the body is read. |
-| Endpoint flags | `rules_version`, `rule_count`, `rules_sync` (any rule has a response step) and `capture_channel_count` are rewritten in the same transaction as every rule or channel change. |
+| Endpoint flags | `rules_version`, `rule_count` and `rules_sync` (any rule has a response step) are rewritten in the same transaction as every rule change, under `SELECT ... FOR UPDATE` on the endpoint row, so rule saves serialise with captures of that endpoint. `capture_channel_count` is not implemented. |
 | Size caps in code | `rule_runs.vars` 16 KiB, `rule_runs.log` 64 KiB, `rule_runs.plan` 128 KiB, `endpoint_vars.value` 4 KiB, total rules of one endpoint 128 KiB serialized. |
 | Retention of side tables | `sent_requests`: newest 50 per user or endpoint, older deleted on insert. `notification_deliveries` and `rule_runs` follow their capture. Grants, login states, expired tokens and old usage windows are purged by the maintenance job. |
 
@@ -975,7 +995,7 @@ an external workflow engine (a new stateful service).
 | `respond`, `set_header`, `remove_header`, `delay`, `stop` | response | Runs | No-op, logged (the response is gone) |
 | `extract`, `set_var`, `transform`, `script` | compute | Runs | Runs |
 | `set_store`, `increment` | state | Runs, one statement each, 200 ms | Runs |
-| `http` | fetch | `member` tier, at most 2, inside the budget | Runs, retried |
+| `http` | fetch | Not in v1: refused at save (api.md §15); planned for higher tiers, at most 2, inside the budget | Runs, retried; redirects never followed |
 | `forward`, `notify`, `store_s3` | side effect | Deferred with a variable snapshot | Runs |
 
 | Aspect | Behaviour |
@@ -987,18 +1007,20 @@ an external workflow engine (a new stateful service).
 | Post-sync write | One transaction: `rule_runs` gets `state` (`queued`, `succeeded` or `failed`), `plan` (remaining rules plus deferred side effects with snapshots), `vars`, `log`, `next_step`, `response_status`; `captures` gets `response_status` and `rule_state`; then `pg_notify` and a `rule_result` event. Statement timeout 2 s. |
 | Post-sync write fails | The computed response is still sent. The `sync` lease expires and the worker replays the run from the start with response steps as no-ops. |
 | Worker | Claims `queued` runs and expired leases like §6, 16 runs in flight per replica, HTTP steps share the forward host semaphores. After every step it persists `next_step`, `vars` and the log entry, so a crash resumes at the next step. |
-| Side-effect idempotency | Forward jobs and notification deliveries created by a step get id `UUIDv5(run id, step index)` and are inserted `ON CONFLICT DO NOTHING`: exactly one enqueue per step. HTTP steps send `X-Webhooks-Live-Delivery: <run id>:<step index>` so targets can deduplicate at-least-once retries. |
+| Side-effect idempotency | Forward jobs and notification deliveries created by a step get a UUID (version 8) from SHA-256 of a fixed namespace, the run id and the step's plan position, and are inserted `ON CONFLICT DO NOTHING`: exactly one enqueue per step. HTTP and S3 steps send `X-Webhooks-Live-Delivery: <run id>:<position>` so targets can deduplicate at-least-once retries. Deliveries are also unique per channel and capture, so a re-run's notify step is `skipped` ("nothing was sent"). |
 | Retries | HTTP steps: the forward policy (3 attempts, 10 s and 60 s). A step that finally fails stops the run unless `continue_on_error`. A non-2xx answer is data (`step.<name>.status`), not a failure; transport errors and SSRF refusals are failures. |
-| Hop guard | Every outbound request from rules, forwards, schedules and the composer carries `X-Webhooks-Live-Hop: n+1`, where `n` is the hop count of the capture that caused it. Rules and forward rules do not run on captures with hop 3 or more (`rule_state` stays null, logged). Stops a rule calling its own endpoint through any alias or subdomain. |
-| Re-run | Creates a `rerun` run, `queued`, using the current rules with response steps as no-ops. |
-| Dry run | Runs the whole plan in the API request against a stored capture, at most 10 s; side effects and state writes become "would do" log entries; HTTP steps run only with `execute_http: true`, quota counted. Not stored. |
+| Hop guard | Every outbound request from rules, forwards, schedules and the composer carries `X-Webhooks-Live-Hop: n+1`, where `n` is the hop count of the capture that caused it (schedules always send 1). Rules and forward rules do not run on captures with hop 3 or more (no run row, logged). Notifications never fire for a relayed capture (hop 1 or more, or an unparseable hop value): capture-triggered channels are skipped and a notify step fails with `relayed`. Stops a rule calling its own endpoint through any alias. |
+| Re-run | Creates a `rerun` run, `queued`, using the current rules with response steps as no-ops; refused while a run of the capture is active (409 `rerun_active`) and after 10 re-runs of one capture. |
+| Kill switch | `WEBHOOKS_LIVE_RULES_ENABLED` (default true): false stops every run, the worker and dry runs; CRUD stays. Stored rules run from the first deploy that has the code, so an operator enables staged by deploying with false first. |
+| Outbound quota | Every `http`, `forward`, `store_s3` and notify step charges `outbound`: the owner per hour (`u:`), or for an ownerless endpoint its creating network per day (`n:`) and the endpoint per hour (`e:`), with the tier of the owner. |
+| Dry run | Runs the whole plan in the API request against a stored capture, at most 10 s, one per endpoint and a small per-replica pool; side effects, HTTP steps and state writes become "would do" log entries; nothing is sent or stored (`execute_http` is ignored, api.md §15). The current code stops at the cut, so the after-cut part is missing from the log (code follow-up). |
 
 | Before-response failure | Sender gets | Run |
 |---|---|---|
 | Template or render error | Static response, `X-Webhooks-Live-Rule-Error: template` | `failed` unless the step is `continue_on_error` |
 | Budget overrun | Static response, `budget` | `failed`; deferred side effects dropped |
 | Script limit or error | Static response, `script` | `failed` unless `continue_on_error` |
-| HTTP step transport error | Depends on later steps (`step.x.error`) | Fails unless `continue_on_error` |
+| `http` step before the cut (stored before save-time refusal) | Static response, `http` | `failed` |
 | Quota exceeded | Static response, `quota` | `failed`, error `quota_exceeded` |
 | Sync concurrency full | Static response, `overloaded` | Queued; the after-cut part still runs |
 | Internal error | Static response, `internal` | `failed` |
@@ -1007,9 +1029,12 @@ Run log entry: `{rule_id, rule_name, matched}` per evaluated rule and `{rule_id,
 duration_ms, detail, output}` per step, where `outcome` is `ok`, `failed`, `skipped`, `deferred` or `no_op`,
 `detail` at most 1 KiB and `output` at most 4 KiB, redacted (§18).
 
-Validation lives in `whl-rules` (`serde` with unknown fields denied). Step names are unique within an endpoint
-when they produce outputs. Regexes use the `regex` crate (linear time, no backreferences) with
-`size_limit` 1 MiB; JSON paths are parsed on save.
+Validation lives in `whl-rules` (unknown fields denied). Step names are unique within an endpoint when they
+produce outputs. Regexes use the `regex` crate (linear time, no backreferences): pattern at most 512 bytes,
+repetition at most 200, compiled size 64 KiB, lazy DFA 128 KiB, and at most the first 4 KiB of the input is
+searched. Rules saved before these limits may fail to compile; a compile failure is cached for 60 s and the
+endpoint answers with `rule-error` until the rule is fixed. JSON paths are parsed on save. Compiled rule sets are
+cached per replica by weight (`WEBHOOKS_LIVE_RULES_CACHE_BYTES`) with single-flight loading.
 
 ## 23. Script sandbox
 
@@ -1040,7 +1065,7 @@ through `boa`** (large, weak limit controls).
 
 | Feature | Design |
 |---|---|
-| Retention | §20 capture-insert condition. Maintenance soft-deletes by the same rule. Storage-cap eviction order: anonymous endpoints by least recent activity, then owned ones; never-expire endpoints are never evicted (bounded by owner storage quotas). |
+| Retention | §20 capture-insert condition. Maintenance soft-deletes by the same rule. Storage-cap eviction order: endpoints of owners over their storage quota first, then anonymous endpoints, then owned ones, each by least recent activity; never-expire endpoints are never evicted (bounded by owner storage quotas, which answer 507 `quota_exceeded` on capture). Endpoint rows are locked `FOR NO KEY UPDATE` by these deletes. |
 | Capture TTL | Maintenance deletes `captures` with `received_at < now() - capture_ttl_seconds` in batches of 500 per endpoint, correcting counters in the same transaction. |
 | Per-endpoint cap | Set at creation from the tier, editable by the owner up to the tier maximum. |
 | Tags, folders | Tags on the endpoint (shared, editors); folders per user (private). Endpoint list filters `tag` and `folder`. |
@@ -1048,9 +1073,9 @@ through `boa`** (large, weak limit controls).
 | Sender allow list | Checked after id resolution, before reading the body: client IP outside every range answers 403, `X-Webhooks-Live-Error: sender_refused`, `Connection: close` if the body is unread. Applies to SMTP clients too. |
 | Capture auth | Basic: username compared exactly, password as MAC (§18); header: name case-insensitive, value as MAC; both constant-time. Failure: 401, `X-Webhooks-Live-Error: unauthorized`, no `WWW-Authenticate` (§9 denylist reasoning). CORS preflights (which cannot carry credentials) are answered but not stored. |
 | View password | Anonymous endpoints only (422 `not_allowed` on owned ones). `POST .../unlock` limited to 5/min per endpoint and 20/min per IP; returns a 32-byte grant, stored as SHA-256 in `endpoint_grants`, valid 12 h. Accepted as `X-Webhooks-Live-Grant` and, on stream routes only, `?grant=`; request logs never record query strings. Changing or removing the password deletes all grants. |
-| Clone, templates | A configuration document `{"version": 1, "endpoint": EndpointInput, "forward_rules", "rules", "channels", "schedules"}` without secrets; clone also copies secrets when the caller owns both endpoints. Templates store the same document; creating from a template re-validates against current limits. |
+| Clone, templates | A configuration document `{"version": 1, "endpoint": EndpointInput, "forward_rules", "rules", "channels", "schedules", "secret_names"}`. Secret values are never copied: the clone answers `secrets_missing` with the names it uses and lacks. Channel URLs are copied only for an editor of the source (else `skipped` names `channels`); templates never store them. Creating from a template re-validates against current limits. |
 | Signature verifier | Computed after the body is read and before the store transaction; result in `captures.verification`. Schemes: `hmac` (header, algorithm `sha1`, `sha256` or `sha512`, encoding `hex` or `base64`, optional prefix, signed content `body` or `timestamp.body` with a timestamp header and a 300 s tolerance) and presets that fill those fields for common providers (`github`, `stripe`, `slack`, `shopify`, `standard_webhooks`). Constant-time comparison. |
-| Subdomain capture | `Host` matching `^[0-9a-hjkmnp-tv-z]{24}\.<WEBHOOKS_LIVE_SUBDOMAIN_CAPTURE_HOST>$` (case-insensitive) enters the capture pipeline with the full path as sub-path. Needs a wildcard DNS record, a wildcard certificate and a listener hostname. The `__Host-` session cookie is never sent to subdomains. |
+| Subdomain capture | Planned (M48), not implemented. `Host` matching `^[0-9a-hjkmnp-tv-z]{24}\.<WEBHOOKS_LIVE_SUBDOMAIN_CAPTURE_HOST>$` (case-insensitive) enters the capture pipeline with the full path as sub-path. Needs a wildcard DNS record, a wildcard certificate and a listener hostname. The `__Host-` session cookie is never sent to subdomains. |
 | Stats | `GROUP BY` over the endpoint's retained captures (at most the cap), bucketed by hour or day. |
 
 ## 25. Notifications
@@ -1071,13 +1096,14 @@ notification service (a new dependency holding user data).
 
 | Aspect | Behaviour |
 |---|---|
-| Triggers | `capture`: deliveries inserted in the capture transaction for each enabled capture-trigger channel whose condition (§22 condition model, evaluated before the transaction) matches; `capture_channel_count` skips the lookup when zero. `rule`: notify steps (§22). Hop 3 or more never notifies. |
-| Message | §21 template; default names endpoint, kind, method, path and a link `/e/<id>/c/<capture id>`. Rendered, then truncated to the channel limit (Discord 2000, Telegram 4096, Slack 40000, email 64 KiB). |
-| Rate limits | Before sending: `usage_counters` for `c:<channel>` (`per_hour`) and the owner subject (§17). Over the limit the delivery becomes `suppressed`; when the hour closes, the maintenance job enqueues one `summary` delivery per channel with the suppressed count. |
+| Triggers | `capture`: deliveries inserted in the capture transaction for each enabled capture-trigger channel (channel conditions are planned; `condition` must be null). `rule`: notify steps (§22). A relayed capture (hop 1 or more) never notifies; the webhook adapter also refuses targets on the public host. |
+| Message | §21 template; default names endpoint, kind, method, path and a link `/e/<id>/c/<capture id>`. Rendered, then truncated to the channel limit (Discord 2000, Telegram 4096, Slack 8000 characters, email 64 KiB). |
+| Rate limits | Before sending, in `notification_counters`: `c:<channel>` (`per_hour`), `e:<endpoint>` or `u:<owner>` (tier), `n:<network>` for ownerless endpoints (`WEBHOOKS_LIVE_NOTIFY_NETWORK_PER_HOUR`) and `g:ownerless` (`WEBHOOKS_LIVE_NOTIFY_GLOBAL_PER_HOUR`). Over a limit the delivery becomes `suppressed`; the worker's housekeeping enqueues one `summary` delivery per channel with the suppressed count after the hour closes. Test sends: 5 per channel a minute. |
 | Retries | 3 attempts, 10 s and 60 s; result shown on the capture (`notifications` in Capture). |
 | Vendor egress | Slack, Discord, Telegram and push hosts are constants, so their requests may use `WEBHOOKS_LIVE_VENDOR_PROXY` (HTTP CONNECT) when set; prod1's Moscow egress does not reliably reach Discord and Telegram. The generic webhook never uses the proxy (§6 guard). |
 | Email addresses | Verification link with a 32-byte token (SHA-256 stored, 24 h), at most 5 addresses and 5 verification mails a day per user. The IdP-verified sign-in address (`email_verified` claim) counts as verified. |
-| Web Push keys | VAPID P-256 key from `WEBHOOKS_LIVE_VAPID_PRIVATE_KEY`; message encryption with the `web-push` crate's builder, sent through the shared client. |
+| Web Push keys | The VAPID P-256 key is generated on first start, sealed with the secrets keyring and stored in `push_vapid_keys`; every replica loads the same key. It is never regenerated automatically: a key that cannot be opened disables push with a logged recovery step (delete the row and restart; every browser must subscribe again). Push needs notifications on, the keyring, and a mode with accounts. The browser side reuses a subscription only when its key equals the served public key (§9). |
+| Switches | `WEBHOOKS_LIVE_NOTIFY_ENABLED` and the keyring gate every channel route (404 when off); the stored URL of webhook, Slack and Discord channels is sealed and returned masked (`scheme://host/...`). |
 
 ## 26. Outbound requests: composer, schedules, storage
 
@@ -1091,9 +1117,11 @@ One guard to audit. Rejected: per-feature clients (each a new SSRF surface).
 | Request | Method, URL, headers (§9 hop-by-hop rules), body up to 1 MiB (route body limit raised to 1.5 MiB) | Request template (§21), secrets allowed in URL and headers, body template at most 64 KiB |
 | Result | JSON: status, headers, body (first 1 MiB, Body object), duration, final URL, error. Never re-served as a real response. | A `schedule` capture through the normal store path (limits, rules after the cut, notifications); endpoint full or gone counts as a failure |
 | Self target | URL host equals the public host, an alias path or a subdomain capture: handled in process by the capture pipeline with the caller's IP and `X-Webhooks-Live-Composer: 1`, no network hop | Same short-circuit |
-| History and state | `sent_requests`, newest 50 per user (or endpoint for anonymous callers) | `next_run_at` from `croner` with `chrono-tz` from now (no backfill); `consecutive_failures` 10 pauses with `paused_reason` |
+| History and state | `sent_requests`, newest 50 per user (or endpoint for anonymous callers), request stored redacted | `next_run_at` from `croner` with `jiff` from now (no backfill); `consecutive_failures` 10 pauses with `paused_reason`; `schedule_runs` keeps the history |
+| Redirects | Followed only with `follow_redirects: true`, at most 5 | Never followed |
+| Delivery | Synchronous | At least once: 60 s lease; status 400 or more is a failure; the next run is at least the tier interval after `scheduled_for`; 120 runs an hour per owner (`WEBHOOKS_LIVE_SCHEDULES_RUNS_PER_HOUR`, a fixed window of its own, not the outbound counter); secret templates may use only `sha256`, `hmac_sha256`, `base64`, `url`; only the schedule's owner may change a request that uses secrets |
 | Save checks | – | Cron parsed; the next 10 occurrences must be at least the tier interval apart; time zone must be an IANA name |
-| Quota | `outbound` per subject | `outbound` per owner |
+| Quota | `outbound` per subject; a tier without the subject's limit refuses (§17) | Runs per owner (above) |
 
 S3 storage step: `PUT` of the capture as JSON, or of the raw body, to `<bucket URL>/<prefix><endpoint id>/<seq>-<capture id>.<ext>`
 with AWS Signature V4 (`aws-sigv4`), credentials as two named secrets, bucket URL through the guard.
@@ -1108,14 +1136,14 @@ have no scratch volume) and background export jobs with download links (a second
 |---|---|
 | Producer | Reads 50 captures per page by `seq`, then each body separately; channel capacity 4 chunks of 64 KiB. |
 | Concurrency | 2 per replica (`WEBHOOKS_LIVE_EXPORT_CONCURRENCY`), 1 per caller; over: 429. |
-| Size check | Before streaming, `sum(stored_bytes)` of the selection against the tier export cap: 422 `export_too_large`. |
+| Size check | Before streaming, the selection's stored bytes against the tier's `export_max_bytes`: 422 `export_too_large`. While streaming, output above twice that, 30 s without the client reading, or 10 minutes end the body early; so do a client disconnect and a producer error. |
 | `json` | `{"format": "webhooks-live-export", "version": 1, "exported_at", "endpoint": {...}, "captures": [Capture with the whole body]}` |
 | `ndjson` | First line the header object without `captures`, then one Capture per line. |
 | `csv` | `id, seq, kind, received_at, method, path, query_string, client_ip, content_type, body_size, response_status, headers_json, body_preview` (first 4 KiB as text, or `base64:` prefix). Cells starting with `=`, `+`, `-`, `@`, tab or CR get a leading `'`. |
-| `zip` | `captures.ndjson` (Captures with `body` null) and `bodies/<seq>-<capture id>.bin`, written by `async_zip` with data descriptors and ZIP64; index deflated, bodies stored. Entry names come only from `seq` and ids. |
+| `zip` | `captures.ndjson` (Captures with `body` null, no header line) and `bodies/<seq>-<capture id>.bin`, written by `async_zip` with data descriptors; index deflated, bodies stored. No ZIP64 guarantee: archives stay below the tier export size. Entry names come only from `seq` and ids. |
 | Excluded | Secrets, capture-auth MACs, view password, grants. |
-| Gateway | The export route needs `timeouts.request: 0s` like the stream (§12 route change). |
-| Import | `POST .../import`, body JSON or NDJSON, streamed through `serde_json` with a sequence visitor (one capture in memory), size cap by tier, nesting limit 64. Each capture is validated with the capture-path limits, inserted in batches of 50 with new ids and `seq`, original `received_at`, `imported = true`, `meta.original_id`. Stops at capacity; answers counts. Emits `captures_imported`; no rules, forwards or notifications. |
+| Gateway | The export route needs `timeouts.request: 0s` like the streams (§12 route regexes). |
+| Import | `POST .../import`, body JSON or NDJSON, streamed through `serde_json` with a sequence visitor (one capture in memory), size cap by tier, nesting limit 64. Each capture is validated with the capture-path limits, inserted in batches of 50 with new ids and `seq`, original `received_at` (or the import time with `keep_times=false`), `imported = true`, `meta.original_id`. Stops at capacity or owner storage; answers counts and `reason`. One import per caller, 2 per replica, 60 s cool-down, `imports` quota per day. Emits `captures_imported`; no rules, forwards or notifications. `POST /endpoints/import` creates the endpoint first and deletes it when the import fails. |
 
 ## 28. Email capture
 
@@ -1131,9 +1159,11 @@ load the company mail server); a webhook from an MTA (still needs an MTA in fron
 | Libraries | `smtp-proto` (command parsing), `mail-parser` (MIME), `tokio-rustls` for STARTTLS; all MIT or Apache-2.0. |
 | Listener | `WEBHOOKS_LIVE_MAIL_LISTEN_ADDR` (unset: off). A PROXY v2 header is required from peers in `WEBHOOKS_LIVE_MAIL_TRUSTED_PROXIES`; connections from other peers are refused unless the list is empty (local development). |
 | Commands | `EHLO`, `HELO`, `MAIL`, `RCPT`, `DATA`, `RSET`, `NOOP`, `QUIT`, `STARTTLS`. Extensions: `SIZE`, `8BITMIME`, `SMTPUTF8`, `PIPELINING`, `ENHANCEDSTATUSCODES`, `STARTTLS` (only with a certificate). No `AUTH`, `VRFY`, `EXPN`, `BDAT`, no relaying. |
-| Recipients | Domain must equal `WEBHOOKS_LIVE_MAIL_DOMAIN` (case-insensitive). Local part: a 24-character id (case-insensitive), `id+tag`, or an alias. Endpoint must be live and `email_enabled`; the sender allow list applies to the client IP. Else `550 5.1.1`. At most 10 recipients per message; one capture per distinct endpoint. |
+| Recipients | Domain must equal `WEBHOOKS_LIVE_MAIL_DOMAIN` (case-insensitive). Local part: a 24-character id (case-insensitive) or `id+tag`; aliases are planned, not implemented. Endpoint must be live and `email_enabled`; the sender allow list applies to the client IP. Else `550 5.1.1`. At most 10 recipients per message; one capture per distinct endpoint. |
 | Size and time | `SIZE` advertises the tier limit (10 MiB); over it during `DATA`: `552 5.3.4` and close. Command timeout 60 s, `DATA` 120 s, session 10 min, 5 messages per session. 200 sessions per replica, 5 per client IP, 30 messages per minute per client IP. |
-| Quota | `usage_counters` `e:<id>` `email_in` per hour; over: `451 4.7.1`. |
+| Quota | Per-endpoint `email_in` per hour, counted in process per replica (not in `usage_counters`, so N replicas allow up to N times the tier value); over: `451 4.7.1`. |
+| Memory | Messages are held in a mail-only memory budget sized for twice the worst case of concurrent `DATA` phases, separate from the capture body budget. |
+| PROXY header | A PROXY v2 `LOCAL` command (health checks) closes the connection without a session. |
 | Store | Parse in `spawn_blocking` with a 2 s timeout and at most 50 MIME parts; build the §20 mapping; store through the normal capture path; `250 2.0.0 <capture id>` after commit. Store down: `451 4.3.0`. Endpoint full: `552 5.2.2`. |
 | Parts | `GET .../parts/{index}` decodes one part from the raw message on demand; served with the raw-body headers of api §5.2; never `text/html`. |
 | TLS | Certificate and key from `WEBHOOKS_LIVE_MAIL_TLS_CERT` and `_KEY` files (a cert-manager secret), reloaded every 60 s. |
@@ -1185,7 +1215,7 @@ address survives.
 |---|---|
 | Set | Signed in: all owned and shared endpoints, or one folder, at most 50; anonymous: `endpoints=` list of at most 20 ids, each checked like a single-endpoint read (grants included). |
 | List | Per endpoint a keyset query `ORDER BY seq DESC LIMIT n` with the §5.1 filters; merged in the app by `(received_at, id)`. Cursor: opaque base64url of the per-endpoint `before_seq` map. |
-| Stream | Subscribes to each endpoint's hub channel and merges them; event `id` is an opaque base64url vector of per-endpoint `seq`; resume replays `seq` above the vector per endpoint, at most 100 in total, else `resync`. Access is checked on connect; a revoked membership takes effect at the next reconnect (streams close after 30 min). |
+| Stream | Subscribes to each endpoint's hub channel and merges them; event `id` is an opaque base64url vector of per-endpoint `seq`; resume replays `seq` above the vector per endpoint, at most 100 in total, else `resync`. Access is checked on connect and again on every `access_changed` signal (member, claim, password changes) and every 15 s; losing any endpoint closes the whole stream. Cursors hold a fingerprint of the filters and the exact lanes, so a cursor from another selection is `invalid_cursor`. Both inbox routes are session only. |
 
 ## 31. Command-line forwarder
 
@@ -1197,11 +1227,13 @@ binary (users need a small download).
 | Aspect | Behaviour |
 |---|---|
 | Commands | `forward <endpoint id or URL> --to <local URL>`, `login` (stores a token in the user config directory, mode 0600), `logout`. |
-| Options | `--token` (or `WEBHOOKS_LIVE_TOKEN`), `--from now\|<seq>`, `--kinds http,email,...` (default `http`), `--strip-prefix`, `--keep-host`, `--concurrency` (default 1, in order), `--state-file`. |
+| Options | `--server`, `--token` (or `WEBHOOKS_LIVE_TOKEN`; argv is visible to other local users, prefer the variable or `login`), `--from now\|all\|<seq>`, `--method`, `--path`, `--strip-prefix`, `--keep-host`, `--header`, `--remove-header`, `--dry-run`, `--state-file`, `-v`. Sequential, in order. Not implemented: `--kinds`, `--concurrency`. |
+| Exit codes | 0 success, 1 failure, 2 usage, 3 authentication, 4 endpoint gone, 5 state file. |
+| Target | `--to` is the user's own machine and has no SSRF guard; the path check against `--to` is syntactic. |
 | Loop | Open the stream with `Last-Event-ID` = last forwarded `seq`; on `ready` list `after_seq` ascending to the end; then live events. Each capture: fetch detail and raw body, send to the local target, persist `seq` (write and rename). `resync`: list again. `bye`, errors and EOF: reconnect with backoff 1 s doubling to 30 s with jitter. |
 | Local request | Method; URL = target + sub-path (prefix stripped) + query; captured headers minus hop-by-hop, `Host`, `Content-Length`; body bytes; 30 s timeout; failures are printed, not fatal. |
 | Delivery | At least once: a crash between sending and persisting repeats one capture. |
-| Release | GitHub Actions matrix: Linux x86_64 and aarch64 (musl), macOS x86_64 and aarch64, Windows x86_64; SHA-256 checksums; `cargo install` from the repository. |
+| Release | `cli-release.yml` on tags `cli-vX.Y.Z` (the tag must equal the `whl-cli` crate version): Linux x86_64 and aarch64 (musl), macOS x86_64 and aarch64, as GitHub release assets with SHA-256 checksums; `cargo install` from the repository. No Windows build yet. The UI's download links 404 until the first `cli-v*` release. |
 
 ## 32. Security analysis
 
@@ -1258,6 +1290,8 @@ binary (users need a small download).
 | `webhooks_live_schedule_runs_total` | counter | `outcome` |
 | `webhooks_live_exports_total`, `webhooks_live_export_bytes_total` | counter | `format`, `outcome` |
 | `webhooks_live_token_auth_total` | counter | `result` = ok, invalid, expired, revoked |
+| `webhooks_live_capture_ttl_deleted_total` | counter | |
+| `webhooks_live_verifications_total` | counter | `result`, `reason` |
 
 Log fields added: `kind`, `rule_run_id`, `purpose`, `channel_kind`, `token_id` (never the token), `tier`. No
 message content, secret, query string or header value is logged. Suggested alerts: rule queue depth above 1000
@@ -1266,21 +1300,33 @@ baseline; any `script_runs_total{outcome="panic"}`.
 
 ## 34. Configuration additions
 
+Every key is also a TOML path in `WEBHOOKS_LIVE_CONFIG` (`[rules] enabled`); `whl_core::config::ENV_KEYS` maps them.
+
 | Env | Default |
 |---|---|
 | `WEBHOOKS_LIVE_AUTH_MODE` | adds `mixed` |
 | `WEBHOOKS_LIVE_CONFIG` `[tiers.*]` | built-in `anonymous` and `member` of §17 |
-| `WEBHOOKS_LIVE_SECRETS_KEYS` | unset: secrets off |
+| `WEBHOOKS_LIVE_SECRETS_KEYS` | unset: secrets, verifiers, Telegram, notifications and push off (`feature_disabled` or 404). Must be set in production before those features work |
 | `WEBHOOKS_LIVE_API_CORS` | true |
-| `WEBHOOKS_LIVE_RULES_ENABLED`, `WEBHOOKS_LIVE_RULES_SYNC_BUDGET`, `WEBHOOKS_LIVE_RULES_SYNC_CONCURRENCY`, `WEBHOOKS_LIVE_RULES_WORKERS` | true, `3s` (max `10s`), 256, 16 |
-| `WEBHOOKS_LIVE_SCRIPT_THREADS`, `WEBHOOKS_LIVE_SCRIPT_MEMORY` | 2, 32 MiB |
-| `WEBHOOKS_LIVE_VENDOR_PROXY` | unset |
+| `WEBHOOKS_LIVE_RULES_ENABLED` | true: stored rules run from the first deploy. Deploy with false to stage the switch-on (CRUD works, nothing runs, dry run and re-run answer 503) |
+| `WEBHOOKS_LIVE_RULES_SYNC_BUDGET`, `WEBHOOKS_LIVE_RULES_SYNC_CONCURRENCY`, `WEBHOOKS_LIVE_RULES_CACHE_BYTES`, `WEBHOOKS_LIVE_RULES_WORKERS` | `3s` (max `10s`), 256, 128 MiB (min 16 MiB), 16 (max 256) |
+| `WEBHOOKS_LIVE_SCRIPT_THREADS`, `WEBHOOKS_LIVE_SCRIPT_MEMORY` | 2 (max 64), 32 MiB (1 MiB to 1 GiB) |
+| `WEBHOOKS_LIVE_COMPOSER_ENABLED`, `WEBHOOKS_LIVE_COMPOSER_MAX_IN_FLIGHT` | true, 32 |
+| `WEBHOOKS_LIVE_SCHEDULES_ENABLED`, `WEBHOOKS_LIVE_SCHEDULES_RUNS_PER_HOUR`, `WEBHOOKS_LIVE_SCHEDULES_WORKERS` | true, 120, 8; the runner does not start in `open` |
+| `WEBHOOKS_LIVE_NOTIFY_ENABLED`, `WEBHOOKS_LIVE_NOTIFY_CONCURRENCY`, `WEBHOOKS_LIVE_NOTIFY_MAX_ATTEMPTS` | true, 8, 3 |
+| `WEBHOOKS_LIVE_NOTIFY_NETWORK_PER_HOUR`, `WEBHOOKS_LIVE_NOTIFY_GLOBAL_PER_HOUR`, `WEBHOOKS_LIVE_NOTIFY_EMAIL_PER_DAY` | 60, 600, 50 |
 | `WEBHOOKS_LIVE_SMTP_URL`, `WEBHOOKS_LIVE_NOTIFY_FROM` | unset: email notifications off |
-| `WEBHOOKS_LIVE_VAPID_PRIVATE_KEY`, `WEBHOOKS_LIVE_VAPID_SUBJECT` | unset: push off |
+| `WEBHOOKS_LIVE_VENDOR_PROXY` | unset |
+| `WEBHOOKS_LIVE_VAPID_SUBJECT`, `WEBHOOKS_LIVE_PUSH_EXTRA_HOSTS` | unset, empty; the VAPID key itself is generated and stored (§25) |
+| `WEBHOOKS_LIVE_EXPORT_CONCURRENCY`, `WEBHOOKS_LIVE_ALIAS_QUARANTINE` | 2, `30d` |
 | `WEBHOOKS_LIVE_MAIL_LISTEN_ADDR`, `WEBHOOKS_LIVE_MAIL_DOMAIN`, `WEBHOOKS_LIVE_MAIL_TRUSTED_PROXIES`, `WEBHOOKS_LIVE_MAIL_TLS_CERT`, `WEBHOOKS_LIVE_MAIL_TLS_KEY` | unset: mail off |
 | `WEBHOOKS_LIVE_DNS_LISTEN_ADDR`, `WEBHOOKS_LIVE_DNS_ZONE`, `WEBHOOKS_LIVE_DNS_TRUSTED_PROXIES`, `WEBHOOKS_LIVE_DNS_ANSWER_A`, `WEBHOOKS_LIVE_DNS_ANSWER_AAAA`, `WEBHOOKS_LIVE_DNS_NS_NAME`, `WEBHOOKS_LIVE_DNS_SOA_EMAIL` | unset: DNS off |
-| `WEBHOOKS_LIVE_SUBDOMAIN_CAPTURE_HOST` | unset |
-| `WEBHOOKS_LIVE_SCHEDULES_ENABLED`, `WEBHOOKS_LIVE_EXPORT_CONCURRENCY`, `WEBHOOKS_LIVE_ALIAS_QUARANTINE` | true, 2, `30d` |
+| `WEBHOOKS_LIVE_DNS_RATE_SOURCE`, `WEBHOOKS_LIVE_DNS_RATE_GLOBAL`, `WEBHOOKS_LIVE_DNS_RATE_CAPTURE_ENDPOINT` | `20/s:20`, `2000/s:2000`, `60/m:60` |
+| `WEBHOOKS_LIVE_SUBDOMAIN_CAPTURE_HOST` | planned (M48), not read yet |
+
+Removed keys (the server refuses to start with them and names the replacement): `WEBHOOKS_LIVE_COMPOSER_*_PER_*`,
+`WEBHOOKS_LIVE_SCHEDULES_MAX_PER_USER`, `WEBHOOKS_LIVE_SCHEDULES_MIN_INTERVAL`, `WEBHOOKS_LIVE_NOTIFY_ENDPOINT_PER_HOUR`,
+`WEBHOOKS_LIVE_NOTIFY_OWNER_PER_HOUR`: these limits are tier fields now (`[tiers.<name>]`).
 
 ## 35. Delivery plan: parity milestones
 
@@ -1348,3 +1394,6 @@ milestones keep it green). Risky milestones go to `coder-pro` with an `xhigh` re
 6. Subdomain capture: a wildcard record and certificate for `*.webhooks.live`.
 7. Tier numbers of §17 and whether `anonymous` keeps forwarding and chat notifications at all.
 8. The secrets keyring in a SOPS secret, and who holds the rotation procedure.
+9. API tokens outlive identity provider sessions (up to 365 days): should an operator be able to revoke all tokens
+   of a user (a CLI command such as `users revoke-tokens <email>`), and should tokens stop when a user has not
+   signed in for some period?

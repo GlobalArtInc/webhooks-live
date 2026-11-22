@@ -1,6 +1,6 @@
 # webhooks.live HTTP API
 
-Status: draft 2, 2026-11-21 (parity routes §9–§24). Requirements: [product-spec.md](product-spec.md). Design: [architecture.md](architecture.md).
+Status: draft 3, 2026-11-22 (parity routes §9–§25, aligned with the shipped code). Requirements: [product-spec.md](product-spec.md). Design: [architecture.md](architecture.md).
 This document is the contract between the Rust backend and the React frontend.
 
 ## 1. Conventions
@@ -262,12 +262,14 @@ User: `{id: uuid, email: string, name: string | null}`. Member: `{user: User, ro
 | `DELETE /api/v1/endpoints/{id}/captures/{capture_id}` | editor | – | 204 |
 | `DELETE /api/v1/endpoints/{id}/captures` | editor | – | 204 |
 | `POST /api/v1/endpoints/{id}/captures/{capture_id}/forward` | editor | ForwardRequest | 202 ForwardJob (`state: "pending"`) |
+| `POST /api/v1/endpoints/{id}/captures/{capture_id}/resend` | editor | ForwardRequest | Alias of `/forward`: same handler, body and answers |
 | `GET /api/v1/endpoints/{id}/stream` | viewer | `Last-Event-ID` header or `?last_event_id=` | 200 `text/event-stream`, §6 |
 
 Reading an endpoint, its captures or its stream extends its lifetime (E3) when `last_active_at` is older
 than 60 s; captures always extend it. `PUT .../members` with an email
 nobody has signed in with answers 404 `user_not_found`; the owner cannot add themself (422). Every rule change
-also emits `endpoint_updated` on the stream.
+also emits `endpoint_updated` on the stream. With forwarding switched off (`features.forwarding` false) the
+forward-rule routes, `/forward` and `/resend` answer 404 `not_found`.
 
 **Instance**
 
@@ -473,57 +475,77 @@ data: {"id":"0193a1c2-9d10-7a3e-8b44-1c2d3e4f5a6b","seq":42,"endpoint_id":"7k2m9
 : ping
 ```
 
-In `sso` mode the same calls need the session cookie, and mutating ones an `Origin` header; machine access
-in `sso` mode is not part of the first release.
+In `sso` mode the same calls need the session cookie, and mutating ones an `Origin` header; scripts use an
+API token instead (§11).
 
 ## 9. Parity additions: conventions
 
-Sections 9–24 add the parity plan (product-spec §13–§28, architecture §16–§36). §1–§8 stay valid except where
-a row below extends them.
+Sections 9–24 add the parity routes (product-spec §13–§28, architecture §16–§36). §1–§8 stay valid except where
+a row below extends them. The served OpenAPI document (§23) states the same contract per route; a disagreement
+between the two is a bug in one of them.
 
 | Topic | Rule |
 |---|---|
 | Mode `mixed` | Anonymous callers work as in `open` on anonymous endpoints; owned endpoints follow `sso` rules. Person-only routes answer 403 `sign_in_required` to anonymous callers. |
-| Tokens | `Authorization: Bearer whl_...` on every `/api/v1` route, streams included. With a Bearer header the cookie is ignored and the origin check is skipped. Token, member and ownership routes refuse tokens with 403 `session_required`. |
-| Grants | Anonymous endpoints with a view password need `X-Webhooks-Live-Grant: <grant>` on every read; stream routes also accept `?grant=`. Missing or expired: 401 `grant_required`. |
-| CORS | `/api/v1/*` answers preflights 204 and every response with `Access-Control-Allow-Origin: *`, never with credentials (architecture §19). Allowed request headers: `Authorization`, `Content-Type`, `If-None-Match`, `Last-Event-ID`, `X-Webhooks-Live-Grant`; exposed: `ETag`, `Location`, `RateLimit-Limit`, `RateLimit-Remaining`, `Retry-After`. |
-| Body limits | `POST /api/v1/send`: 1.5 MiB. `POST .../import`: the tier's import size, `application/json` or `application/x-ndjson`. Others: §1. |
+| Tokens | `Authorization: Bearer whl_...` on the routes of §11.1 only, the endpoint stream included. With a Bearer header the cookie is ignored and the origin check is skipped. Every other route answers a token 403 `session_required` before the endpoint is looked up. |
+| Grants | Anonymous endpoints with a view password need `X-Webhooks-Live-Grant: <grant>` on every route whose path contains `{id}`, except `POST .../unlock` and `DELETE /folders/{folder_id}/endpoints/{id}`; the endpoint stream also accepts `?grant=`, the inbox list reads only the header. Missing or expired: 401 `grant_required`. |
+| CORS | `/api/v1/*` answers preflights 204 and every response with `Access-Control-Allow-Origin: *`, never with credentials (architecture §19). Methods `GET, POST, PUT, PATCH, DELETE`; allowed request headers `Authorization`, `Content-Type`, `If-None-Match`, `Last-Event-ID`, `X-Webhooks-Live-Grant`; exposed `ETag`, `Location`, `RateLimit-Limit`, `RateLimit-Remaining`, `Retry-After`; `Access-Control-Max-Age: 600`. |
+| Body limits | `POST /api/v1/send`: 1.5 MiB. Imports: the tier's import size, `application/json` or `application/x-ndjson`. Others: §1. |
 | Templates in JSON | Template fields are plain strings in the §21 syntax of architecture; field errors carry `line` and `column`. |
+| Switched-off features | Forwarding, notifications (switched off, or no secrets keyring) and the composer answer 404 `not_found` on their routes, as if absent. Schedules, push and everything that needs the secrets keyring answer 503 `feature_disabled`. With rules switched off (`WEBHOOKS_LIVE_RULES_ENABLED=false`) rule CRUD still works, nothing runs, and dry run and re-run answer 503 `feature_disabled`. |
 
 | Status | `code` | When |
 |---|---|---|
-| 401 | `invalid_token` | Bearer token unknown, expired or revoked |
+| 401 | `invalid_token` | Bearer token malformed, unknown, expired or revoked; `WWW-Authenticate: Bearer error="invalid_token"` |
 | 401 | `grant_required` | View-protected endpoint without a valid grant |
-| 401 | `wrong_password` | Unlock with a wrong password |
+| 401 | `wrong_password` | Unlock with a wrong password; also for an unknown or unprotected endpoint |
 | 403 | `sign_in_required` | Person-only feature, anonymous caller |
-| 403 | `session_required` | Route refuses tokens |
-| 403 | `claim_refused` | Claim without the proof of architecture §17 |
-| 409 | `claim_required` | `mixed`: member routes on an endpoint that has no owner yet |
+| 403 | `session_required` | Route refuses tokens (§11.1) |
 | 403 | `insufficient_scope` | Token scope or endpoint limit too narrow |
-| 403 | `tier_not_allowed` | Feature not in the caller's tier (`error.limit.name` names it) |
-| 404 | `rule_not_found`, `secret_not_found`, `var_not_found`, `channel_not_found`, `schedule_not_found`, `template_not_found`, `folder_not_found`, `token_not_found`, `alias_not_found`, `part_not_found`, `rule_run_not_found`, `email_address_not_found`, `subscription_not_found`, `sent_request_not_found` | Unknown id in its scope |
+| 403 | `claim_refused` | Claim without the proof of architecture §17 |
+| 403 | `tier_not_allowed` | Feature not in the tier that applies (`error.limit.name` names it); an endpoint without an owner has the `anonymous` tier |
+| 403 | `creator_only` | E-mail channel changed by someone other than its creator |
+| 403 | `owner_required` | Schedule request that uses secrets changed by someone other than the schedule's owner |
+| 404 | `rule_not_found`, `secret_not_found`, `var_not_found`, `channel_not_found`, `schedule_not_found`, `template_not_found`, `folder_not_found`, `token_not_found`, `alias_not_found`, `part_not_found`, `email_address_not_found`, `subscription_not_found` | Unknown id in its scope, including another user's object. Composer history entries answer `not_found` |
+| 404 | `invalid_token` | Verification or unsubscribe link token unknown, used or expired |
+| 408 | `request_timeout` | `POST /send` body did not arrive within 10 s |
 | 409 | `already_owned` | Claim of an owned endpoint |
+| 409 | `claim_required` | `mixed`: member, schedule-create and import routes on an endpoint that has no owner yet |
 | 409 | `alias_taken` | Alias in use or in quarantine |
-| 409 | `name_taken` | Folder, template or secret name already used where unique |
-| 409 | `secret_in_use` | Secret still referenced; `error.references` lists rule, channel, schedule or verifier ids |
-| 422 | `limit_reached` | Count limit hit (rules, aliases, tokens, schedules, folders, never-expire); `error.limit` = `{name, max}` |
+| 409 | `name_taken` | Folder or template name already used by the user |
+| 409 | `email_ambiguous` | `PUT .../members`: several accounts share the email |
+| 409 | `secret_in_use` | Secret still referenced; `error.references` = `[{kind, id, name?}]` (§13) |
+| 409 | `rerun_active` | Re-run while a run of the capture is `sync`, `queued` or `running` |
+| 409 | `schedule_disabled` | Run now on a disabled schedule |
+| 422 | `limit_reached` | Count limit hit; `error.limit` = `{name, max}`, names below |
+| 422 | `already_registered` | Push subscription endpoint already registered |
+| 422 | `hop_limit` | `POST /send` arrived with `X-Webhooks-Live-Hop` of 3 or more |
 | 422 | `export_too_large` | Selection above the tier export size |
-| 429 | `quota_exceeded` | Durable quota hit; `error.limit` = `{name, window, max, resets_at}`, `Retry-After` set |
-| 503 | `feature_disabled` | Operator switched the feature off (secrets keyring, mail, DNS, push, email) |
+| 429 | `quota_exceeded` | Durable quota hit; `error.limit` = `{name, window, max, resets_at}` with `name` `outbound`, `exports`, `imports` or `token_creation`; `Retry-After` set |
+| 429 | `rate_limited` | Also: the per-token limiter; test sends (5 per channel a minute, `Retry-After: 60`); export, import and dry-run slots (`Retry-After: 1`); unlock attempts |
+| 503 | `feature_disabled` | Feature not configured or switched off (row "Switched-off features") |
+| 503 | `mail_unavailable` | The verification mail could not be sent; the request is undone; `Retry-After: 5` |
+| 503 | `password_busy` | Every view-password hashing slot is busy |
+
+`limit_reached` names: `endpoints`, `never_expire`, `storage_bytes`, `rules`, `rule_reruns` (10 per capture),
+`vars` (50), `secrets` (20), `aliases`, `tokens`, `folders`, `templates` (20), `schedules`, `notification_channels`
+(10 per endpoint), `email_addresses` (5), `push_subscriptions` (10). Forward rules keep `forward_rule_limit` (§1.1).
 
 | Field code | Raised for |
 |---|---|
-| `template_invalid` | Template does not parse; `line`, `column` added |
-| `script_invalid` | Script does not compile; `line`, `column` added |
-| `regex_invalid`, `json_path_invalid`, `cron_invalid`, `timezone_invalid` | The named syntax does not parse |
-| `secret_unknown` | `secret.<NAME>` or a secret field names a missing secret |
-| `secret_not_allowed` | Secret referenced in a response step or response template |
-| `step_unknown` | `step.<name>` refers to no earlier step |
-| `tier_not_allowed` | Value allowed only in a higher tier (for example an HTTP step before the response) |
 | `reserved` | Reserved alias |
-| `not_verified` | Email channel recipient not verified |
-| `host_not_allowed` | Slack, Discord or push URL outside its fixed host pattern |
-| `interval_too_short` | Schedule fires more often than the tier allows |
+| `secret_unknown` | A verifier, schedule or Telegram channel names a missing secret |
+| `secret_not_allowed` | Secret referenced where secrets are refused (response templates, schedule bodies) |
+| `template_invalid` | Template does not parse (templated response, schedule request); `line`, `column` added |
+| `json_path_invalid`, `step_unknown` | Templated response: JSON path does not parse; `step.<name>` refers to no step |
+| `cron_invalid`, `timezone_invalid`, `interval_too_short` | Schedule cron or time zone does not parse; fires more often than the tier allows |
+| `host_not_allowed` | Push subscription endpoint outside the accepted push hosts |
+
+Rule validation (§15) reports only the codes of §1.1 (`required` to `not_allowed`, `target_refused`,
+`target_unresolvable`) with the path inside the rule (`steps.2.url`): a template, regex, JSON path or script that
+does not parse in a rule is `invalid_format`, its position in the message. In notification channels an unverified
+recipient is `not_allowed` on `config.address_id`, a Telegram `token_secret` naming no secret is `invalid_format`,
+and a Slack or Discord URL outside its pattern is `invalid_format`.
 
 ```json
 {
@@ -543,43 +565,63 @@ a row below extends them.
 |---|---|---|
 | `auth_mode` | `"open"` \| `"sso"` \| `"mixed"` | |
 | `tier` | string | Caller's tier: `anonymous`, `member`, or an operator tier |
-| `limits` | object | Values of the caller's tier; adds `max_captures_settable`, `max_retention_seconds`, `never_expire_endpoints`, `rules_per_endpoint`, `steps_per_rule`, `sync_http_steps`, `aliases`, `tokens`, `schedules`, `schedule_min_interval_seconds`, `export_max_bytes`, `import_max_bytes` |
-| `features.secrets`, `features.rules`, `features.scripts`, `features.schedules`, `features.api_cors` | boolean | |
-| `features.notifications` | string[] | Channel kinds available to the caller |
-| `features.mail_domain` | string \| null | Set when email capture is on |
-| `features.dns_zone` | string \| null | Set when DNS capture is on |
-| `features.subdomain_host` | string \| null | Set when subdomain capture is on |
-| `features.push_public_key` | string \| null | VAPID public key, base64url |
+| `limits.*` | integer \| null | Adds the caller's tier: `max_captures_settable`, `max_retention_seconds`, `never_expire_endpoints`, `endpoints`, `storage_bytes` (null: no owner quota), `rules_per_endpoint`, `steps_per_rule`, `sync_http_steps` (0 in v1, §15), `aliases`, `tokens`, `folders`, `schedules`, `schedule_min_interval_seconds`, `exports_per_hour`, `export_max_bytes`, `imports_per_day`, `import_max_bytes`, `outbound_per_hour` and `notifications_per_hour` (per user when signed in, per endpoint when anonymous; null: the tier grants none, the feature is unavailable to this caller), `email_notifications_per_day` |
+| `features.secrets` | boolean | Secrets keyring configured |
+| `features.schedules` | boolean | Schedules on and the tier allows at least one |
+| `features.notifications` | string[] | Channel kinds of the caller's tier; empty when notifications are off |
+| `features.push_public_key` | string \| null | VAPID public key, base64url; `null` while push is not prepared |
+
+Planned, not served yet: `features.rules`, `features.scripts`, `features.api_cors`, `features.mail_domain`,
+`features.dns_zone`, `features.subdomain_host`. Clients treat an absent feature as unknown and rely on the route
+answers of §9.
 
 | Method, path | Role | Request | Success |
 |---|---|---|---|
-| `GET /api/v1/usage` | any | – | 200 Usage |
-| `POST /api/v1/endpoints/{id}/claim` | signed in, `mixed` | – | 200 Endpoint with `my_role: "owner"`; 403 `sign_in_required`, 403 `claim_refused` (caller outside the creating network, endpoint older than 24 hours, or no recorded network), 409 `already_owned` (caller is the owner or a member), 410 `endpoint_gone` (including an endpoint owned by someone else) |
+| `GET /api/v1/usage` | signed in (else 401); a token needs `read` and no endpoint limit (else 403 `insufficient_scope`) | – | 200 Usage |
+| `POST /api/v1/endpoints/{id}/claim` | signed in, `mixed`, session only | – | 200 Endpoint with `my_role: "owner"`; 403 `sign_in_required`, 403 `claim_refused` (caller outside the creating network, endpoint older than 24 hours, or no recorded network), 409 `already_owned` (caller is the owner or a member), 410 `endpoint_gone` (including an endpoint owned by someone else), 422 `limit_reached` (`endpoints`) |
 
 Usage: `{tier: string, items: [{name: string, window: "hour" | "day" | "total", used: integer, max: integer, resets_at: timestamp | null}]}`.
-Names: `endpoints`, `storage_bytes`, `outbound`, `notifications`, `email_notifications`, `exports`, `imports`,
-`composer`, `schedules`, `aliases`, `tokens`, `never_expire`.
+Names: `endpoints`, `never_expire`, `schedules`, `tokens`, `storage_bytes` (window `total`), `outbound`,
+`notifications`, `exports` (window `hour`).
 
 ## 11. API tokens
 
 | Method, path | Role | Request | Success |
 |---|---|---|---|
-| `GET /api/v1/tokens` | session | – | 200 `{items: ApiToken[]}` |
+| `GET /api/v1/tokens` | session | – | 200 `{items: ApiToken[]}`, revoked and expired ones included until purged, at most 500 |
 | `POST /api/v1/tokens` | session | ApiTokenInput | 201 CreatedApiToken |
-| `DELETE /api/v1/tokens/{token_id}` | session | – | 204 (revokes) |
+| `DELETE /api/v1/tokens/{token_id}` | session | – | 204 (revokes; again 204 for a revoked token); 404 `token_not_found` for unknown ids and other users' tokens |
 
 | ApiToken field | Type | Notes |
 |---|---|---|
 | `id` | uuid | |
 | `name` | string | 1–64 chars |
-| `prefix` | string | First 12 characters of the token |
-| `scopes` | string[] | Subset of `read`, `endpoints:write`, `captures:write`, `rules:write`, `send` |
-| `endpoint_ids` | string[] \| null | Limit to these endpoints, at most 50 |
+| `prefix` | string | First 12 characters of the token, the lookup key |
+| `scopes` | string[] | 1–5 of `read`, `endpoints:write`, `captures:write`, `rules:write`, `send` |
+| `endpoint_ids` | string[] \| null | Limit to these endpoints, 1–50; `null` = no limit |
 | `created_at`, `expires_at` | timestamp | |
 | `last_used_at`, `revoked_at` | timestamp \| null | |
 
-ApiTokenInput: `{name, scopes, endpoint_ids?, expires_in_days}` with `expires_in_days` 1–365 (default 90).
-CreatedApiToken = ApiToken plus `token` (the only time it is returned).
+ApiTokenInput: `{name, scopes, endpoint_ids?, expires_in_days}` with `expires_in_days` an integer 1–365 (default 90).
+CreatedApiToken = ApiToken plus `token` (the only time it is returned). At most 20 active tokens per user (422
+`limit_reached`, `tokens`) and 10 creations per hour (429 `quota_exceeded`, `{name: "token_creation", window:
+"hour", max: 10, resets_at}`). Each token has its own limiter at the management API rate (429 `rate_limited` with
+`Retry-After`). A malformed or repeated `Authorization` header answers 401, never anonymous access. A token with an
+endpoint limit sees only those endpoints in `GET /endpoints`, gets 403 `insufficient_scope` on `POST /endpoints`,
+on `GET /usage` and on any other endpoint.
+
+### 11.1 Token scopes
+
+| Scope | Routes |
+|---|---|
+| `read` | `GET` of `/instance`, `/openapi.json`, `/usage`, `/endpoints`, `/aliases/{alias}/availability`, `/send/history`; on an endpoint: `GET` of the endpoint, `/stream`, `/captures`, `/captures/latest`, `/captures/{capture_id}` with `/body`, `/parts/{index}` and `/rule-runs`, `/rule-runs`, `/forward-rules`, `/secrets`, `/aliases`; `POST .../unlock` |
+| `endpoints:write` | `POST /endpoints`, `PATCH` and `DELETE /endpoints/{id}`, `PUT` and `DELETE .../secrets/{name}` |
+| `captures:write` | `DELETE .../captures`, `DELETE .../captures/{capture_id}` |
+| `rules:write` | Forward rules only: `POST .../forward-rules`, `PATCH` and `DELETE .../forward-rules/{rule_id}` |
+| `send` | `POST /send`, `DELETE /send/history/{sent_id}`, `POST .../captures/{capture_id}/forward` and `/resend` |
+| session only | Every other route: tokens, members, claim, alias `PUT`/`DELETE`, rules of §15 (also their `GET`), variables, notifications, push, e-mail addresses, schedules, folders, templates, clone, stats, capture `PATCH`, re-run, export, import, both inbox routes |
+
+The effective right is `min(role on the endpoint, scopes)`.
 
 ## 12. Endpoint additions
 
@@ -588,24 +630,25 @@ Endpoint (§4.1) gains:
 | Field | Type | Notes |
 |---|---|---|
 | `tags` | string[] | At most 10, each `^[a-z0-9][a-z0-9-]{0,31}$` |
-| `retention` | `{mode: "sliding" \| "never", seconds: integer \| null}` | `seconds` 3600 to tier max, `null` = instance default; `never` for signed-in owners within the tier count |
-| `max_captures` | integer | Now writable by the owner, 1 to tier max |
+| `retention` | `{mode: "sliding" \| "never", seconds: integer \| null}` | `seconds` 3600 to the tier max, `null` = instance default. `never` only for signed-in owners within the tier count: `open` answers 422 `not_allowed` on `retention.mode`, an anonymous caller in `mixed` 403 `sign_in_required`, a full count 422 `limit_reached` (`never_expire`) |
+| `expires_at` | timestamp \| null | `null` for never-expire endpoints |
+| `max_captures` | integer | Writable by the owner, 1 to the tier max; `null` resets to the instance default |
 | `capture_ttl_seconds` | integer \| null | At least 60 |
 | `sender_allow_cidrs` | string[] | At most 20 CIDRs |
 | `capture_auth` | CaptureAuth \| null | Output: `{kind: "basic", username}` or `{kind: "header", name}`; secrets never returned |
 | `view_protected` | boolean | Read-only; true when a view password is set |
+| `view_grant` | `{grant, expires_at}` | Only in the answer to a create or `PATCH` that sets `view_password`, so the setter needs no unlock |
 | `response.templated` | boolean | Default false |
 | `response.status_template` | string \| null | Template for the status, up to 1024 characters; used only when `response.templated` is true; the integer `response.status` stays the fallback status |
 | `verifier` | Verifier \| null | |
-| `email` | `{enabled: boolean, address: string \| null}` | `address` = `<id>@<mail domain>` when the instance has one |
-| `dns` | `{enabled: boolean, name: string \| null}` | `name` = `<id>.<zone>` |
-| `aliases` | string[] | Read-only here; §12 alias routes |
-| `subdomain_url` | string \| null | Read-only |
-| `rule_count` | integer | Read-only |
+
+Planned, not in this release: `email` and `dns` (EndpointInput refuses them with 422 `not_allowed`), `aliases`,
+`subdomain_url`, `rule_count`. Aliases are listed by `GET .../aliases`.
 
 EndpointInput adds `tags`, `retention`, `max_captures`, `capture_ttl_seconds`, `sender_allow_cidrs`, `capture_auth`,
 `view_password` (string 8–128 chars, write-only, `null` removes; anonymous endpoints only, else `not_allowed`),
-`response.templated`, `verifier`, `email.enabled`, `dns.enabled`. On create it also accepts `template_id`.
+`response.templated`, `response.status_template`, `verifier`. `POST /endpoints` also accepts `template_id`
+(session only, else 403 `session_required`; 404 `template_not_found`); `PATCH` refuses it with `not_allowed`.
 
 CaptureAuth input: `{"kind": "basic", "username": string, "password": string}` or
 `{"kind": "header", "name": string, "value": string}`; `null` removes. Values 1–256 bytes, visible ASCII.
@@ -613,70 +656,101 @@ CaptureAuth input: `{"kind": "basic", "username": string, "password": string}` o
 Verifier: `{"scheme": "hmac" | "github" | "stripe" | "slack" | "shopify" | "standard_webhooks", "secret_name": string,
 "header": string | null, "algorithm": "sha1" | "sha256" | "sha512" | null, "encoding": "hex" | "base64" | null,
 "prefix": string | null, "timestamp_header": string | null}`. Presets fill the nullable fields; `hmac` requires
-`header`, `algorithm`, `encoding`.
+`header`, `algorithm`, `encoding`. The verifier is replaced as a whole. It names a secret of the endpoint, which a
+new endpoint does not have yet, so a create with a verifier answers `secret_unknown`: set it with `PATCH` after
+`PUT .../secrets/{name}`. Without the secrets keyring: 503 `feature_disabled`. `CaptureSummary.verification` is
+`valid`, `invalid` (also when the secret is missing or unusable) or `missing` (no signature). `github` and `shopify`
+carry no timestamp, so they have no replay protection; timestamps are integer seconds of at most 12 digits;
+base64 signatures use the standard alphabet only.
 
 | Method, path | Role | Request | Success |
 |---|---|---|---|
-| `GET /api/v1/endpoints` | signed in | adds `?tag&folder&q` (title, id, alias) | as §5 |
-| `POST /api/v1/endpoints/{id}/unlock` | anyone with the id | `{password}` | 200 `{grant: string, expires_at}`; 401 `wrong_password`; 429 |
-| `POST /api/v1/endpoints/{id}/clone` | viewer on source (`sso`/`mixed`: signed in) | `{title?, include?: ("response" \| "forward_rules" \| "rules" \| "channels" \| "schedules" \| "secrets")[]}` (default all but secrets) | 201 Endpoint |
+| `GET /api/v1/endpoints` | signed in | adds `?tag&folder`; there is no `q` | as §5 |
+| `POST /api/v1/endpoints/{id}/unlock` | anyone with the id; a token needs `read` | `{password}` | 200 `{grant, expires_at}`; 401 `wrong_password`; 429 |
+| `POST /api/v1/endpoints/{id}/clone` | viewer on source; `sso`/`mixed`: signed in; session only | optional `{title?, include?: ("response" \| "forward_rules" \| "rules" \| "channels" \| "schedules")[]}`; empty body = everything, `secrets` in `include` is refused | 201 Endpoint plus `secrets_missing: string[]` (secret names the copy uses and lacks) and `skipped: string[]` (parts not copied; `channels` when the caller is not an editor of the source), `Location`; 422 `limit_reached` (`endpoints`, `schedules`) |
 | `GET /api/v1/endpoints/{id}/aliases` | viewer | – | 200 `{items: Alias[]}` |
-| `PUT /api/v1/endpoints/{id}/aliases/{alias}` | owner, signed in | – | 200 Alias; 409 `alias_taken`; 422 `reserved` |
-| `DELETE /api/v1/endpoints/{id}/aliases/{alias}` | owner | – | 204 |
-| `GET /api/v1/endpoints/{id}/stats` | viewer | `?bucket=hour\|day` | 200 Stats |
-| `PATCH /api/v1/endpoints/{id}/captures/{capture_id}` | editor | `{note?: string \| null, starred?: boolean}` | 200 CaptureSummary |
+| `PUT /api/v1/endpoints/{id}/aliases/{alias}` | owner, signed in, session only | – | 200 Alias; 409 `alias_taken`; 422 `validation_failed` (field code `reserved` or `invalid_format` on `alias`), 422 `limit_reached` (`aliases`) |
+| `DELETE /api/v1/endpoints/{id}/aliases/{alias}` | owner, session only | – | 204; 404 `alias_not_found` |
+| `GET /api/v1/aliases/{alias}/availability` | signed in; a token needs `read` | – | 200 `{alias, available: boolean, reason: "reserved" \| "invalid" \| "taken" \| null}` for any text |
+| `GET /api/v1/endpoints/{id}/stats` | viewer, session only | `?bucket=hour\|day` (default `day`) | 200 Stats |
+| `PATCH /api/v1/endpoints/{id}/captures/{capture_id}` | editor, session only | `{note?: string \| null, starred?: boolean}`; `null` or `""` removes the note, at most 2000 chars | 200 CaptureSummary |
 | `GET /api/v1/folders` | signed in | – | 200 `{items: Folder[]}` |
-| `POST /api/v1/folders` | signed in | `{name}` | 201 Folder |
+| `POST /api/v1/folders` | signed in | `{name}` | 201 Folder; 409 `name_taken`; 422 `limit_reached` (`folders`) |
 | `PATCH /api/v1/folders/{folder_id}` | signed in | `{name?, position?}` | 200 Folder |
 | `DELETE /api/v1/folders/{folder_id}` | signed in | – | 204 |
 | `PUT /api/v1/folders/{folder_id}/endpoints/{id}` | signed in, viewer on the endpoint | – | 204 |
 | `DELETE /api/v1/folders/{folder_id}/endpoints/{id}` | signed in | – | 204 |
-| `GET /api/v1/templates` | signed in | – | 200 `{items: Template[]}` |
-| `POST /api/v1/templates` | signed in | `{name, from_endpoint_id}` | 201 Template |
+| `GET /api/v1/templates` | signed in | – | 200 `{items: TemplateSummary[]}` (without `config`) |
+| `POST /api/v1/templates` | signed in, viewer on `from_endpoint_id` (else 410 `endpoint_gone`) | `{name, from_endpoint_id}` | 201 Template; 409 `name_taken`; 422 `limit_reached` (`templates`, 20) |
 | `GET /api/v1/templates/{template_id}` | signed in | – | 200 Template |
 | `PATCH /api/v1/templates/{template_id}` | signed in | `{name}` | 200 Template |
 | `DELETE /api/v1/templates/{template_id}` | signed in | – | 204 |
 
-Alias: `{alias, url, created_at}` with `url` = `<public url>/a/<alias>`. Folder: `{id, name, position,
-endpoint_ids: string[], created_at}`. Template: `{id, name, created_at, updated_at, config}` where `config` is the
-configuration document of architecture §24. Stats: `{bucket, from, to, series: [{at: timestamp, total, by_method:
-{<method>: n}, by_kind: {<kind>: n}, by_status: {"2xx": n, ...}}]}`.
+Folder and template routes are session only. Alias: `{alias, url, created_at}` with `url` = `<public url>/a/<alias>`.
+Folder: `{id, name, position, endpoint_ids: string[], created_at}`. TemplateSummary: `{id, name, created_at,
+updated_at}`; Template adds `config`, the configuration document of architecture §24 (channel URLs and secret
+values are never stored). Stats: `{bucket, from, to, series: [{at: timestamp, total, by_method: {<method>: n},
+by_kind: {<kind>: n}, by_status: {"2xx": n, ..., "other": n}}]}`, oldest first; `from` and `to` are `null` for an
+empty series.
 
 ## 13. Secrets
 
 | Method, path | Role | Request | Success |
 |---|---|---|---|
-| `GET /api/v1/endpoints/{id}/secrets` | editor | – | 200 `{items: [{name, created_at, updated_at}]}` |
-| `PUT /api/v1/endpoints/{id}/secrets/{name}` | editor | `{value: string}` (1–4096 bytes) | 200 `{name, created_at, updated_at}` |
-| `DELETE /api/v1/endpoints/{id}/secrets/{name}` | editor | – | 204; 409 `secret_in_use` with the referencing rule, channel, schedule or verifier ids |
+| `GET /api/v1/endpoints/{id}/secrets` | editor; a token needs `read` | – | 200 `{items: [{name, created_at, updated_at}]}` |
+| `PUT /api/v1/endpoints/{id}/secrets/{name}` | editor; a token needs `endpoints:write` | `{value: string}` (1–4096 bytes) | 200 `{name, created_at, updated_at}`; 422 `limit_reached` (`secrets`, 20) |
+| `DELETE /api/v1/endpoints/{id}/secrets/{name}` | editor; a token needs `endpoints:write` | – | 204; 404 `secret_not_found` (checked first); 409 `secret_in_use` |
 
-Values are never returned. Name: `^[A-Z][A-Z0-9_]{0,63}$`. At most 20.
+Values are never returned. Name: `^[A-Z][A-Z0-9_]{0,63}$`; a name outside the pattern answers 404 like an unknown
+one. Without the secrets keyring every route answers 503 `feature_disabled`. `secret_in_use` lists every holder in
+`error.references` as `{kind, id, name?}`: `verifier` (`id` = endpoint id, no `name`), `rule` (a step or condition,
+enabled or not), `channel` (a Telegram `token_secret`), `schedule` (URL or header); `rule`, `channel` and
+`schedule` carry the object's `id` and `name`. Forward rules hold no secrets. The check and the delete run in one
+transaction under the endpoint lock. A stored rule that no longer compiles makes the check fail with 500 and blocks
+the delete until the rule is fixed or deleted.
 
 ## 14. Persistent variables
 
 | Method, path | Role | Request | Success |
 |---|---|---|---|
 | `GET /api/v1/endpoints/{id}/vars` | viewer | – | 200 `{items: [{name, value, updated_at}]}` |
-| `PUT /api/v1/endpoints/{id}/vars/{name}` | editor | `{value: any JSON}` (at most 4 KiB serialized) | 200 Var |
-| `DELETE /api/v1/endpoints/{id}/vars/{name}` | editor | – | 204 |
+| `PUT /api/v1/endpoints/{id}/vars/{name}` | editor | `{value: any JSON}` (at most 4 KiB serialized) | 200 Var; 422 `limit_reached` (`vars`, 50) |
+| `DELETE /api/v1/endpoints/{id}/vars/{name}` | editor | – | 204; 404 `var_not_found` |
 
-Name `^[a-z_][a-z0-9_]{0,63}$`, at most 50. Counters are variables holding an integer.
+Session only. Name `^[a-z_][a-z0-9_]{0,63}$`, at most 50. Counters are variables holding an integer.
 
 ## 15. Rules
 
 | Method, path | Role | Request | Success |
 |---|---|---|---|
 | `GET /api/v1/endpoints/{id}/rules` | viewer | – | 200 `{items: Rule[], version: integer}` |
-| `POST /api/v1/endpoints/{id}/rules` | editor | RuleInput | 201 Rule (appended last) |
+| `POST /api/v1/endpoints/{id}/rules` | editor | RuleInput | 201 Rule (appended last); 422 `limit_reached` (`rules`) |
 | `GET /api/v1/endpoints/{id}/rules/{rule_id}` | viewer | – | 200 Rule |
 | `PATCH /api/v1/endpoints/{id}/rules/{rule_id}` | editor | RuleInput (partial) | 200 Rule |
 | `DELETE /api/v1/endpoints/{id}/rules/{rule_id}` | editor | – | 204 |
 | `PUT /api/v1/endpoints/{id}/rules/order` | editor | `{ids: uuid[]}` (every rule exactly once) | 200 `{items: Rule[], version}` |
-| `POST /api/v1/endpoints/{id}/rules/dry-run` | editor | `{capture_id, rules?: RuleInput[], execute_http?: boolean}` | 200 RuleRun (not stored; `rules` tests unsaved drafts) |
+| `POST /api/v1/endpoints/{id}/rules/dry-run` | editor | `{capture_id, rules?: RuleInput[]}` (at most 5 drafts) | 200 RuleRun (`trigger: "dry_run"`, not stored); 404 `capture_not_found`; 429 `rate_limited` while another dry run of the endpoint runs |
 | `GET /api/v1/endpoints/{id}/captures/{capture_id}/rule-runs` | viewer | – | 200 `{items: RuleRun[]}` newest first |
-| `POST /api/v1/endpoints/{id}/captures/{capture_id}/rule-runs` | editor | – | 202 RuleRun (`trigger: "rerun"`, `state: "queued"`) |
+| `POST /api/v1/endpoints/{id}/captures/{capture_id}/rule-runs` | editor | – | 202 RuleRun (`trigger: "rerun"`, `state: "queued"`); 409 `rerun_active`; 422 `validation_failed` on `rules` (no enabled rule), 422 `limit_reached` (`rule_reruns`, 10 per capture) |
+| `GET /api/v1/endpoints/{id}/rule-runs` | viewer; a token needs `read` | `?limit` (1–200, default 50), `cursor`, `state` | 200 `{items: RuleRun[], next_cursor}` for every capture of the endpoint, newest first; `next_cursor` is the id of the last run; 400 `invalid_cursor` |
 
-Every change emits `endpoint_updated` and bumps `version`.
+Rule CRUD, dry run and re-run are session only (§11.1); the run lists accept `read` tokens. With rules switched
+off, dry run and re-run answer 503 `feature_disabled`. Every change emits `endpoint_updated` and bumps `version`,
+one counter for all rules of the endpoint. A rule save locks the endpoint row, so it waits for captures being stored
+on that endpoint.
+
+**Edit conflicts (planned).** Today a client detects a concurrent change only by re-reading the list before it
+saves; a change between that read and the save is overwritten. Decided contract, on the existing `version`:
+
+| Part | Contract |
+|---|---|
+| `ETag` | `GET .../rules`, `GET .../rules/{rule_id}` and every successful rule mutation answer `ETag: "rules-<version>"`, the version after the change |
+| `If-Match` | Optional on `POST .../rules`, `PATCH` and `DELETE .../rules/{rule_id}`, `PUT .../rules/order`. A tag different from the current one changes nothing and answers 412 `version_conflict` with `error.current_version`; no header or `If-Match: *` writes unconditionally, as today |
+| CORS | `If-Match` joins the allowed request headers (§9) |
+
+Why: `version` is already bumped in the transaction of every change, under the endpoint row lock the save takes, so
+the check is one comparison; a header leaves RuleInput unchanged. Rejected: a per-rule revision (reorder and the
+plan cut depend on all rules at once) and keeping re-read semantics (two editors overwrite each other silently).
 
 | Rule field | Type | Notes |
 |---|---|---|
@@ -693,7 +767,7 @@ Condition: `{}`, `{"all": Condition[]}`, `{"any": Condition[]}`, `{"not": Condit
 `matches` takes a regex, `in` and `in_cidr` a list, `exists` no `arg`. At most 4 levels and 32 leaves.
 
 Every step has `kind`, optional `name` (`^[a-z][a-z0-9_]{0,31}$`, unique per endpoint, required when later steps
-read its result) and `continue_on_error` (default false).
+read its result) and `continue_on_error` (default false). Unknown fields anywhere in a rule answer `not_allowed`.
 
 | `kind` | Fields |
 |---|---|
@@ -708,10 +782,35 @@ read its result) and `continue_on_error` (default false).
 | `set_store` | `name` (persistent variable), `value` (template) |
 | `increment` | `counter` (persistent variable), `by` (integer, default 1) |
 | `script` | `source` (Rhai, at most 16 KiB) |
-| `http` | `method`, `url` (template), `headers` (`{name, value}[]`, templated), `body` (template \| null), `timeout_ms` (at most 15000, default 10000), `follow_redirects` (default true) |
+| `http` | `method`, `url` (template), `headers` (`{name, value}[]`, templated), `body` (template \| null), `timeout_ms` (at most 15000, default 10000), `follow_redirects` (accepted and ignored: rule HTTP steps never follow redirects, a 3xx answer is data in `step.<name>.status` and its headers). After the response only |
 | `forward` | `forward_rule_id`, or `target_url` with optional `method`, `content_type`, `header_allowlist`; `body_from`: `"capture"` (default) or `"payload"` |
 | `notify` | `channel_id`, `message` (template \| null: channel default) |
 | `store_s3` | `bucket_url`, `prefix`, `region`, `access_key_secret`, `secret_key_secret`, `content`: `"capture_json"` or `"body"` |
+
+**Before and after the response.** The plan is cut after the last `respond` step (architecture §22). `forward`,
+`notify` and `store_s3` before the cut are deferred and run after the response with the variables of that moment.
+`http` steps may stand only after the cut: a save that leaves an `http` step before it (create, update, delete or
+reorder) is refused with 422 `validation_failed`, field code `not_allowed` on that step's `kind`. Why: the
+before-response part has no HTTP budget in v1, and an accepted rule that fails every capture is a trap; refusing at
+save shows the error where it can be fixed. Rejected: silently moving the step after the response (its result
+would be missing for the response it was placed to shape). `limits.sync_http_steps` is 0 in v1; HTTP before the
+response for higher tiers is planned. (The current server accepts such a save and fails each synchronous run with
+`X-Webhooks-Live-Rule-Error: http`; code follow-up.)
+
+**Not in v1.** Per-rule capture-kind triggers, an "on match" choice and per-step guards (`if`) are not part of the
+rule model; such fields answer `not_allowed`. Equivalents: a leaf `{"value": "request.kind", "op": "in", "arg":
+["http", "email"]}` for a trigger, a final `stop` step for "stop here", a separate rule with its own condition for
+a guarded step.
+
+**Dry run.** Runs the saved rules, or up to 5 unsaved drafts in place of all saved rules, against a stored capture
+inside the request: at most 10 s, one dry run per endpoint at a time, nothing stored, nothing sent. State steps
+log `no_op` with "would set ..."; side effects before the cut log `deferred`; after the cut, response steps log
+`no_op` and `http`, `forward`, `notify`, `store_s3` log `no_op` with the request or message that would go out.
+`execute_http` is accepted for compatibility, must be a boolean and has no effect: a dry run never sends HTTP. Why:
+a test click must not spend the outbound quota or reach third parties; the rendered request answers what the
+tester asks. Rejected: implementing `execute_http` (a second outbound path to guard and charge). The answer is a
+RuleRun with `trigger: "dry_run"` and `id` = the capture id. (The current server stops at the cut, so rules without
+a `respond` step and everything after the cut produce no entries; code follow-up.)
 
 RuleRun:
 
@@ -723,7 +822,7 @@ RuleRun:
 | `state` | `"sync"` \| `"queued"` \| `"running"` \| `"succeeded"` \| `"failed"` | |
 | `rules_version` | integer | |
 | `response_status` | integer \| null | Status the rules produced |
-| `error` | string \| null | `template`, `budget`, `script`, `http`, `quota_exceeded`, `overloaded`, `hop_limit`, `internal`, then `: ` and detail |
+| `error` | string \| null | `template`, `budget`, `script`, `http`, `quota_exceeded`, `overloaded`, `hop_limit`, `relayed`, `internal`, then `: ` and detail |
 | `entries` | RunEntry[] | In execution order |
 | `created_at`, `finished_at` | timestamp, timestamp \| null | |
 
@@ -732,71 +831,109 @@ kind, outcome: "ok" | "failed" | "skipped" | "deferred" | "no_op", duration_ms, 
 for a step. `output` holds at most 4 KiB: the HTTP result `{status, headers, body: Body, duration_ms}`, extracted
 values, or script output; secrets appear as `[secret:NAME]`.
 
+| Step case | Entry |
+|---|---|
+| `notify` on a re-run when the capture already has a delivery for that channel | `skipped`, detail "a delivery for this channel and capture already exists, nothing was sent": one delivery per channel and capture |
+| `notify` on a relayed capture (`X-Webhooks-Live-Hop` 1 or more) | `failed`, run error `relayed`: relayed captures never notify, as for capture-triggered channels |
+| `notify` enqueue conflict without a stored delivery | `failed`, `internal: delivery_exists: ...` (never expected; logged) |
+| Outbound step over quota | `failed`, `quota_exceeded`: rules charge the endpoint owner per user and hour, or for an ownerless endpoint its network per day and the endpoint per hour |
+| Capture at hop 3 or more | No run is created |
+
 ## 16. Notifications
 
 | Method, path | Role | Request | Success |
 |---|---|---|---|
 | `GET /api/v1/endpoints/{id}/notifications` | viewer | – | 200 `{items: Channel[]}` |
-| `POST /api/v1/endpoints/{id}/notifications` | editor | ChannelInput | 201 Channel |
-| `PATCH /api/v1/endpoints/{id}/notifications/{channel_id}` | editor | ChannelInput (partial) | 200 Channel |
+| `POST /api/v1/endpoints/{id}/notifications` | editor | ChannelInput | 201 Channel; 422 `limit_reached` (`notification_channels`, 10) |
+| `PATCH /api/v1/endpoints/{id}/notifications/{channel_id}` | editor | ChannelInput (partial; `kind` refused with `not_allowed`) | 200 Channel |
 | `DELETE /api/v1/endpoints/{id}/notifications/{channel_id}` | editor | – | 204 |
-| `POST /api/v1/endpoints/{id}/notifications/{channel_id}/test` | editor | – | 202 Delivery |
-| `POST /api/v1/notifications/disable` | none | `{token}`; also `?token=` for one-click `List-Unsubscribe-Post` | 204 (channel disabled) |
+| `POST /api/v1/endpoints/{id}/notifications/{channel_id}/test` | editor | – | 202 Delivery (`kind: "test"`); 5 per channel a minute, then 429 `rate_limited`, `Retry-After: 60` |
+| `POST /api/v1/notifications/disable` | none | `{token}` or `?token=` (one-click `List-Unsubscribe-Post`) | 204 (channel disabled, kept); 404 `invalid_token` |
 | `GET /api/v1/email-addresses` | signed in | – | 200 `{items: EmailAddress[]}` |
-| `POST /api/v1/email-addresses` | signed in | `{address}` | 201 EmailAddress (verification sent) |
+| `POST /api/v1/email-addresses` | signed in | `{address}` | 201 for a new address (verification sent), 200 for one already on the account (a new mail may be sent); 422 `limit_reached` (`email_addresses`, 5); 503 `mail_unavailable` |
 | `DELETE /api/v1/email-addresses/{address_id}` | signed in | – | 204 |
-| `POST /api/v1/email-addresses/verify` | none | `{token}` | 200 EmailAddress |
-| `POST /api/v1/push/subscriptions` | signed in | `{endpoint, keys: {p256dh, auth}}` (browser `PushSubscription` JSON) | 201 `{id, created_at}` |
+| `POST /api/v1/email-addresses/verify` | none | `{token}` or `?token=` | 200 EmailAddress; 404 `invalid_token` |
+| `GET /api/v1/push/public-key` | none | – | 200 `{public_key}` (base64url) |
+| `GET /api/v1/push/subscriptions` | signed in | – | 200 `{items: PushSubscription[]}` |
+| `POST /api/v1/push/subscriptions` | signed in | browser `PushSubscription` JSON `{endpoint, keys: {p256dh, auth}}`; `expirationTime` accepted and ignored | 201 `{id, created_at}`; 422 `already_registered`, 422 `limit_reached` (`push_subscriptions`, 10), field `host_not_allowed` |
 | `DELETE /api/v1/push/subscriptions/{subscription_id}` | signed in | – | 204 |
+
+All routes except the two link routes and the public key are session only. With notifications switched off (or
+no secrets keyring) the channel, e-mail-address and link routes answer 404 `not_found`; push routes answer 503
+`feature_disabled` while push is not prepared (architecture §25). `email` and `push` channels need a signed-in
+caller (403 `sign_in_required`); `push` needs an instance with accounts (403 `not_available_in_mode`). A kind
+outside the applicable tier answers 403 `tier_not_allowed` with `error.limit.name` = the kind, checked before the
+body's fields.
 
 | Channel field | Type | Notes |
 |---|---|---|
 | `id` | uuid | |
 | `kind` | `"webhook"` \| `"slack"` \| `"discord"` \| `"telegram"` \| `"email"` \| `"push"` | |
 | `name` | string | 1–64 chars |
-| `enabled` | boolean | |
-| `trigger` | `"capture"` \| `"rule"` | |
-| `condition` | Condition \| null | `capture` trigger only |
+| `enabled` | boolean | Default true |
+| `trigger` | `"capture"` \| `"rule"` | Default `capture`; `rule` channels are used only by notify steps |
+| `condition` | null | Always `null`; a non-null value answers `not_allowed` (channel conditions are planned) |
 | `config` | object | Per kind, below |
 | `template` | string \| null | Message template; `null` = default |
-| `per_hour` | integer | 1 to the tier maximum |
+| `per_hour` | integer | 1–3600, default 30; tier caps apply at send time as owner quotas |
 | `created_at` | timestamp | |
 
 | `kind` | `config` |
 |---|---|
-| `webhook` | `{url}`, checked like a forward target |
-| `slack` | `{url}` matching the Slack incoming-webhook host pattern; stored as a secret, returned masked (`https://hooks.slack.com/services/...`) |
-| `discord` | `{url}` matching the Discord webhook pattern; stored and returned like Slack |
-| `telegram` | `{token_secret, chat_id}`; `token_secret` names a secret |
-| `email` | `{address_id}`, a verified address of the caller |
+| `webhook` | `{url}`, checked like a forward target and refused when it points at this instance; returned masked as `scheme://host/...` |
+| `slack` | `{url}` matching the Slack incoming-webhook pattern (else `invalid_format`); sealed, returned masked (`https://hooks.slack.com/services/...`) |
+| `discord` | `{url}` matching the Discord webhook pattern; sealed and returned like Slack |
+| `telegram` | `{token_secret, chat_id}`; `token_secret` is the name of an endpoint secret and is returned as such; `chat_id` numeric or `@username` |
+| `email` | `{address_id}`, a verified address of the caller. Only the creator may change the channel (403 `creator_only`). On an endpoint without an owner the answer is 403 `tier_not_allowed` (`email`): that endpoint has the `anonymous` tier, which has no e-mail, and the tier check runs before field validation |
 | `push` | `{}`: the creator's subscriptions |
 
 Delivery: `{id, channel_id, kind: "single" | "summary" | "test", state: "pending" | "running" | "succeeded" | "failed" | "suppressed", attempts, status: integer | null, error: string | null, created_at, finished_at}`.
-EmailAddress: `{id, address, verified: boolean, created_at}`.
+EmailAddress: `{id, address, verified: boolean, created_at}`. PushSubscription: `{id, host, user_agent: string |
+null, created_at, last_success_at: timestamp | null}`; the endpoint URL and keys are never returned. The UI has no
+flow that deletes a subscription yet; the server deletes one when the push service answers 404 or 410.
 
 ## 17. Composer
 
 | Method, path | Role | Request | Success |
 |---|---|---|---|
-| `POST /api/v1/send` | any; `send` scope | SendRequest | 200 SendResult |
-| `GET /api/v1/send/history` | signed in, or `?endpoint_id=` with viewer | `?cursor&limit` | 200 `{items: SentRequest[], next_cursor}` |
-| `DELETE /api/v1/send/history/{sent_id}` | owner of the entry | – | 204 |
+| `POST /api/v1/send` | `open`/`mixed`: anyone; `sso`: signed in; a token needs `send` | SendRequest | 200 SendResult, also when the delivery failed |
+| `GET /api/v1/send/history` | signed in, or `?endpoint_id=` with viewer; a token needs `read` | `?endpoint_id&cursor&limit` (1–50, default 50) | 200 `{items: SentRequest[], next_cursor}`, newest first |
+| `DELETE /api/v1/send/history/{sent_id}` | the signed-in owner of the entry, or an editor of its endpoint; a token needs `send` | – | 204; 404 `not_found` for unknown or foreign entries |
 
-SendRequest: `{method, url, headers: {name, value}[], body: Body | null, timeout_ms?: integer (≤ 15000), follow_redirects?: boolean (default false), endpoint_id?: string, source_capture_id?: uuid}`.
-`url` gets the forward-target field codes (§5.3). SendResult: `{id, status: integer | null, headers: {name, value}[],
-body: Body | null (first 1 MiB), duration_ms, final_url: string | null, error: string | null, capture_id: uuid | null}`;
-`capture_id` is set when the target was this instance's own capture URL. SentRequest = SendResult plus
-`request` (the SendRequest without `body` data beyond 64 KiB) and `created_at`.
+With the composer off every route answers 404 `not_found`. SendRequest: `{method, url, headers: {name, value}[],
+body: Body | null, timeout_ms?: integer (≤ 15000, default 15000), follow_redirects?: boolean (default false; at
+most 5), endpoint_id?: string, source_capture_id?: uuid}`. `method` is `GET`, `HEAD`, `POST`, `PUT`, `PATCH`,
+`DELETE` or `OPTIONS`; `url` is `http`/`https` without user information and gets the forward-target field codes
+(§5.3); a capture URL of this instance is delivered inside the instance (`capture_id` set), other URLs of this
+instance are refused. Hop-by-hop headers, `Host`, `Forwarded`, `X-Forwarded-*`, `X-Real-IP`, `X-Client-IP`,
+`True-Client-IP`, `CF-Connecting-IP`, `Proxy-*` and `X-Webhooks-Live-*` answer `not_allowed`. 408
+`request_timeout` when the body does not arrive within 10 s; 422 `hop_limit` at hop 3 or more.
+
+SendResult: `{id, status: integer | null, headers: {name, value}[], body: Body | null (first 1 MiB), duration_ms,
+final_url: string | null, error: string | null, capture_id: uuid | null}`. `error` is `<code>: <detail>` with codes
+`timeout`, `refused_target`, `refused_redirect`, `dns_failure`, `connect_timeout`, `hop_timeout`, `total_timeout`,
+`too_many_redirects`, `transport`, `configuration`, `local_delivery`. Each send charges `outbound`: a signed-in
+caller per hour, an anonymous caller per network per day and, with `endpoint_id`, per endpoint per hour.
+
+History: sends of a signed-in caller are kept under the user (also with `endpoint_id`), anonymous sends with
+`endpoint_id` under the endpoint, newest 50 each. SentRequest = SendResult plus `created_at` and `request`, the
+SendRequest stored redacted (sensitive header and query values and user information replaced; an endpoint's
+entries keep only the URL origin) with `body_size`; a response body is kept only for JSON and form-encoded
+responses.
 
 ## 18. Schedules
 
 | Method, path | Role | Request | Success |
 |---|---|---|---|
 | `GET /api/v1/endpoints/{id}/schedules` | viewer | – | 200 `{items: Schedule[]}` |
-| `POST /api/v1/endpoints/{id}/schedules` | owner, signed in | ScheduleInput | 201 Schedule |
-| `PATCH /api/v1/endpoints/{id}/schedules/{schedule_id}` | editor | ScheduleInput (partial); `enabled: true` clears a pause | 200 Schedule |
+| `POST /api/v1/endpoints/{id}/schedules` | owner, signed in | ScheduleInput | 201 Schedule; 409 `claim_required`; 422 `limit_reached` (`schedules`) |
+| `PATCH /api/v1/endpoints/{id}/schedules/{schedule_id}` | editor | ScheduleInput (partial); `enabled: true` clears a pause and resets `consecutive_failures` | 200 Schedule; 403 `owner_required` |
 | `DELETE /api/v1/endpoints/{id}/schedules/{schedule_id}` | editor | – | 204 |
-| `POST /api/v1/endpoints/{id}/schedules/{schedule_id}/run` | editor | – | 202 `{schedule_id, queued_at}` |
+| `POST /api/v1/endpoints/{id}/schedules/{schedule_id}/run` | editor | – | 202 `{schedule_id, queued_at}`; 409 `schedule_disabled` |
+| `GET /api/v1/endpoints/{id}/schedules/{schedule_id}/runs` | viewer | – | 200 `{items: ScheduleRun[]}`, the 50 newest |
+
+Session only; instances without accounts answer 403 `not_available_in_mode`; schedules switched off: 503
+`feature_disabled`.
 
 | Schedule field | Type | Notes |
 |---|---|---|
@@ -804,20 +941,28 @@ body: Body | null (first 1 MiB), duration_ms, final_url: string | null, error: s
 | `name` | string | 1–100 chars |
 | `cron` | string | 5 fields; `cron_invalid`, `interval_too_short` |
 | `timezone` | string | IANA name, default `UTC` |
-| `request` | `{method, url, headers: {name, value}[], body: string \| null}` | Templates; secrets allowed in `url` and header values |
-| `enabled` | boolean | |
+| `request` | `{method, url, headers: {name, value}[], body: string \| null}` | Templates; secrets (`secret.<NAME>`) allowed in `url` and header values (`secret_unknown`), at most 20 headers, body at most 64 KiB; SSRF refusal is `target_refused` |
+| `enabled` | boolean | Default true |
 | `paused_reason` | string \| null | Read-only |
 | `next_run_at`, `last_run_at` | timestamp \| null | Read-only |
 | `consecutive_failures` | integer | Read-only |
 | `created_at` | timestamp | Read-only |
 
+ScheduleRun: `{id, started_at, outcome: "succeeded" | "failed" | "skipped", status: integer | null, duration_ms,
+error: string | null, capture_id: uuid | null}`. Runs are at least once (60 s lease), never backfilled, and spaced at
+least the tier interval from the scheduled time; a status of 400 or more is a failure and 10 failures in a row pause
+the schedule. The instance runs at most 120 schedule runs an hour per owner. Only the schedule's owner may change a
+request when the old or new one uses secrets. Redirects are not followed. Each run stores a `schedule` capture (hop
+1) that counts toward the endpoint's limits and keeps it alive.
+
 ## 19. Export and import
 
 | Method, path | Role | Request | Success |
 |---|---|---|---|
-| `GET /api/v1/endpoints/{id}/export` | viewer | `?format=json\|ndjson\|csv\|zip` plus §5.1 filters and `kind` | 200 stream |
-| `POST /api/v1/endpoints/{id}/export` | viewer | `{format, capture_ids: uuid[]}` (at most 500) | 200 stream |
-| `POST /api/v1/endpoints/{id}/import` | owner, signed in | JSON or NDJSON export | 200 `{imported: integer, skipped: integer, reason: "capacity" \| null}` |
+| `GET /api/v1/endpoints/{id}/export` | viewer, session only | `?format=json\|ndjson\|csv\|zip` (required) plus `method`, `status`, `kind`, `starred`, `q`, `after_seq`, `since`, `until`; `order`, `limit`, `cursor` are ignored | 200 stream, oldest first |
+| `POST /api/v1/endpoints/{id}/export` | viewer, session only | `{format, capture_ids: uuid[]}` (1–500; duplicates dropped; foreign ids left out) | 200 stream |
+| `POST /api/v1/endpoints/{id}/import` | editor on an owned endpoint, session only | JSON or NDJSON export; `?keep_times=true\|false` (default true) | 200 `{imported, skipped, reason: "capacity" \| "storage" \| null}`; 409 `claim_required` (`mixed`, no owner yet) |
+| `POST /api/v1/endpoints/import` | signed in, session only | as above | 201 `{endpoint_id, imported, skipped, reason}`, `Location: /api/v1/endpoints/{id}`; the endpoint takes `title`, `response`, `cors`, `overflow` from the header's `endpoint` and follows `POST /endpoints` rules; a failed import deletes it |
 
 | Format | `Content-Type` | File name |
 |---|---|---|
@@ -828,42 +973,72 @@ body: Body | null (first 1 MiB), duration_ms, final_url: string | null, error: s
 
 Every export answers with `Content-Disposition: attachment`, `X-Content-Type-Options: nosniff`, `Cache-Control:
 no-store`, chunked transfer. The JSON document and NDJSON header carry `format: "webhooks-live-export"`,
-`version: 1`, `exported_at`, `endpoint` (EndpointInput fields plus `id`, without secrets). Import errors answer
-422 `validation_failed` with `field` = `captures.<index>.<path>` or `line.<n>` for NDJSON.
+`version: 1`, `exported_at`, `endpoint` (EndpointInput fields plus `id`, without secrets). Captures carry the whole
+body as `{encoding: "utf8" | "base64", data, truncated: false}`. CSV `body_preview` holds the first 4 KiB as text,
+or `base64:` plus base64 when the bytes are not UTF-8 (a text body starting with `base64:` reads the same). ZIP:
+`captures.ndjson` with every capture (no header line, `body` null) and `bodies/<seq>-<capture id>.bin` for every
+stored body. A capture whose stored body is missing is left out of json, ndjson and csv.
+
+Export limits: the selection's stored bytes are measured before the first byte against the tier's export size (422
+`export_too_large`); quota `exports` per hour (429 `quota_exceeded`); one export per caller and 2 per replica (429
+`rate_limited`, `Retry-After: 1`). Once streaming, the body ends early when the client reads nothing for 30 s,
+output passes twice the tier size, or the run passes 10 minutes; a body that stops early is a failed export.
+
+Import: `Content-Type` `application/json` or `application/x-ndjson` (else 415 before reading); the header needs
+`format`, `version: 1`, `exported_at`, `endpoint`. `Content-Length` above the tier's import size answers 413 before
+reading, a longer stream stops with 413; 30 s without data or more than 10 minutes answers 400 `invalid_json`. With
+`keep_times=true` each `received_at` must lie between 2015-01-01 and five minutes from now. The first invalid
+capture stops the import with 422 `validation_failed`, `field` = `captures.<index>.<path>` or `line.<n>`; captures
+stored before it stay. A full endpoint or owner storage stops counting into `skipped` with `reason`. One import per
+caller and 2 per replica (429 `rate_limited`, `Retry-After: 1`), 60 s pause after a finished import, quota `imports`
+per day (429 `quota_exceeded`). Imported captures run no rules, forwards or notifications.
 
 ## 20. Combined inbox
 
 | Method, path | Role | Request | Success |
 |---|---|---|---|
-| `GET /api/v1/inbox/captures` | viewer on each endpoint | `?endpoints=<ids, comma>` or `?folder=<id>` (signed in; none = all own and shared, at most 50), §5.1 filters except `after_seq`, `kind`, `cursor`, `limit` | 200 `{items: CaptureSummary[], next_cursor}` newest first |
-| `GET /api/v1/inbox/stream` | viewer on each endpoint | same selection; `Last-Event-ID` or `?last_event_id` | 200 `text/event-stream` |
+| `GET /api/v1/inbox/captures` | viewer on each endpoint, session only | selection below; filters `method`, `status`, `kind`, `q`, `since`, `until`; `order` only `desc`; `limit` 1–50 (default 25); `cursor` | 200 `{items: CaptureSummary[], next_cursor}` newest first |
+| `GET /api/v1/inbox/stream` | viewer on each endpoint, session only | same selection; `Last-Event-ID` or `?last_event_id` | 200 `text/event-stream` |
 
-The inbox stream sends §6 events for every endpoint in the set (payloads carry `endpoint_id`) except
-`endpoint_updated`. Event ids are opaque; resume works as §6 with at most 100 replayed events.
+Selection: `endpoints=<ids, comma>`, at most 50 signed in and 20 anonymous (more: 422 `validation_failed`, field code `too_many`); without it a
+signed-in caller gets all own and shared endpoints, at most 50 (anonymous in `mixed`: 403 `sign_in_required`;
+`open` requires `endpoints`). `folder` answers 422 `not_allowed` until folders are selectable; `after_seq` answers
+422 `not_allowed`; a malformed id answers 404. An explicit selection with an endpoint that is unknown or not
+viewable answers 410 `endpoint_gone`; the default selection shows only what the caller may view. Reading the list
+does not extend endpoint lifetimes; connecting the stream does.
+
+The inbox stream sends §6 events for every endpoint in the set except `endpoint_updated`. Its first event is
+`ready` with `{endpoints: [{endpoint_id, last_seq, capture_count}]}`; `capture` payloads and `ready` carry endpoint
+ids. Event ids are opaque; resume works as §6 with at most 100 replayed events. Access is re-checked when an
+`access_changed` signal arrives and every 15 s; losing access to any endpoint closes the whole stream (the client
+reconnects with its new selection). To find which endpoint was lost, check each id with `GET /endpoints/{id}`.
 
 ## 21. Capture additions
 
 CaptureSummary (§4.3) gains `kind` (`"http"` \| `"email"` \| `"dns"` \| `"schedule"`), `starred` (boolean),
-`has_note` (boolean), `verification` (`"valid"` \| `"invalid"` \| `"missing"` \| null), `rule_state`
-(`"running"` \| `"succeeded"` \| `"failed"` \| null), `imported` (boolean), and `subject` (string \| null:
-email subject, DNS name, or schedule name, up to 200 chars). The list query (§5.1) gains `kind` (comma list) and
-`starred` (boolean).
+`has_note` (boolean), `verification` (`"valid"` \| `"invalid"` \| `"missing"` \| null) and `imported` (boolean).
+Planned, not returned yet: `rule_state` and `subject`; the capture's runs are in `rule_runs` of the detail and in
+`GET .../rule-runs`. The list query (§5.1) gains `kind` (comma list) and `starred` (boolean).
 
 Capture (§4.4) gains `note`, `meta` (per kind, below), `rule_runs` (RuleRun[], newest first, at most 10) and
 `notifications` (Delivery[]).
 
 | `kind` | `meta` |
 |---|---|
-| `http` | `{hop: integer}` |
-| `email` | `{envelope_from, envelope_to: string[], helo, tls: boolean, tag: string \| null, subject, from, to: string[], cc: string[], date: timestamp \| null, message_id: string \| null, parts: Part[]}` |
+| `http` | `{hop: integer}`; `template` when a templated response dropped a header or fell back (below) |
+| `email` | `{envelope_from, envelope_to: string[], helo, tls: boolean, tag: string \| null, subject, from, to: string[], cc: string[], date: timestamp \| null, message_id: string \| null, parts: Part[]}`; `parse_error` when the message could not be parsed, `parts_truncated` when it had more than 50 parts |
 | `dns` | `{name, type, class, transport: "udp" \| "tcp", dns_id, flags: {rd, cd, do}, edns_udp_size: integer \| null, client_subnet: string \| null}` |
 | `schedule` | `{schedule_id, schedule_name, request: {method, url}, duration_ms, final_url, error, truncated}` |
+
+Imported captures also carry `meta.original_id`.
 
 Part: `{index, content_type, filename: string | null, size, disposition: "inline" | "attachment" | null, is_text: boolean}`.
 
 | Method, path | Role | Request | Success |
 |---|---|---|---|
-| `GET /api/v1/endpoints/{id}/captures/{capture_id}/parts/{index}` | viewer | `?view=text&download=1` | 200 decoded part with the §5.2 headers; `filename` from the part, sanitised |
+| `GET /api/v1/endpoints/{id}/captures/{capture_id}/parts/{index}` | viewer | `?view=text&download=1` | 200 decoded part with the §5.2 headers; `filename` from the part, sanitised; 404 `part_not_found` for a missing index or a message that cannot be split; 503 while the decoder is busy or times out |
+
+Body and part routes send the whole content; `Range` is not supported.
 
 Capture path (§3) additions:
 
@@ -880,25 +1055,41 @@ Capture path (§3) additions:
 | Rule-set headers | Rules ran | From `respond` and `set_header`, subject to the §9 header rules of architecture |
 | `X-Webhooks-Live-Template` | A templated response fell back to the static one | `error`; `X-Webhooks-Live-Template-Error` carries the reason: `invalid`, `render`, `deadline`, `budget`, `status`, `overloaded`, `variables`, `internal` |
 
-When a templated response drops a header or falls back, the capture `meta.template` records `{outcome: "header_dropped" \| "fallback", code, diagnostics: [{field, code, line, column}], truncated}` with at most 20 diagnostics and no request data.
+A templated response that falls back sends the configured status (or the path override) and the stored content
+type with an empty body and none of the configured headers. Rendering has 100 ms in total and 50 ms per template;
+the variables it reads are capped at 4096 compact bytes. When a templated response drops a header or falls back,
+`meta.template` records `{outcome: "header_dropped" | "fallback", code, diagnostics: [{field, code, line, column}],
+truncated}` with at most 20 diagnostics and no request data.
 
-`/a/{alias}[/{rest}]` and `https://{id}.<subdomain host>/{rest}` behave exactly as `/{id}[/{rest}]`.
+`/a/{alias}[/{rest}]` behaves exactly as `/{id}[/{rest}]`. Subdomain capture (`https://{id}.<host>/{rest}`) and
+mail to aliases are planned (architecture §24, §28).
 
 ## 22. Stream additions
 
 | Event | `id` | `data` | Client action |
 |---|---|---|---|
-| `capture_updated` | – | `{capture_id, seq, note_changed: boolean, starred, response_status, rule_state, verification}` | Patch the list row |
 | `rule_result` | – | `{capture_id, run: RuleRun}` | Update the rule panel |
-| `notification_result` | – | `{capture_id, delivery: Delivery}` | Update delivery state |
 | `captures_imported` | – | `{imported: integer}` | Re-list from the top |
+
+Planned, not emitted yet: `capture_updated` (note, star, verification changes) and `notification_result`
+(delivery state). Until then a client refreshes the capture after its own `PATCH` and reads deliveries from the
+capture detail.
 
 ## 23. OpenAPI
 
-`GET /api/v1/openapi.json`: OpenAPI 3.1 document of every `/api/v1` route, `ETag` = `"<build version>-<8 hex of a SHA-256 of the document>"`, so it changes whenever the document does; public in all
-modes. `If-None-Match` with the tag answers 304 (CORS allows the request header and exposes `ETag`). `Cache-Control: no-cache` (the one `/api` response that may be
-stored, always revalidated). A Bearer token needs the `read` scope, as for `/instance`. Paths are relative to the
-server `/api/v1`. The reference page is a UI route (ui-design.md).
+`GET /api/v1/openapi.json`: OpenAPI 3.1 document of every `/api/v1` route (94 operations in this release), `ETag` =
+`"<build version>-<8 hex of a SHA-256 of the document>"`, so it changes whenever the document does; public in all
+modes. `If-None-Match` with the tag (weak or strong, or `*`) answers 304. `Cache-Control: no-cache` (the one `/api`
+response that may be stored, always revalidated). A Bearer token is not needed; outside `open` a token that is sent
+needs the `read` scope (403 `insufficient_scope`), and a bad one answers 401 `invalid_token`. Paths are relative
+to the server `/api/v1`. Security schemes: `session_cookie` and `api_token`; operations that refuse tokens list
+only `session_cookie`. Every operation with `{id}` in its path documents the optional `X-Webhooks-Live-Grant`
+header and 401 `grant_required` (§25). The reference page is a UI route (ui-design.md §22.3).
+
+Weakly typed in the document (free-form `object`, `string` or a media type): import bodies, capture body and part
+downloads, export files, both streams, `openapi.json` itself, `Channel.config`, `Rule.condition`, `Rule.steps`,
+`RuleRun.entries`, `Template.config`, `Var.value`, Capture and Delivery `meta`. This document describes their
+shapes.
 
 ## 24. Examples
 

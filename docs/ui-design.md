@@ -524,7 +524,7 @@ a placeholder and the API document wins.
 | 4 | DNS capture | Addresses popover, `DNS` rows, DNS detail | 18 |
 | 5 | Endpoint management | Workspace sections General and Access; folders and labels in the rail; combined inbox; clone | 15, 19 |
 | 6 | API tokens, API reference, CLI | `/account/tokens`, `/docs/api`, workspace section Local forwarding | 22 |
-| 7 | Request composer | `/compose`, replay from a capture | 20 |
+| 7 | Request composer | `/send`, replay from a capture | 20 |
 | 8 | Scheduled requests | Workspace section Schedules | 20 |
 | 9 | Export and import | Export dialog with server job progress, import dialog | 21 |
 | 10 | Notifications | Account channels, workspace section Notifications, Notify step | 22 |
@@ -559,24 +559,25 @@ Route additions (section 2 keeps its rows; the two configuration rows and the fi
 | `/e/:endpointId/settings` | Endpoint workspace, General | Section 15 |
 | `/e/:endpointId/settings/response` | Response template editor | `?preview=<captureId>` pins the preview capture |
 | `/e/:endpointId/settings/rules` | Rule list, nothing open | `?test=all&capture=<id>` opens Test all rules |
-| `/e/:endpointId/settings/rules/new` | New rule | `?from=blank\|script\|<ruleId>` (duplicate) |
-| `/e/:endpointId/settings/rules/:ruleId` | Rule editor with tester | `?tab=build\|test\|runs&capture=<id>&run=<runId>&step=<n>` |
+| `/e/:endpointId/settings/rules/new` | New rule | `?from=blank\|script\|<ruleId>` (duplicate); routed as `rules/:ruleId` with `new` |
+| `/e/:endpointId/settings/rules/:ruleId` | Rule editor with tester | `?tab=build\|test\|runs&capture=<id>&run=<runId>`; `step=<n>` is planned |
 | `/e/:endpointId/settings/forwarding` | Forwarding | `/e/:endpointId/forwarding` redirects here |
 | `/e/:endpointId/settings/access` | Access | Password, sender allow list, members |
-| `/e/:endpointId/settings/notifications` | Endpoint notification triggers | |
+| `/e/:endpointId/settings/notifications` | Notification channels of the endpoint, browser push, e-mail addresses | Shipped form of section 22.5 |
 | `/e/:endpointId/settings/schedules` | Schedule list | |
-| `/e/:endpointId/settings/schedules/:scheduleId` | Schedule editor and history | `new` creates |
+| `/e/:endpointId/settings/schedules/:scheduleId` | Schedule editor and history | Planned; the editor opens inside the section without its own route |
 | `/e/:endpointId/settings/cli` | Local forwarding instructions | |
-| `/e/:endpointId/c/:captureId/html` | Email HTML full view | Same sandbox as the inline frame |
+| `/e/:endpointId/c/:captureId/html` | Email HTML full view | Planned with F26 (needs the backend HTML route) |
 | `/e/:endpointId/unlock` | Password unlock | `?next=` returns to the original route |
 | `/inbox` | Combined inbox | `?scope=all\|folder:<id>\|label:<name>` plus filter parameters |
 | `/inbox/:endpointId/:captureId` | Inbox, capture selected | Narrow: detail full screen |
-| `/compose` | Composer | `?endpoint=<id>&capture=<id>` prefills a replay |
+| `/send` | Composer | `?endpoint=<id>&capture=<id>` prefills a replay; the API reference hands a request over in memory (section 22.3) |
 | `/endpoints` | My endpoints, merged | `?folder=&label=&source=local\|account\|shared`; `?import=1` opens import |
 | `/account` | Profile and sign out | Signed in only |
-| `/account/tokens` | API tokens | `?new=1` opens the create dialog |
-| `/account/notifications` | Notification channels | |
-| `/account/usage` | Usage and limits | |
+| `/settings/tokens` | API tokens | |
+| `/usage` | Usage and limits | |
+| `/email/verify`, `/notifications/disable` | Landing pages of the verification and unsubscribe links | Outside the shell |
+| `/account/notifications` | Account-wide channel list | Planned; channels are per endpoint in this release |
 | `/settings` | Preferences | Already routed; anchors `#appearance`, `#live`, `#editors`, `#shortcuts`, `#data` |
 | `/docs/api`, `/docs/api/:operationId` | API reference | |
 | `?export=selected\|filtered\|all` | Export dialog over endpoint or inbox routes | Closing removes the parameter |
@@ -587,8 +588,9 @@ Route additions (section 2 keeps its rows; the two configuration rows and the fi
 | `/e/:endpointId/forwarding` becomes a redirect | Forwarding is a workspace section |
 | The filter row is replaced by the parameter table in section 23 | Body, header, kind, sender, rule and absolute time filters |
 
-The backend must serve `index.html` for the new prefixes `/inbox`, `/compose`, `/account` and `/docs` and for
-every `/e/:endpointId/...` route above (architecture section 10 lists UI paths explicitly). All new root
+The backend serves `index.html` for the routed paths only (`whl_web::UI_ROUTES`, architecture section 10):
+`/inbox`, `/send`, `/account`, `/usage`, `/settings/tokens`, `/docs/api`, the link landing pages and the
+`/e/:endpointId/...` routes above. A new UI route needs a matching `UI_ROUTES` entry. All new root
 segments are shorter than 24 characters, so they cannot be read as endpoint identifiers.
 
 ## 15. Endpoint workspace
@@ -758,7 +760,7 @@ Narrow, Access:
 |---|---|
 | Save model | Forms in General, Response, Access, Notifications have a draft and one save bar (`Mod+S`). Switches that are a single state change (rule on/off, schedule pause, member role) apply at once with an Undo toast. Rules and schedules save one item at a time |
 | Dirty guard | Leaving a section with unsaved changes opens a `ConfirmDialog` (Keep editing, Discard); closing the tab uses `beforeunload` only while dirty |
-| Conflicts | Every save sends the version the draft started from; a version mismatch, or an `endpoint_updated` / rule change event while dirty, shows `ConflictBanner`: "Changed elsewhere. Reload, or keep yours and overwrite". No silent merge |
+| Conflicts | Every save sends the version the draft started from; a version mismatch, or an `endpoint_updated` / rule change event while dirty, shows `ConflictBanner`: "Changed elsewhere. Reload, or keep yours and overwrite". No silent merge. Shipped: the server has no version check yet, so the client re-reads before saving (endpoints compare fields, rules compare the list `version`), which leaves a short race; rules switch to `If-Match` when api.md section 15 "Edit conflicts" ships |
 | Lifetime | Options shown are those the instance allows: sliding (inactivity window up to the instance maximum), fixed date, keep until deleted. Each option states the outcome: "The endpoint and its captures are deleted; senders then get 410" |
 | Aliases | Free text, availability checked while typing (debounced 400 ms); each alias row shows its full URL with Copy |
 | Clone | Dialog: new title (default "<title> copy"), checkboxes Response, Rules, Forwarding, Notifications, Schedules (paused), Labels and folder, Access list; members, password and captures are never copied. Opens the new endpoint's General section |
@@ -888,15 +890,24 @@ Narrow: `[Edit] [Preview] [Errors n]` segments:
 | Part | Meaning | Interface |
 |---|---|---|
 | Rule | Named, ordered, on/off. Rules run top to bottom for every capture of a matching kind | Card in the rule list |
-| Trigger | Capture kinds the rule applies to: HTTP, Email, DNS (any combination) | Checkboxes in `WHEN` |
+| Trigger | Capture kinds the rule applies to: HTTP, Email, DNS (any combination) | Checkboxes in `WHEN`. Not in v1 (below) |
 | Conditions | `all` or `any` of predicates; a predicate is subject, operator, value; no nesting | `ConditionGroup` of `ConditionRow`s; an empty group always matches |
 | Subject | Catalogue entry: method, path, query parameter, header, JSON path in body, body text, form field, sender address, email from, to, subject, DNS name, type, a rule variable | First select; parameter field (header name, JSON path) when the subject needs one |
 | Step | One action, run in order when the conditions match | `StepCard` |
-| Step guard | Optional single predicate "only if" on a step | Line on the card; the only branching there is |
+| Step guard | Optional single predicate "only if" on a step | Line on the card; the only branching there is. Not in v1 (below) |
 | Variables | Request data plus `vars.*` produced by steps; later steps and the response template can use them | Shown as "Produces vars.x" on the step, and in the tester |
 | Script step | A step whose body is a script in the server's sandboxed language | `ScriptEditor` inside the card; a rule made from the Script template is one full-height Script step |
-| On match | `Next rule` (default) or `Stop here` (later rules are skipped) | Radio at the end of the rule |
+| On match | `Next rule` (default) or `Stop here` (later rules are skipped) | Radio at the end of the rule. Not in v1 (below) |
 | Phase | Steps that shape the response run before the sender is answered, the rest after; reported per step type by the catalogue | Badge `Before response` on such steps; ordering rule enforced by the server and shown as a field error |
+
+**v1 scope (decided 2026-11-22).** Triggers, step guards and "On match" are not part of the rule model in v1: the
+server refuses those fields (api.md section 15). The editor does not show them; the wireframes keep them as the
+later design. What users can do today: a condition on `request.kind` instead of trigger checkboxes, a `Stop`
+step at the end of a rule instead of "Stop here", a separate rule instead of a guarded step. Reason: each would add
+a field to the stored model and the plan cut, while the condition tree and the `stop` step already express them;
+adding them later is additive. The rule condition editor also allows the server's nesting (`all`, `any`, `not`)
+rather than the flat group above. `http` steps can be placed only after the last Respond step; the server refuses
+other positions with a field error on the step.
 
 **Decision: an ordered list of cards, not a node graph.** Rule flows here are linear (extract, decide,
 respond, send); one level of guards covers the branching that occurs; a list reads top to bottom,
@@ -1057,6 +1068,15 @@ Cost: variables cannot be edited mid-run; change the draft or the capture and ru
 | Link to builder | Selecting an entry highlights and scrolls to its card; focusing a card selects its entry when a result exists |
 | Test all rules | From the rule list: runs every enabled rule in order (saved versions plus the open draft in place of its saved rule) and shows which matched, where a `Stop here` cut the chain, and the final response; each row opens that rule's trace |
 
+Shipped (F22, F19b): the runner shows the server's trace entries (rule matched, step outcome, detail, output) and
+the final status. The conditions entry with evaluated values, the variables inspector and "Sender gets" need
+optional `conditions[]`, `vars` and `response` in the dry-run answer, which the server does not return yet; the
+panels stay hidden until it does. A dry run never sends anything (api.md section 15), so outbound steps show as
+simulated. `[Run for real...]` replays the capture to the endpoint through the composer (`POST /send` with
+`endpoint_id` and `source_capture_id`), so the rules run on a new capture. Opening a recorded run read-only and
+`?step=` are not built yet. The editor shows Build and Test side by side on wide screens and as tabs on
+narrower ones; Test all rules opens with `?test=all` on the rules section.
+
 ```
 +------------------------------------+
 | TEST ALL  [POST /stripe . 12s  v]  |
@@ -1108,6 +1128,11 @@ Capture detail, new sections (after Forward):
 | Capture section `Rules` | One row per enabled rule at capture time: outcome, steps, duration, first failure; `[Open in tester]` opens the rule editor with this capture and this run's recorded trace (read-only banner "Recorded run"; `[Run again]` switches to a test run) |
 | Rule tab `Runs` | Newest first, paged; filter failed only; live: new runs prepend with the arrival fade |
 | Rule list | Danger line "n failed today" on cards with recent failures |
+
+Shipped (F23): the capture `Rules` section (shown when the capture has runs), live `rule_result` updates, `[Run
+again]` (re-run), `[Open in tester]` links and a Runs tab that lists the endpoint's runs (`GET .../rule-runs`).
+Not built: the per-rule Runs filter (the server lists runs per endpoint), "n failed today", the recorded-run view,
+and "Run again" for a capture with no runs.
 
 ## 18. Email and DNS captures
 
@@ -1668,9 +1693,10 @@ several hundred KB, and look foreign).
 |---|---|
 | Subset | OpenAPI 3.1: tags, operations, parameters, request bodies, responses, `$ref`, `oneOf` shown as alternatives, examples |
 | Text | Descriptions as plain paragraphs with inline code spans; no Markdown-to-HTML |
-| Samples | curl and raw HTTP, with the instance's public URL and `$WEBHOOKS_LIVE_TOKEN`; never a real token |
-| Composer | `[Open in composer]` fills method, URL and example body |
-| Layouts | Medium: nav becomes a select above the operation; narrow: operation list page, then operation page |
+| Samples | curl and raw HTTP, with the instance's public URL and `Authorization: Bearer $WEBHOOKS_LIVE_TOKEN`; never a real token |
+| Composer | `[Open in composer]` fills method, URL and example body: the request is handed to `/send` in memory in the same tab (no URL parameters, nothing stored), and the composer consumes it once |
+| Layouts | Shipped: below 1024 px the operation list is a toggled panel (drawer) above the operation, instead of the select (medium) and the list page then operation page flow (narrow) drawn here |
+| Delivery | Lazy route chunk (about 11 kB gzip); operation bodies render only when expanded; `[Download OpenAPI]` links the served document; i18n area `apireference` |
 
 ### 22.4 Local forwarding (CLI)
 
@@ -1732,6 +1758,15 @@ Channels (account; where there are no accounts, the same table sits inside the e
 | Triggers | Every capture, captures matching a saved filter, a rule fails, captures at 90 % of the limit, endpoint expires within 24 h; per-rule notifications are the Notify step |
 | Throttle | "At most 1 per n minutes" per trigger; extra events are counted into the next message |
 | Browser | Desktop notifications are local: permission asked only after the user ticks the box; shown only while a tab is open |
+
+Shipped (F39) and deferred:
+
+| Part | State |
+|---|---|
+| Channels | Per endpoint in the workspace section Notifications: table, editor per kind, enable switch, delete, `[Test]` (the result is the queued delivery; its final state shows on captures, a delivery status route is planned). The kind list is built into the UI, not a server catalogue |
+| Triggers | Deferred: the server knows only "every capture" (`trigger: capture`, no condition) and notify steps (`trigger: rule`); saved-filter, rule-failure, 90 % and expiry triggers and per-trigger throttles are planned. The throttle is the channel's `per_hour` |
+| E-mail | Address list with verification; `/email/verify` and `/notifications/disable` landing pages |
+| Browser push | `[Allow in this browser]` registers `/sw.js` and subscribes on that click only (never on page load); states unsupported, sign in needed, subscribed, blocked, dismissed, worker failed. An existing browser subscription is reused only when its key matches the served public key. There is no flow to remove a subscription (`DELETE /api/v1/push/subscriptions/{id}` is unused by the UI). The worker's notification text is not translated (no build step, no i18n) and shows no icon |
 
 ### 22.6 Usage and limits
 
@@ -1949,7 +1984,7 @@ English label rendered with `lang="en"`.
 | `usage` | `account.json` | `wl.usage.captures.atLimit`, `wl.usage.footer` |
 | `tokens` | `account.json` | `wl.tokens.secret.once`, `wl.tokens.revoke.confirm` |
 | `account` | `account.json` | `wl.account.signOut`, `wl.account.menu.tokens` |
-| `apiref` | `account.json` | `wl.apiref.openInComposer`, `wl.apiref.auth` |
+| `apireference` | `apireference.json` | `wl.apireference.operation.openInComposer`, `wl.apireference.download` |
 | `cli` | `account.json` | `wl.cli.step.install`, `wl.cli.token.create` |
 | `prefs` | `account.json` | `wl.prefs.editor.indent`, `wl.prefs.data.clearLocal` |
 | `filters` | `filters.json` | `wl.filters.saved.save`, `wl.filters.in.body`, `wl.filters.range.custom` |
@@ -1964,7 +1999,7 @@ What the interface needs, by capability; wire shapes belong to the API document.
 |---|---|
 | Instance | Flags per capability below; limits for each meter; the viewer's own address; whether sign-in is available to anonymous visitors; email domain and DNS zone |
 | Templating | Variable catalogue for a capture (path, type, sample value, insertion text, group, description) and template delimiters; render preview for a draft response plus capture id (status, headers, body, diagnostics with line, column, length, severity); the response actually sent per capture |
-| Rules | CRUD with a version for conflicts; reorder; catalogues of triggers, subjects with parameter kind, operators per value type, step types with field schemas, phase and summary template, script language meta (keywords, functions with signatures and docs, limits); validation with field paths |
+| Rules | CRUD with a version for conflicts (`If-Match` planned, api.md section 15); reorder; catalogues of triggers, subjects with parameter kind, operators per value type, step types with field schemas, phase and summary template, script language meta (keywords, functions with signatures and docs, limits); validation with field paths |
 | Test run | Dry run of a draft rule or of all rules with a draft substituted, against a capture: conditions with evaluated values, ordered trace entries (outcome, duration, variable deltas, output, logs, error position), simulated outputs, final response; real run on demand |
 | Run log | Runs per capture and per rule, same trace shape as test runs, paged; a live event when a run finishes |
 | Email | Kind on summaries (subject, from, size, attachment count); detail with headers, text part, HTML presence, attachments (id, name, type, size, content id, inline); HTML route with the policy of section 18.2 and a remote-images flag; attachment and source download routes |
@@ -1991,7 +2026,7 @@ What the interface needs, by capability; wire shapes belong to the API document.
 | Primitives | Add `@radix-ui/react-dialog`, `react-popover`, `react-switch`, `react-tabs` as section 10 planned | Focus management | |
 | Forms | Controlled state per section with a draft object and a pure validator for client-side shape checks; the server is the source of semantic errors | Small, testable | Form libraries: one more abstraction for a dozen forms |
 | Catalogues | Fetched once per session with long `staleTime`, typed in `api/types.ts` | Rarely change | |
-| Folders | `features/` gains `editor`, `templating`, `rules`, `tester`, `mail`, `dns`, `inbox`, `organize`, `access`, `composer`, `schedules`, `bulk`, `notify`, `usage`, `tokens`, `apiref`, `account`, `filters`; `routes/` gains `workspace`, `inbox`, `compose`, `account`, `docs` | Matches section 10 | |
+| Folders | `features/` gains `editor`, `templating`, `rules`, `tester`, `mail`, `dns`, `inbox`, `organize`, `access`, `composer`, `schedules`, `bulk`, `notify`, `usage`, `tokens`, `apireference`, `account`, `filters`; `routes/` gains `workspace`, `inbox`, `compose` (served at `/send`), `account`, `docs` | Matches section 10 | |
 
 | Budget | Target |
 |---|---|
@@ -2049,6 +2084,18 @@ criterion additionally needs. F10 and F11 are now built inside F16's workspace.
 | F40 | Usage and limits page, meters, at-limit texts, header link | Usage counters | - | Each meter shows the at-limit sentence; 90 % and 100 % states render |
 | F41 | Account menu, `/account`, sign out, `/settings` preferences groups, new shortcuts in the dialog | Accounts for profile; none for preferences | - | Preferences persist and apply without reload; sign out returns home |
 | F42 | Parity hardening: screenshots of sections 15 to 23 at 360, 1024, 1440 in both themes, axe on editors and dialogs, new chunk budgets, end-to-end "create rule, test, receive, see run" | All of the above | - | CI enforces budgets; axe reports no serious issues |
+
+Status 2026-11-22 (shipped parts that differ from the rows above):
+
+| # | Shipped | Deferred |
+|---|---|---|
+| F19, F19b | Rule editor page (`RuleEditorPage`): Build with conditions and steps, save, discard, dirty guard, field errors, conflict check by re-reading the list, full-height script rules, `/rules/new` | Trigger kinds, on match, step guards (not in v1, section 17.1) |
+| F20 | Step list, add menu, schema fields, moves, phase badge | Guards |
+| F22 | Tester inside the editor and Test all rules, trace entries, stepping, ordering, Run for real by replay | Conditions entry, variables inspector, final response (need dry-run fields), recorded runs |
+| F23 | Capture sections, live run events, Runs tab per endpoint, Open in tester | Per-rule filter, "n failed today", recorded run view |
+| F32 | Select mode, export dialog with direct download, bulk delete one by one (at most 500) | Export jobs, progress, recent exports (exports stream directly, architecture section 27); a bulk delete route |
+| F37 | Section 22.3 with the shipped notes there | – |
+| F39 | Section 22.5 "Shipped (F39) and deferred" | Triggers, throttles, account-wide channels, push removal |
 
 | Group | Milestones |
 |---|---|
