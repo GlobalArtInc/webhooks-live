@@ -108,6 +108,9 @@ pub async fn create(
         }
         CreateChannelOutcome::EndpointGone => Err(ApiError::EndpointGone),
         CreateChannelOutcome::LimitReached => Err(ApiError::ChannelLimit),
+        CreateChannelOutcome::SecretsMissing(_) => {
+            Err(ApiError::Validation(vec![token_secret_violation()]))
+        }
     }
 }
 
@@ -259,6 +262,9 @@ pub async fn update(
         UpdateChannelOutcome::Updated(updated) => Ok(Json(ChannelDto::from(&updated))),
         UpdateChannelOutcome::EndpointGone => Err(ApiError::EndpointGone),
         UpdateChannelOutcome::ChannelNotFound => Err(ApiError::ChannelNotFound),
+        UpdateChannelOutcome::SecretsMissing(_) => {
+            Err(ApiError::Validation(vec![token_secret_violation()]))
+        }
     }
 }
 
@@ -405,11 +411,7 @@ pub(crate) async fn resolve_config(
                 .await?
                 .is_some();
             if !exists {
-                parsed.violations.push(FieldViolation::new(
-                    "config.token_secret",
-                    FieldCode::InvalidFormat,
-                    "names no secret of this endpoint",
-                ));
+                parsed.violations.push(token_secret_violation());
                 return Ok(None);
             }
             ConfigChange {
@@ -428,6 +430,14 @@ pub(crate) async fn resolve_config(
         }
     };
     Ok(Some(stored))
+}
+
+fn token_secret_violation() -> FieldViolation {
+    FieldViolation::new(
+        "config.token_secret",
+        FieldCode::InvalidFormat,
+        "names no secret of this endpoint",
+    )
 }
 
 async fn email_violations(

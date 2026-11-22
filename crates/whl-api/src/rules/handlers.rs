@@ -2,10 +2,15 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use std::collections::BTreeSet;
+
 use serde_json::{Map, Value, json};
 use whl_core::endpoint_id::EndpointId;
 use whl_forward::{TargetCheckError, vet_target};
-use whl_rules::{References, Rule, RuleLimits, StepScope, outbound_targets, validate_set_with};
+use whl_rules::{
+    CompiledRules, References, Rule, RuleLimits, RuleSource, StepScope, outbound_targets,
+    validate_set_with,
+};
 use whl_script::{EngineLimits, ScriptCompiler};
 use whl_store::Uuid;
 use whl_store::rules::{RuleChange, RuleRecord, RuleSet, RuleStoreError, WriteOutcome};
@@ -280,12 +285,20 @@ async fn commit(
         .map_err(|_| ApiError::InternalFault("the rule validation did not finish"))?
         .map_err(|error| ApiError::Validation(violations(error.diagnostics, plan.candidate)))?;
         vet_candidate(state, &rules, plan.candidate).await?;
+        let required = candidate_secrets(&rules, plan.candidate, scripts).await?;
         let change = change(&plan, &rules)?;
         match state
             .store
-            .write_rules(endpoint, state.settings.retention, current.version, &change)
+            .write_rules_requiring(
+                endpoint,
+                state.settings.retention,
+                current.version,
+                &change,
+                &required,
+            )
             .await?
         {
+            WriteOutcome::SecretsMissing(_) => continue,
             WriteOutcome::Written(set) => return Ok(set),
             WriteOutcome::Stale => continue,
             WriteOutcome::EndpointGone => return Err(ApiError::EndpointGone),
@@ -294,6 +307,38 @@ async fn commit(
         }
     }
     Err(ApiError::StoreUnavailable)
+}
+
+async fn candidate_secrets(
+    rules: &[Rule],
+    candidate: Option<usize>,
+    scripts: ScriptCompiler,
+) -> Result<BTreeSet<String>, ApiError> {
+    let Some(index) = candidate else {
+        return Ok(BTreeSet::new());
+    };
+    let sources: Vec<RuleSource> = rules
+        .iter()
+        .zip(1u128..)
+        .map(|(rule, number)| RuleSource {
+            id: Uuid::from_u128(number),
+            rule: Rule {
+                enabled: true,
+                ..rule.clone()
+            },
+        })
+        .collect();
+    tokio::task::spawn_blocking(move || {
+        let compiled = CompiledRules::compile(sources, &scripts)
+            .map_err(|_| ApiError::InternalFault("the validated rule set did not compile"))?;
+        compiled
+            .rules()
+            .get(index)
+            .map(|rule| rule.secret_names().clone())
+            .ok_or(ApiError::InternalFault("the changed rule is missing"))
+    })
+    .await
+    .map_err(|_| ApiError::InternalFault("the rule compilation did not finish"))?
 }
 
 async fn rule_limits(state: &ApiState, endpoint: &EndpointId) -> Result<RuleLimits, ApiError> {

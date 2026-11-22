@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::time::Duration;
 
 use sqlx::postgres::PgRow;
@@ -11,8 +12,10 @@ use super::model::{Channel, ChannelKind, Trigger, parse_json};
 use super::{NotifyStoreError, classify};
 use crate::Store;
 use crate::forward::{TIMESTAMP_SQL, lock_live_endpoint};
+use crate::secrets::missing_secrets;
 
 pub const MAX_CHANNELS_PER_ENDPOINT: usize = 10;
+const TELEGRAM_TOKEN_KEY: &str = "token_secret";
 
 #[derive(Debug, Clone)]
 pub struct NewChannel {
@@ -49,6 +52,7 @@ pub enum CreateChannelOutcome {
     Created(Channel),
     EndpointGone,
     LimitReached,
+    SecretsMissing(Vec<String>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -56,6 +60,7 @@ pub enum UpdateChannelOutcome {
     Updated(Channel),
     EndpointGone,
     ChannelNotFound,
+    SecretsMissing(Vec<String>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,6 +68,18 @@ pub enum DeleteChannelOutcome {
     Deleted,
     EndpointGone,
     ChannelNotFound,
+}
+
+fn telegram_secrets(kind: ChannelKind, config: &serde_json::Value) -> BTreeSet<String> {
+    if kind != ChannelKind::Telegram {
+        return BTreeSet::new();
+    }
+    config
+        .get(TELEGRAM_TOKEN_KEY)
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
+        .into_iter()
+        .collect()
 }
 
 fn columns() -> String {
@@ -154,6 +171,16 @@ impl Store {
         if !lock_live_endpoint(&mut tx, endpoint, retention).await? {
             return Ok(CreateChannelOutcome::EndpointGone);
         }
+        let missing = missing_secrets(
+            &mut tx,
+            endpoint,
+            &telegram_secrets(channel.kind, &channel.config),
+        )
+        .await
+        .map_err(classify)?;
+        if !missing.is_empty() {
+            return Ok(CreateChannelOutcome::SecretsMissing(missing));
+        }
         let held: i64 =
             sqlx::query_scalar("SELECT count(*) FROM notification_channels WHERE endpoint_id = $1")
                 .bind(endpoint.unpack())
@@ -193,6 +220,18 @@ impl Store {
             return Ok(UpdateChannelOutcome::ChannelNotFound);
         };
         let current = channel_from_row(&row)?;
+        if let Some(change) = &patch.config {
+            let missing = missing_secrets(
+                &mut tx,
+                endpoint,
+                &telegram_secrets(current.kind, &change.config),
+            )
+            .await
+            .map_err(classify)?;
+            if !missing.is_empty() {
+                return Ok(UpdateChannelOutcome::SecretsMissing(missing));
+            }
+        }
         let name = patch.name.as_deref().unwrap_or(&current.name);
         let enabled = patch.enabled.unwrap_or(current.enabled);
         let trigger = patch.trigger.unwrap_or(current.trigger);

@@ -140,9 +140,16 @@ pub async fn create(
         enabled,
         next_run_at,
     };
+    let required = required_secrets(&new.request);
     match state
         .store
-        .create_schedule(&endpoint, state.settings.retention, &new, max_per_user)
+        .create_schedule_requiring(
+            &endpoint,
+            state.settings.retention,
+            &new,
+            max_per_user,
+            &required,
+        )
         .await?
     {
         CreateScheduleOutcome::Created(created) => {
@@ -152,6 +159,9 @@ pub async fn create(
         CreateScheduleOutcome::EndpointGone => Err(ApiError::EndpointGone),
         CreateScheduleOutcome::NoOwner => Err(ApiError::Auth(AuthRejection::ClaimRequired)),
         CreateScheduleOutcome::LimitReached => Err(ApiError::ScheduleLimit(max_per_user)),
+        CreateScheduleOutcome::SecretsMissing(missing) => {
+            Err(missing_secrets_error(&new.request, &missing))
+        }
     }
 }
 
@@ -201,6 +211,8 @@ pub async fn update(
         check_request(&state, &endpoint, request, &mut violations).await?;
     }
     let owner = access.and_then(|Extension(access)| access.role()) == Some(EndpointRole::Owner);
+    let required = request.as_ref().map(required_secrets).unwrap_or_default();
+    let requested = request.clone();
     let patch = PatchFields {
         name,
         cron,
@@ -216,10 +228,11 @@ pub async fn update(
     let now = OffsetDateTime::now_utc();
     match state
         .store
-        .patch_schedule(
+        .patch_schedule_requiring(
             &endpoint,
             state.settings.retention,
             schedule_id,
+            &required,
             move |existing| plan_update(existing, patch, violations, owner, min_interval, now),
         )
         .await?
@@ -228,6 +241,10 @@ pub async fn update(
         PatchScheduleOutcome::EndpointGone => Err(ApiError::EndpointGone),
         PatchScheduleOutcome::NotFound => Err(ApiError::ScheduleNotFound),
         PatchScheduleOutcome::Refused(error) => Err(error),
+        PatchScheduleOutcome::SecretsMissing(missing) => Err(requested.as_ref().map_or(
+            ApiError::InternalFault("a referenced secret vanished"),
+            |request| missing_secrets_error(request, &missing),
+        )),
     }
 }
 
@@ -528,6 +545,26 @@ async fn known_secrets(
         .into_iter()
         .map(|meta| meta.name.unpack().to_owned())
         .collect())
+}
+
+fn required_secrets(request: &ScheduleRequest) -> BTreeSet<String> {
+    CompiledRequest::compile(request)
+        .map(|compiled| compiled.secret_names())
+        .unwrap_or_default()
+}
+
+fn missing_secrets_error(request: &ScheduleRequest, missing: &[String]) -> ApiError {
+    let Ok(compiled) = CompiledRequest::compile(request) else {
+        return ApiError::InternalFault("a referenced secret vanished");
+    };
+    let known = compiled
+        .secret_names()
+        .into_iter()
+        .filter(|name| !missing.contains(name))
+        .collect();
+    let mut violations = Vec::new();
+    check_secrets(&known, &compiled, &mut violations);
+    ApiError::Validation(violations)
 }
 
 fn compiled_uses_secrets(compiled: &CompiledRequest) -> bool {

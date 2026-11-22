@@ -3,7 +3,9 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use whl_core::endpoint_id::EndpointId;
 use whl_secrets::{Keyring, MAX_SECRETS_PER_ENDPOINT, SecretName};
-use whl_store::secrets::{DeleteSecretOutcome, PutSecretOutcome};
+use whl_store::secrets::{
+    DeleteSecretOutcome, PutSecretOutcome, ReferenceSnapshot, SecretReference, SecretStoreError,
+};
 
 use super::dto::{SecretDto, SecretInputDoc, SecretListDto};
 use super::input::parse_put;
@@ -144,7 +146,7 @@ pub async fn delete(
     match state
         .store
         .delete_secret(&endpoint, state.settings.retention, &name, |snapshot| {
-            references::find(snapshot, &name)
+            scan_references(snapshot, name.clone())
         })
         .await?
     {
@@ -156,6 +158,15 @@ pub async fn delete(
         DeleteSecretOutcome::NotFound => Err(ApiError::SecretNotFound),
         DeleteSecretOutcome::InUse(references) => Err(ApiError::SecretInUse { references }),
     }
+}
+
+async fn scan_references(
+    snapshot: ReferenceSnapshot,
+    name: SecretName,
+) -> Result<Vec<SecretReference>, SecretStoreError> {
+    tokio::task::spawn_blocking(move || references::find(&snapshot, &name))
+        .await
+        .map_err(|_| SecretStoreError::Invalid("the reference scan did not finish".to_owned()))?
 }
 
 fn keyring(state: &ApiState) -> Result<&Keyring, ApiError> {

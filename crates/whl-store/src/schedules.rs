@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -9,6 +10,7 @@ use whl_core::endpoint_id::EndpointId;
 
 use crate::Store;
 use crate::forward::{ForwardStoreError, lock_live_endpoint};
+use crate::secrets::missing_secrets;
 
 pub const MAX_RUN_HISTORY: i64 = 50;
 pub const MAX_PAUSED_REASON_BYTES: usize = 500;
@@ -163,6 +165,7 @@ pub enum CreateScheduleOutcome {
     EndpointGone,
     NoOwner,
     LimitReached,
+    SecretsMissing(Vec<String>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -178,6 +181,7 @@ pub enum PatchScheduleOutcome<E> {
     EndpointGone,
     NotFound,
     Refused(E),
+    SecretsMissing(Vec<String>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -332,6 +336,24 @@ impl Store {
         schedule: &NewSchedule,
         max_per_owner: usize,
     ) -> Result<CreateScheduleOutcome, ScheduleStoreError> {
+        self.create_schedule_requiring(
+            endpoint,
+            retention,
+            schedule,
+            max_per_owner,
+            &BTreeSet::new(),
+        )
+        .await
+    }
+
+    pub async fn create_schedule_requiring(
+        &self,
+        endpoint: &EndpointId,
+        retention: Duration,
+        schedule: &NewSchedule,
+        max_per_owner: usize,
+        required_secrets: &BTreeSet<String>,
+    ) -> Result<CreateScheduleOutcome, ScheduleStoreError> {
         let mut tx = self.pool().begin().await.map_err(classify)?;
         let owner: Option<Option<Uuid>> = sqlx::query_scalar(
             "SELECT owner_id FROM endpoints WHERE id = $1 AND deleted_at IS NULL \
@@ -355,6 +377,12 @@ impl Store {
             .map_err(classify)?;
         if !lock_live_endpoint(&mut tx, endpoint, retention).await? {
             return Ok(CreateScheduleOutcome::EndpointGone);
+        }
+        let missing = missing_secrets(&mut tx, endpoint, required_secrets)
+            .await
+            .map_err(classify)?;
+        if !missing.is_empty() {
+            return Ok(CreateScheduleOutcome::SecretsMissing(missing));
         }
         let held = count_for_owner(&mut tx, owner).await?;
         if usize::try_from(held).map_or(true, |held| held >= max_per_owner) {
@@ -390,9 +418,27 @@ impl Store {
         id: Uuid,
         plan: impl FnOnce(&ScheduleRecord) -> Result<ScheduleUpdate, E>,
     ) -> Result<PatchScheduleOutcome<E>, ScheduleStoreError> {
+        self.patch_schedule_requiring(endpoint, retention, id, &BTreeSet::new(), plan)
+            .await
+    }
+
+    pub async fn patch_schedule_requiring<E>(
+        &self,
+        endpoint: &EndpointId,
+        retention: Duration,
+        id: Uuid,
+        required_secrets: &BTreeSet<String>,
+        plan: impl FnOnce(&ScheduleRecord) -> Result<ScheduleUpdate, E>,
+    ) -> Result<PatchScheduleOutcome<E>, ScheduleStoreError> {
         let mut tx = self.pool().begin().await.map_err(classify)?;
         if !lock_live_endpoint(&mut tx, endpoint, retention).await? {
             return Ok(PatchScheduleOutcome::EndpointGone);
+        }
+        let missing = missing_secrets(&mut tx, endpoint, required_secrets)
+            .await
+            .map_err(classify)?;
+        if !missing.is_empty() {
+            return Ok(PatchScheduleOutcome::SecretsMissing(missing));
         }
         let sql = format!(
             "SELECT {COLUMNS} FROM schedules WHERE id = $1 AND endpoint_id = $2 FOR UPDATE"

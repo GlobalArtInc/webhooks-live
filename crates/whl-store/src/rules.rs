@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::time::Duration;
 
 use serde_json::Value;
@@ -10,6 +11,7 @@ use whl_rules::{Rule, response_step_kinds};
 use crate::Store;
 use crate::captures::EVENT_CHANNEL;
 use crate::forward::TIMESTAMP_SQL;
+use crate::secrets::missing_secrets;
 
 #[derive(Debug, thiserror::Error)]
 pub enum RuleStoreError {
@@ -77,6 +79,7 @@ pub enum WriteOutcome {
     Stale,
     RuleNotFound,
     OrderMismatch,
+    SecretsMissing(Vec<String>),
 }
 
 fn columns() -> String {
@@ -100,9 +103,33 @@ impl Store {
         expected_version: i32,
         change: &RuleChange,
     ) -> Result<WriteOutcome, RuleStoreError> {
+        self.write_rules_requiring(
+            endpoint,
+            retention,
+            expected_version,
+            change,
+            &BTreeSet::new(),
+        )
+        .await
+    }
+
+    pub async fn write_rules_requiring(
+        &self,
+        endpoint: &EndpointId,
+        retention: Duration,
+        expected_version: i32,
+        change: &RuleChange,
+        required_secrets: &BTreeSet<String>,
+    ) -> Result<WriteOutcome, RuleStoreError> {
         let mut tx = self.pool().begin().await.map_err(classify)?;
         if !lock_live_endpoint(&mut tx, endpoint, retention).await? {
             return Ok(WriteOutcome::EndpointGone);
+        }
+        let missing = missing_secrets(&mut tx, endpoint, required_secrets)
+            .await
+            .map_err(classify)?;
+        if !missing.is_empty() {
+            return Ok(WriteOutcome::SecretsMissing(missing));
         }
         if current_version(&mut tx, endpoint).await? != Some(expected_version) {
             return Ok(WriteOutcome::Stale);

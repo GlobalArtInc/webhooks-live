@@ -1,7 +1,9 @@
+use std::collections::BTreeSet;
+use std::future::Future;
 use std::time::Duration;
 
 use sqlx::postgres::PgRow;
-use sqlx::{Row, Transaction};
+use sqlx::{PgConnection, Row, Transaction};
 use whl_core::endpoint_id::EndpointId;
 use whl_secrets::{KeyId, SealedSecret, SecretName};
 
@@ -65,6 +67,27 @@ impl From<ScheduleStoreError> for SecretStoreError {
             other => Self::Invalid(other.to_string()),
         }
     }
+}
+
+pub(crate) async fn missing_secrets(
+    conn: &mut PgConnection,
+    endpoint: &EndpointId,
+    names: &BTreeSet<String>,
+) -> Result<Vec<String>, sqlx::Error> {
+    if names.is_empty() {
+        return Ok(Vec::new());
+    }
+    let wanted: Vec<String> = names.iter().cloned().collect();
+    sqlx::query_scalar(
+        "SELECT wanted.name FROM unnest($2::text[]) AS wanted(name) \
+         WHERE NOT EXISTS (SELECT 1 FROM endpoint_secrets \
+           WHERE endpoint_id = $1 AND name = wanted.name) \
+         ORDER BY wanted.name",
+    )
+    .bind(endpoint.unpack())
+    .bind(wanted)
+    .fetch_all(&mut *conn)
+    .await
 }
 
 fn classify(error: sqlx::Error) -> SecretStoreError {
@@ -259,7 +282,7 @@ impl Store {
         Ok(PutSecretOutcome::Stored(meta))
     }
 
-    pub async fn delete_secret<F>(
+    pub async fn delete_secret<F, Scan>(
         &self,
         endpoint: &EndpointId,
         retention: Duration,
@@ -267,7 +290,8 @@ impl Store {
         scan: F,
     ) -> Result<DeleteSecretOutcome, SecretStoreError>
     where
-        F: FnOnce(&ReferenceSnapshot) -> Result<Vec<SecretReference>, SecretStoreError>,
+        F: FnOnce(ReferenceSnapshot) -> Scan,
+        Scan: Future<Output = Result<Vec<SecretReference>, SecretStoreError>>,
     {
         let mut tx = self.pool().begin().await.map_err(classify)?;
         if !lock_live_endpoint(&mut tx, endpoint, retention).await? {
@@ -297,7 +321,7 @@ impl Store {
             channels: read_channels(&mut tx, endpoint).await?,
             schedules: read_schedule_records(&mut tx, endpoint).await?,
         };
-        references.extend(scan(&snapshot)?);
+        references.extend(scan(snapshot).await?);
         if !references.is_empty() {
             return Ok(DeleteSecretOutcome::InUse(references));
         }
